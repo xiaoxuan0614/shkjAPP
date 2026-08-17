@@ -24,135 +24,100 @@
     "spacing": "3px",
     "list": [
       {
-        "iconPath": "static/tabbar/tabbar-message-2.png",
-        "selectedIconPath": "static/tabbar/tabbar-message.png",
-        "pagePath": "pages/message/message",
-        "text": "消息"
-      },
-      {
         "iconPath": "static/tabbar/tabbar-home-2.png",
         "selectedIconPath": "static/tabbar/tabbar-home.png",
-        "pagePath": "pages/index/index",
-        "text": "协作"
+        "pagePath": "pages/customer/home",
+        "text": "首页"
+      },
+      {
+        "iconPath": "static/tabbar/tabbar-message-2.png",
+        "selectedIconPath": "static/tabbar/tabbar-message.png",
+        "pagePath": "pages/customer/repairRecord",
+        "text": "记录"
       },
       {
         "iconPath": "static/tabbar/tabbar-user-2.png",
         "selectedIconPath": "static/tabbar/tabbar-user.png",
-        "pagePath": "pages/user/people",
-        "text": "个人"
+        "pagePath": "pages/customer/mine",
+        "text": "我的"
       }
     ]
   },
   "pages": [
     {
-      "path": "pages/index/index",
+      "path": "pages/customer/home",
       "type": "home",
-      "layout": "default",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "首页",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "首汇服务",
+        "disableScroll": true
       }
     },
     {
-      "path": "pages/about/about",
+      "path": "pages/admin/approval",
       "type": "page",
       "style": {
-        "navigationBarTitleText": "关于"
+        "navigationBarTitleText": "审批工单"
       }
     },
     {
-      "path": "pages/annotation/annotationDetail",
+      "path": "pages/admin/approvalDetail",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "审批详情"
       }
     },
     {
-      "path": "pages/annotation/annotationList",
+      "path": "pages/customer/confirm",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "我的消息",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "维修确认"
       }
     },
     {
-      "path": "pages/demo/demo",
-      "type": "page",
-      "layout": "default",
+      "path": "pages/customer/mine",
+      "type": "tab",
       "style": {
-        "navigationBarTitleText": "demo演示",
         "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "我的",
+        "disableScroll": true
       }
     },
     {
-      "path": "pages/demo/form",
+      "path": "pages/customer/repair",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "表单",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "故障报修"
       }
     },
     {
-      "path": "pages/demo/indexBar",
+      "path": "pages/customer/repairDetail",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationStyle": "custom",
-        "navigationBarTitleText": "通讯录",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "报修详情"
       }
     },
     {
-      "path": "pages/demo/selectPicker",
-      "type": "page",
-      "layout": "default",
+      "path": "pages/customer/repairRecord",
+      "type": "tab",
       "style": {
-        "navigationBarTitleText": "单选多选",
         "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "报修记录",
+        "disableScroll": true
       }
     },
     {
-      "path": "pages/demo/tree",
+      "path": "pages/dispatch/detail",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "树示例",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "派单详情"
+      }
+    },
+    {
+      "path": "pages/dispatch/list",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "报修派单"
       }
     },
     {
@@ -172,198 +137,149 @@
       "type": "page"
     },
     {
-      "path": "pages/message/message",
+      "path": "pages/ops/accept",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "报修接单"
       }
     },
     {
-      "path": "pages/more/more",
+      "path": "pages/ops/acceptDetail",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "更多",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "接单详情"
       }
     },
     {
-      "path": "pages/user/people",
+      "path": "pages/ops/home",
       "type": "page",
-      "layout": "default",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "个人",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "运维工作台",
+        "disableScroll": true
       }
     },
     {
-      "path": "pages/workHome/workHome",
+      "path": "pages/ops/implementLog",
       "type": "page",
-      "layout": "default",
       "style": {
-        "navigationBarTitleText": "工作台",
-        "navigationStyle": "custom",
-        "disableScroll": true,
-        "app-plus": {
-          "bounce": "none"
-        }
+        "navigationBarTitleText": "实施日志"
+      }
+    },
+    {
+      "path": "pages/ops/inspection",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "巡检管理"
+      }
+    },
+    {
+      "path": "pages/ops/inspectionDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "巡检表"
+      }
+    },
+    {
+      "path": "pages/ops/materialApply",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "用料申请"
+      }
+    },
+    {
+      "path": "pages/ops/materialReturn",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "还料申请"
+      }
+    },
+    {
+      "path": "pages/ops/project",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "项目管理"
+      }
+    },
+    {
+      "path": "pages/ops/projectDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "项目详情"
+      }
+    },
+    {
+      "path": "pages/ops/punch",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "内协打卡"
+      }
+    },
+    {
+      "path": "pages/ops/repairDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "工单详情"
+      }
+    },
+    {
+      "path": "pages/ops/repairOffline",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "线下维修"
+      }
+    },
+    {
+      "path": "pages/ops/repairOnline",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "线上维修"
+      }
+    },
+    {
+      "path": "pages/ops/repairRecord",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "维修记录"
+      }
+    },
+    {
+      "path": "pages/ops/reservation",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "线下预约"
+      }
+    },
+    {
+      "path": "pages/ops/vehicle",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "车辆管理"
+      }
+    },
+    {
+      "path": "pages/role/index",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "角色演示入口"
+      }
+    },
+    {
+      "path": "pages/stock/materialApply",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "申请物料记录"
+      }
+    },
+    {
+      "path": "pages/stock/materialDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "申请详情"
       }
     }
   ],
   "subPackages": [
-    {
-      "root": "pages-home",
-      "pages": [
-        {
-          "path": "home/home",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "root": "pages-message",
-      "pages": [
-        {
-          "path": "chat/chat",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "聊天",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "chat/chatSetting",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "contacts/contacts",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "联系人",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "moreFunction/moreFunction",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "myGroup/addGroup",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "创建群组",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "myGroup/groupPage",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "myGroup/myGroup",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "personPage/personPage",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
-        {
-          "path": "tenant/tenant",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationBarTitleText": "",
-            "navigationStyle": "custom",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        }
-      ]
-    },
     {
       "root": "pages-user",
       "pages": [
@@ -424,19 +340,6 @@
     {
       "root": "pages-work",
       "pages": [
-        {
-          "path": "dragPage/index",
-          "type": "page",
-          "layout": "default",
-          "style": {
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "仪表盘",
-            "disableScroll": true,
-            "app-plus": {
-              "bounce": "none"
-            }
-          }
-        },
         {
           "path": "onlinePage/onlineAdd",
           "type": "page",
