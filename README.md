@@ -56,7 +56,7 @@ JeecgUniapp 是`JeecgBoot低代码平台`的配套`APP移动框架`，项目采�
 
 > 配置文件：`env/.env.development`
 
-请把 http://localhost:8080/jeecg-boot 替换成自己地址，其他不用改。
+请把 http://localhost:16809/jeecg-boot 替换成自己地址，其他不用改。
 
 ```javascript
 //  变量必须以 VITE_ 为前缀才能暴露给外部读取
@@ -66,7 +66,7 @@ VITE_DELETE_CONSOLE = false;
 //  是否开启sourcemap
 VITE_SHOW_SOURCEMAP = true;
 // 后台接口全路径地址(必填)
-VITE_SERVER_BASEURL = 'http://localhost:8080/jeecg-boot';
+VITE_SERVER_BASEURL = 'http://localhost:16809/jeecg-boot';
 ```
 
 #### 启动项目

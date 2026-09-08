@@ -14,6 +14,10 @@ const projects = [
     processPlan: '2026-08-10 ~ 08-20',
     remainDays: 2,
     personInCharge: '张三',
+    contact: '陈主管 13733334444',
+    customerAddress: '苏州市工业园区星湖街328号',
+    latitude: 31.3143,
+    longitude: 120.7052,
     deliverDate: '',
     warrantyPeriod: '',
     remark: '',
@@ -32,6 +36,10 @@ const projects = [
     remainDays: -2,
     delayedReason: '配电间装修延期，施工面无法入场。',
     personInCharge: '李伟',
+    contact: '王经理 13911112222',
+    customerAddress: '上海市闵行区联航路1588号',
+    latitude: 31.0807,
+    longitude: 121.5018,
     deliverDate: '',
     warrantyPeriod: '',
     remark: '',
@@ -49,6 +57,10 @@ const projects = [
     processPlan: '',
     remainDays: 0,
     personInCharge: '王强',
+    contact: '李工 13822223333',
+    customerAddress: '杭州市西湖区云栖小镇',
+    latitude: 30.1324,
+    longitude: 120.0874,
     deliverDate: '2026-06-20',
     warrantyPeriod: '2026-06-20 ~ 2027-06-20',
     remark: '',
@@ -66,6 +78,10 @@ const projects = [
     processPlan: '',
     remainDays: 0,
     personInCharge: '赵磊',
+    contact: '赵经理 13644445555',
+    customerAddress: '南京市鼓楼区中山北路45号',
+    latitude: 32.0798,
+    longitude: 118.7726,
     deliverDate: '',
     warrantyPeriod: '',
     remark: '',
@@ -95,6 +111,13 @@ const projectDetail = (p: any) => ({
   ],
 })
 
+let activeSession: any = null
+
+const sessionDuration = (start: string, end: string) => {
+  const minutes = Math.max(1, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000))
+  return minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
+}
+
 export default [
   { url: `${proxyPrefix}/project/list`, method: 'get', response: () => ok(projects) },
   {
@@ -106,4 +129,65 @@ export default [
     },
   },
   { url: `${proxyPrefix}/project/delay/save`, method: 'post', response: () => ok('success') },
+  // ============ 项目实施闭环：签到 -> 日志 -> 签退 ============
+  {
+    url: `${proxyPrefix}/project/implementationSession/current`,
+    method: 'get',
+    response: () => ok(activeSession && activeSession.status !== 'COMPLETED' ? activeSession : null),
+  },
+  {
+    url: `${proxyPrefix}/project/implementationSession/checkIn`,
+    method: 'post',
+    response: ({ body }: any) => {
+      if (activeSession && activeSession.status !== 'COMPLETED') return ok(activeSession)
+      const project = projects.find((item) => item.id === body?.projectId) || projects[0]
+      const now = new Date().toISOString()
+      activeSession = {
+        id: `IS${Date.now()}`,
+        projectId: project.id,
+        project,
+        status: 'CHECKED_IN',
+        checkInTime: now,
+        checkInLocation: body?.location,
+        checkInLocationStatus: body?.location?.status || 'NORMAL',
+      }
+      return ok(activeSession)
+    },
+  },
+  {
+    url: `${proxyPrefix}/project/implementationSession/log/draft`,
+    method: 'post',
+    response: ({ body }: any) => {
+      if (!activeSession || activeSession.id !== body?.sessionId) return ok(null)
+      activeSession = { ...activeSession, status: 'LOG_DRAFT', logStep: body?.logStep || 1, logData: body?.logData }
+      return ok(activeSession)
+    },
+  },
+  {
+    url: `${proxyPrefix}/project/implementationSession/log/submit`,
+    method: 'post',
+    response: ({ body }: any) => {
+      if (!activeSession || activeSession.id !== body?.sessionId) return ok(null)
+      activeSession = { ...activeSession, status: 'LOG_SUBMITTED', logStep: 2, logData: body?.logData, sgNo: `SG${Date.now()}` }
+      return ok(activeSession)
+    },
+  },
+  {
+    url: `${proxyPrefix}/project/implementationSession/checkOut`,
+    method: 'post',
+    response: ({ body }: any) => {
+      if (!activeSession || activeSession.id !== body?.sessionId || activeSession.status !== 'LOG_SUBMITTED') return ok(null)
+      const checkOutTime = new Date().toISOString()
+      activeSession = {
+        ...activeSession,
+        status: 'COMPLETED',
+        checkOutTime,
+        checkOutLocation: body?.location,
+        checkOutLocationStatus: body?.location?.status || 'FAILED',
+        abnormalReason: body?.abnormalReason || '',
+        duration: sessionDuration(activeSession.checkInTime, checkOutTime),
+      }
+      return ok(activeSession)
+    },
+  },
 ]

@@ -5,6 +5,15 @@ export interface DictItem {
   color?: string
 }
 
+export const MATERIAL_USAGE_TYPE: DictItem[] = [
+  { value: 'PROJECT', label: '项目用料' },
+  { value: 'MAINTENANCE', label: '维修用料' },
+  { value: 'LABOR_PROTECTION', label: '劳保用品领取' },
+]
+
+export const getMaterialUsageTypeText = (value?: string) =>
+  MATERIAL_USAGE_TYPE.find((item) => item.value === value)?.label || value || '—'
+
 export const REPAIR_STATUS: DictItem[] = [
   { value: 'pending', label: '未开始', color: '#909399' },
   { value: 'processing', label: '进行中', color: '#409eff' },

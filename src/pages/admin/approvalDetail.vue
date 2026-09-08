@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="detail.id">
+  <PageLayout :navbarShow="false" v-if="detail.id">
     <scroll-view class="page" :scroll-y="true">
       <SectionCard title="审批时间线">
         <view class="timeline">

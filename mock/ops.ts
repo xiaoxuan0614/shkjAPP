@@ -329,9 +329,8 @@ export default [
           { key: 'onlineRepair', label: '线上维修', count: 1 },
           { key: 'materialApply', label: '用料申请', count: 2 },
           { key: 'materialReturn', label: '还料申请', count: 1 },
-          { key: 'implementLog', label: '实施日志', count: 1 },
+          { key: 'implementLog', label: '今日实施', count: 1 },
           { key: 'material', label: '物料管理', count: 0 },
-          { key: 'punch', label: '内协打卡', count: 1 },
           { key: 'inspection', label: '巡检统计', count: 1 },
         ],
         vehicleGrid: [
@@ -417,7 +416,7 @@ export default [
   {
     url: `${proxyPrefix}/ops/materialApply/save`,
     method: 'post',
-    response: () => ok({ applyNo: 'LK20260816120001' }),
+    response: ({ body }: any) => ok({ applyNo: 'LK20260816120001', remark: body?.remark || '', items: body?.items || [] }),
   },
   {
     url: `${proxyPrefix}/ops/materialReturn/save`,
@@ -474,17 +473,6 @@ export default [
   { url: `${proxyPrefix}/ops/vehicle/save`, method: 'post', response: () => ok('success') },
   // ============ 车辆列表（选择） ============
   { url: `${proxyPrefix}/ops/vehicleList/all`, method: 'get', response: () => ok(VEHICLES) },
-  // ============ 打卡（内协） ============
-  {
-    url: `${proxyPrefix}/ops/attendanceList`,
-    method: 'get',
-    response: () =>
-      ok([
-        { id: 'a1', orderNo: 'GZ202608141020', date: '2026-08-14', checkin: '14:05', checkout: '16:10', location: '苏州工业园区科技园', status: 'done', workContent: '监控更换' },
-        { id: 'a2', orderNo: 'GZ202608160940', date: '2026-08-16', checkin: '14:00', checkout: '', location: '杭州云栖小镇', status: 'processing', workContent: '门禁维修' },
-      ]),
-  },
-  { url: `${proxyPrefix}/ops/attendance/save`, method: 'post', response: () => ok('success') },
   // ============ 实施日志 ============
   {
     url: `${proxyPrefix}/project/implementLog/list`,

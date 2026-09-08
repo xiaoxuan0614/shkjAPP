@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="order.id">
+  <PageLayout :navbarShow="false" v-if="order.id">
     <scroll-view class="page" :scroll-y="true">
       <view class="tip-banner">软件线上维修无需预约单，首次填写日志自动生成维修单号</view>
 

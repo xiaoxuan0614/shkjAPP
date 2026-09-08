@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="page" :scroll-y="true">
       <!-- 客户信息 -->
       <SectionCard title="客户信息">

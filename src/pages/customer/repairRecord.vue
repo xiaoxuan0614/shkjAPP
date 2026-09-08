@@ -1,4 +1,4 @@
-<route lang="json5" type="tab">
+<route lang="json5">
 {
   style: {
     navigationStyle: 'custom',

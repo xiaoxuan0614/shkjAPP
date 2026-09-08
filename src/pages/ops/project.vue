@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="list" :scroll-y="true">
       <view v-if="!list.length" class="empty">暂无项目</view>
       <view v-for="p in list" :key="p.id" class="card" @click="goDetail(p)">
@@ -16,10 +16,10 @@
         </view>
         <view class="card__name">{{ p.name }}</view>
         <view class="row"><text class="label">客户</text><text class="val">{{ p.customerName }}</text></view>
-        <view class="row"><text class="label">负责人</text><text class="val">{{ p.personInCharge }}</text></view>
-        <view class="row"><text class="label">周期</text><text class="val">{{ p.startDate }} ~ {{ p.endDate }}</text></view>
+        <view v-if="p.personInCharge" class="row"><text class="label">负责人</text><text class="val">{{ p.personInCharge }}</text></view>
+        <view v-if="p.startDate || p.endDate" class="row"><text class="label">周期</text><text class="val">{{ p.startDate || '—' }} ~ {{ p.endDate || '—' }}</text></view>
         <!-- 实施中：当前工序 + 剩余工时/延期 -->
-        <view v-if="p.status === 'implementing'" class="progress">
+        <view v-if="p.status === 'implementing' && p.currentProcess" class="progress">
           <view class="progress__item">
             <text class="progress__label">当前工序</text>
             <text class="progress__val">{{ p.currentProcess }}</text>
@@ -43,7 +43,7 @@
 <script lang="ts" setup>
 import { onShow } from '@dcloudio/uni-app'
 import { ref } from 'vue'
-import { http } from '@/utils/http'
+import { normalizeProject, projectApi, unwrapRecords } from '@/service/shkj'
 import { PROJECT_STATUS } from '@/types/business'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
 
@@ -51,8 +51,8 @@ const list = ref<any[]>([])
 
 const load = async () => {
   try {
-    const res: any = await http.get('/project/list')
-    list.value = res.result || []
+    const res: any = await projectApi.list()
+    list.value = unwrapRecords(res).map(normalizeProject)
   } catch (e) {
     /* ignore */
   }

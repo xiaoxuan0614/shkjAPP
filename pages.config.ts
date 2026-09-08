@@ -4,9 +4,9 @@ export default defineUniPages({
   globalStyle: {
     navigationStyle: 'default',
     navigationBarTitleText: 'uniapp',
-    navigationBarBackgroundColor: '#f8f8f8',
+    navigationBarBackgroundColor: '#176ac7',
     navigationBarTextStyle: 'white',
-    backgroundColor: '#000000',
+    backgroundColor: '#f5f6f8',
   },
   easycom: {
     autoscan: true,
@@ -29,14 +29,8 @@ export default defineUniPages({
       {
         iconPath: 'static/tabbar/tabbar-home-2.png',
         selectedIconPath: 'static/tabbar/tabbar-home.png',
-        pagePath: 'pages/customer/home',
+        pagePath: 'pages/home/index',
         text: '首页',
-      },
-      {
-        iconPath: 'static/tabbar/tabbar-message-2.png',
-        selectedIconPath: 'static/tabbar/tabbar-message.png',
-        pagePath: 'pages/customer/repairRecord',
-        text: '记录',
       },
       {
         iconPath: 'static/tabbar/tabbar-user-2.png',

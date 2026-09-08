@@ -108,7 +108,6 @@ const gridIcons: Record<string, string> = {
   materialReturn: '↩️',
   implementLog: '📝',
   material: '🗄️',
-  punch: '⏱️',
   inspection: '🔍',
 }
 const vehicleIcons: Record<string, string> = { vehicleLog: '📒', vehicleTrip: '🛣️', vehicleFuel: '⛽', vehicleMaintain: '🛠️' }
@@ -142,7 +141,6 @@ const goGrid = (key: string) => {
     materialReturn: '/pages/ops/materialReturn',
     implementLog: '/pages/ops/implementLog',
     material: '/pages/ops/materialApply?tab=out',
-    punch: '/pages/ops/punch',
     inspection: '/pages/ops/inspection',
     repairRecord: '/pages/ops/repairRecord',
   }
@@ -180,7 +178,7 @@ const goTodoItem = (t: any) => {
     material_apply: '/pages/ops/materialApply',
     material_return: '/pages/ops/materialReturn',
     transfer: '/pages/ops/repairDetail?id=wo1',
-    inner_invite: '/pages/ops/punch',
+    inner_invite: '/pages/ops/repairDetail?id=wo1',
     repair_remind: '/pages/ops/accept',
     repair_timeout: '/pages/ops/accept',
     inspection_due: '/pages/ops/inspection',

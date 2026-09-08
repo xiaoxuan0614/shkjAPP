@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="detail.id">
+  <PageLayout :navbarShow="false" v-if="detail.id">
     <scroll-view class="page" :scroll-y="true">
       <SectionCard title="报修信息">
         <view class="row"><text class="label">报修单号</text><text class="val">{{ detail.repairNo }}</text></view>

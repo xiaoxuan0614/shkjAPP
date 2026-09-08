@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <view class="tabs">
       <view v-for="(t, i) in tabs" :key="t.value" class="tab" :class="{ on: active === i }" @click="switchTab(i)">{{ t.label }}</view>
     </view>

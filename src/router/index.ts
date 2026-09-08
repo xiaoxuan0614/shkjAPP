@@ -1,121 +1,126 @@
+import { HOME_PAGE, ROUTE_PARAMS } from '@/common/constants'
+import { cache, isOAuth2AppEnv } from '@/common/uitls'
 import { createRouter } from '@/plugin/uni-mini-router'
-// 导入pages.json
-import pagesJson from '../pages.json'
-console.log("pagesJson::",pagesJson);
-// 引入uni-parse-pages
-import pagesJsonToRoutes from 'uni-parse-pages'
+import { ensureCurrentAuthorization } from '@/service/permission'
+import { usePermissionStore } from '@/store/permission'
 import { useUserStore } from '@/store/user'
-import {
-  HOME_PAGE,
-  ROUTE_PARAMS
-} from '@/common/constants'
-import { cache,isOAuth2AppEnv } from '@/common/uitls'
-import {isEmpty} from "@/utils/is";
-// 生成路由表
+import { isEmpty } from '@/utils/is'
+import pagesJsonToRoutes from 'uni-parse-pages'
+import pagesJson from '../pages.json'
+
 const routes = pagesJsonToRoutes(pagesJson)
 setRouteName(routes)
-const router = createRouter({
-  routes: [...routes], // 路由表信息
-})
-export const whiteList = ['/pages/login/login','/pages/login/loginOauth2']
-export const loginPage = '/pages/login/login'
-interface CacheRoute {
-  path: string;
-  query: Record<string, string | number | boolean>;
-}
-export const beforEach = (to, from, next) => {
-  const userStore = useUserStore()
-  //update-begin-author:liusq---date:2025-03-20--for: 防止移动端oauth地址和PC不一致的问题
-  if(to.path == '/oauth2-app/login'){
-    let temp = location.href;
-    location.href = temp.replace('/oauth2-app/login','/pages/login/loginOauth2')
-    return;
-  }
-  //update-end-author:liusq---date:2025-03-20--for:防止移动端oauth地址和PC不一致的问题
-  if (userStore.isLogined) {
-    // 有登录态
-    if(to.path === '/pages/login/loginOauth2'){
-      //有跳转地址
-      if(to.query && to.query.redirect){
-        next()
-      }else{
-        //跳转到首页
-        next({path: HOME_PAGE})
-      }
-    }
-    //update-begin-author:liusq---date:2025-03-20--for: 流程路由逻辑
-    let flowRoute = getPathAndQuery(to);
-    if(flowRoute===false){
-      let cacheRoute = cache(ROUTE_PARAMS);
-      if(cacheRoute && !isEmpty(cacheRoute) && (cacheRoute as any)?.path == to.path
-          && isEmpty(to.query)
-          && !isEmpty((cacheRoute as any)?.query)){
 
-        to.query = (cacheRoute as any)?.query;
-        next({ path: to.path, query: (cacheRoute as any)?.query })
-      }else{
-        cache(ROUTE_PARAMS,to,1*60*10);
-        next()
-      }
-    }else{
-      next({ path: flowRoute.path, query: flowRoute.query })
-    }
-    //update-end-author:liusq---date:2025-03-20--for: 流程路由逻辑
-  } else {
-    // 无登录态
-    if (whiteList.includes(to.path)) {
-      // 在免登录白名单，如果进入的页面是login页面并且当前是OAuth2app环境，就进入OAuth2登录页面
-      if (to.path === '/pages/login/login' && isOAuth2AppEnv()) {
-        next({path: '/pages/login/loginOauth2'})
-      } else {
-        // 在免登录白名单，直接进入
-        next()
-      }
-    } else {
-      // 如果当前是在OAuth2APP环境，就跳转到OAuth2登录页面
-      let path = isOAuth2AppEnv() ? '/pages/login/loginOauth2' : '/pages/login/login';
-      let temp = to.path;
-      if(isOAuth2AppEnv() && temp=='/pages/flow/myTaskDetail'){
-        if(to.query && to.query.info){
-          temp+='?info='+to.query.info
-        }
-        next({ path: path, query: { redirect: encodeURIComponent(temp) } })
-      }else{
-        next({ path: path })
-      }
-    }
-  }
+const router = createRouter({ routes: [...routes] })
+
+export const whiteList = ['/pages/login/login', '/pages/login/loginOauth2']
+export const loginPage = '/pages/login/login'
+
+interface CacheRoute {
+  path: string
+  query: Record<string, string | number | boolean>
 }
-// 全局前置守卫
+
+export const beforEach = async (to, _from, next) => {
+  const userStore = useUserStore()
+
+  if (to.path === '/oauth2-app/login') {
+    const currentUrl = location.href
+    location.href = currentUrl.replace('/oauth2-app/login', '/pages/login/loginOauth2')
+    return
+  }
+
+  if (!userStore.isLogined) {
+    if (whiteList.includes(to.path)) {
+      if (to.path === loginPage && isOAuth2AppEnv()) next({ path: '/pages/login/loginOauth2' })
+      else next()
+      return
+    }
+
+    const targetLoginPage = isOAuth2AppEnv() ? '/pages/login/loginOauth2' : loginPage
+    let redirectPath = to.path
+    if (isOAuth2AppEnv() && redirectPath === '/pages/flow/myTaskDetail' && to.query?.info) {
+      redirectPath += `?info=${to.query.info}`
+      next({ path: targetLoginPage, query: { redirect: encodeURIComponent(redirectPath) } })
+    } else {
+      next({ path: targetLoginPage })
+    }
+    return
+  }
+
+  if (to.path === '/pages/login/loginOauth2') {
+    if (to.query?.redirect) next()
+    else next({ path: HOME_PAGE })
+    return
+  }
+  if (to.path === loginPage) {
+    next({ path: HOME_PAGE })
+    return
+  }
+
+  // 旧运维工作台已经停止维护，统一进入当前公共首页，避免展示旧待办结构。
+  if (to.path === '/pages/ops/home') {
+    next({ path: HOME_PAGE })
+    return
+  }
+
+  try {
+    await ensureCurrentAuthorization(userStore.userInfo)
+  } catch (error) {
+    // 权限服务异常时允许进入页面，由后端接口继续执行最终鉴权；
+    // 避免网络或按钮权限接口异常被误报为“当前角色没有权限”。
+    if (to.path !== HOME_PAGE)
+      uni.showToast({ icon: 'none', title: '权限服务暂不可用，数据仍由接口鉴权' })
+  }
+
+  const permissionStore = usePermissionStore()
+  if (permissionStore.loaded && !permissionStore.hasPageAccess(to.path)) {
+    uni.showToast({ icon: 'none', title: '暂无该页面权限' })
+    next({ path: HOME_PAGE })
+    return
+  }
+
+  const flowRoute = getPathAndQuery(to)
+  if (flowRoute) {
+    next({ path: flowRoute.path, query: flowRoute.query })
+    return
+  }
+
+  const cacheRoute = cache(ROUTE_PARAMS) as CacheRoute | undefined
+  if (
+    cacheRoute &&
+    !isEmpty(cacheRoute) &&
+    cacheRoute.path === to.path &&
+    isEmpty(to.query) &&
+    !isEmpty(cacheRoute.query)
+  ) {
+    to.query = cacheRoute.query
+    next({ path: to.path, query: cacheRoute.query })
+    return
+  }
+
+  cache(ROUTE_PARAMS, to, 1 * 60 * 10)
+  next()
+}
+
 router.beforeEach(beforEach)
 
-// 路由的最后一级为路由名字不可重复
-function setRouteName(routes) {
-  routes.forEach((item) => {
-    if (item.path) {
-      const name = item.path.split('/').pop()
-      item.name = name
-    }
+function setRouteName(routeList) {
+  routeList.forEach((item) => {
+    if (item.path) item.name = item.path.split('/').pop()
   })
 }
 
-/**
- * 路由跳转-已经登录过了 直接next会导致参数丢失，所以需要再走一遍loginOauth2页面的逻辑
- * @param to
- * @returns {{path: string, query: {redirect: string}}|boolean}
- */
-function getPathAndQuery(to){
-  if(to.path === '/pages/flow/myTaskDetail'){
-    if(to.query && to.query.info){
-      let info = JSON.parse(to.query.info)
-      info['hasToken'] = 1;
-      let temp = '/pages/flow/myTaskDetail?info='+ JSON.stringify(info)
-      return {
-        path: '/pages/login/loginOauth2',
-        query: { redirect: encodeURI(temp) }
-      }
+function getPathAndQuery(to) {
+  if (to.path === '/pages/flow/myTaskDetail' && to.query?.info) {
+    const info = JSON.parse(to.query.info)
+    info.hasToken = 1
+    return {
+      path: '/pages/login/loginOauth2',
+      query: { redirect: encodeURI(`/pages/flow/myTaskDetail?info=${JSON.stringify(info)}`) },
     }
   }
   return false
 }
+
 export default router

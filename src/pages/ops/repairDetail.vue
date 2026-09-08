@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="detail.id">
+  <PageLayout :navbarShow="false" v-if="detail.id">
     <scroll-view class="page" :scroll-y="true">
       <view class="status-card">
         <view class="status-card__no">{{ detail.orderNo }}</view>

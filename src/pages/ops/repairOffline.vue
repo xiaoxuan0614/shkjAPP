@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="order.id">
+  <PageLayout :navbarShow="false" v-if="order.id">
     <!-- 主步骤条 -->
     <view class="main-steps">
       <view v-for="(s, i) in mainSteps" :key="i" class="main-step" :class="{ on: i === mainStep, done: i < mainStep }">

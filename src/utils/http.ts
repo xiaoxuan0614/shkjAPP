@@ -2,20 +2,20 @@ import { CustomRequestOptions } from '@/interceptors/request'
 import { useUserStore } from '@/store/user'
 import signMd5Utils from '@/utils/signMd5Utils'
 import { isH5 } from '@/utils/platform'
-import {getEnvBaseUrl} from "@/utils/index";
-import {buildURL,buildFullPath} from "@/utils/helpers/buildURL";
+import { getEnvBaseUrl } from '@/utils/index'
+import { buildFullPath, buildURL } from '@/utils/helpers/buildURL'
 
 export const http = <T>(options: CustomRequestOptions) => {
   // 1. 返回 Promise 对象
   return new Promise<IResData<T>>((resolve, reject) => {
     const userStore = useUserStore()
-    //update-begin-author:liusq date:20240422 for: post请求接口加签参数设置
+    // update-begin-author:liusq date:20240422 for: post请求接口加签参数设置
     let params = options.query
     if (options.data && Object.keys(options.data).length > 0) {
       params = Object.assign({}, options?.query, options?.data)
     }
-    let sign = signMd5Utils.getSign(options.url, params)
-    let vSign = signMd5Utils.getVSign(options.data, sign)
+    const sign = signMd5Utils.getSign(options.url, params)
+    const vSign = signMd5Utils.getVSign(options.data, sign)
     if ( JSON.parse(import.meta.env.VITE_APP_PROXY) && isH5 && import.meta.env.MODE === 'development') {
       // 开启了代理须加前缀。仅支持 H5 端
       options.url = import.meta.env.VITE_APP_PROXY_PREFIX + options.url
@@ -31,14 +31,30 @@ export const http = <T>(options: CustomRequestOptions) => {
         'X-Sign': sign,
         'V-Sign': vSign,
         'X-TIMESTAMP': signMd5Utils.getTimestamp(),
+        'X-Version': 'v3',
       },
       ...options,
       // 响应成功
       success(res) {
         // 状态码 2xx，参考 axios 的设计
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          // 2.1 提取核心数据 res.data
-          resolve(res.data as IResData<T>)
+          const data = res.data as IResData<T>
+          const hasBusinessCode = data && typeof data === 'object' && Reflect.has(data, 'code')
+          const businessCode = Number(data?.code)
+          const businessSuccess = !hasBusinessCode || businessCode === 0 || businessCode === 200
+          if (businessSuccess) {
+            resolve(data)
+            return
+          }
+          if (businessCode === 401) {
+            userStore.clearUserInfo()
+            uni.navigateTo({ url: '/pages/login/login' })
+          }
+          if (!options.hideErrorToast) {
+            uni.showToast({ icon: 'none', title: data.message || '请求失败' })
+          }
+          uni.$emit('z-paging-error-emit')
+          reject(data)
         } else {
           switch (res.statusCode) {
             case 401:
@@ -166,12 +182,13 @@ export const httpUpload = <T>(url: string, {
   getTask
 }: any) => {
   return new Promise((resolve, reject) => {
-    let next = true;
-    const userStore = useUserStore();
+    const next = true
+    const userStore = useUserStore()
     const globalHeader = {
       'X-Access-Token': userStore.userInfo.token,
       'X-Tenant-Id': userStore.userInfo.tenantId,
       'X-TIMESTAMP': signMd5Utils.getTimestamp(),
+      'X-Version': 'v3',
     }
     const pubConfig = {
       baseUrl: getEnvBaseUrl(),
@@ -183,7 +200,7 @@ export const httpUpload = <T>(url: string, {
       formData,
       params,
       custom: { ...custom},
-      getTask: getTask
+      getTask,
     } as any
     // #ifdef APP-PLUS || H5
     if (files) {
@@ -198,7 +215,7 @@ export const httpUpload = <T>(url: string, {
     const requestBeforeFun = (config) => {
       return config
     }
-    //校验状态码
+    // 校验状态码
     const validateStatus= (statusCode) => {
       return statusCode === 200
     }

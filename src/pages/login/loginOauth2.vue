@@ -2,11 +2,7 @@
   <view class="zai-box">
     <!-- 登录加载弹窗 -->
     <view class="cu-load load-modal">
-      <image
-        src="https://static.jeecg.com/files/app_logo.png"
-        mode="aspectFit"
-        class="round"
-      ></image>
+      <view class="oauth-brand">SHKJ</view>
       <view class="gray-text">正在登录中...</view>
     </view>
   </view>
@@ -22,6 +18,7 @@ import { useParamsStore } from '@/store/page-params'
 import {isOAuth2AppEnv, getUrlParams, cache} from '@/common/uitls'
 import { getEnvBaseUrl } from '@/utils'
 import { http } from '@/utils/http'
+import { ensureCurrentAuthorization } from '@/service/permission'
 //import { requestAuthCode } from "dingtalk-jsapi";
 
 const router = useRouter()
@@ -189,23 +186,35 @@ const goRedirectUrl = () => {
   }
 }
 
-const appConfig = () => {
-  if(isLocalConfig){
+const enterAuthorizedHome = async () => {
+  try {
+    await ensureCurrentAuthorization(userStore.userInfo, true)
     toast.success('登录成功!')
-    router.pushTab({ path: HOME_PAGE })
+    if (redirectUrl.value) {
+      goRedirectUrl()
+    } else {
+      router.pushTab({ path: HOME_PAGE })
+    }
+  } catch (error) {
+    userStore.clearUserInfo()
+    toast.warning('菜单权限加载失败，请重新登录')
+  }
+}
+
+const appConfig = async () => {
+  if(isLocalConfig){
+    await enterAuthorizedHome()
   }else{
-    http.get('/eoa/sysAppConfig/queryAppConfigRoute').then((res: any) => {
+    try {
+      const res: any = await http.get('/eoa/sysAppConfig/queryAppConfigRoute')
       if (res.success) {
         cache(APP_ROUTE, res.result.route, HOME_CONFIG_EXPIRED_TIME)
         cache(APP_CONFIG, res.result.config, HOME_CONFIG_EXPIRED_TIME)
-        toast.success('登录成功!')
-        if (redirectUrl.value) {
-          goRedirectUrl()
-        } else {
-          router.pushTab({ path: HOME_PAGE })
-        }
       }
-    })
+    } catch (error) {
+      // App 配置不影响正式菜单权限初始化
+    }
+    await enterAuthorizedHome()
   }
 }
 
@@ -298,6 +307,20 @@ function sysOAuth2Callback(code:string) {
 .zai-logo {
   width: 200upx;
   height: 150px;
+}
+
+.oauth-brand {
+  display: flex;
+  width: 96upx;
+  height: 96upx;
+  margin: 0 auto 18upx;
+  font-size: 24upx;
+  font-weight: 700;
+  color: #fff;
+  background: #176ac7;
+  border-radius: 18upx;
+  align-items: center;
+  justify-content: center;
 }
 
 .zai-title {

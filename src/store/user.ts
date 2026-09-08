@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { usePermissionStore } from './permission'
 
 const initState = {
   token: '',
@@ -32,6 +33,7 @@ export const useUserStore = defineStore(
     }
     const clearUserInfo = () => {
       userInfo.value = { ...initState }
+      usePermissionStore().reset()
     }
     const getUserInfo = () => {
       return userInfo.value
@@ -48,6 +50,7 @@ export const useUserStore = defineStore(
     // 一般没有reset需求，不需要的可以删除
     const reset = () => {
       userInfo.value = { ...initState }
+      usePermissionStore().reset()
     }
     const isLogined = computed(() => !!userInfo.value.token)
     return {

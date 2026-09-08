@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <view class="tabs">
       <view class="tab" :class="{ on: active === 0 }" @click="switchTab(0)">线下维修</view>
       <view class="tab" :class="{ on: active === 1 }" @click="switchTab(1)">线上维修</view>

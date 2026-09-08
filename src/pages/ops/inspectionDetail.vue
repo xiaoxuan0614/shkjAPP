@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="detail.xjNo">
+  <PageLayout :navbarShow="false" v-if="detail.xjNo">
     <view class="head">
       <view class="head__no">{{ detail.xjNo }} · {{ detail.name }}</view>
       <StatusBadge :value="detail.status" :dict="statusDict" />

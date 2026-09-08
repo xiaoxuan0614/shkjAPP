@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="page" :scroll-y="true">
       <view class="tip">登录/角色路由尚未接通，此页面用于预览各角色页面（开发期专用）</view>
       <SectionCard v-for="g in groups" :key="g.title" :title="g.title">
@@ -34,19 +34,18 @@ const groups = [
   {
     title: '运维',
     pages: [
-      { label: '运维工作台', path: '/pages/ops/home' },
+      { label: '运维工作台', path: '/pages/home/index' },
       { label: '报修接单', path: '/pages/ops/accept' },
       { label: '接单详情', path: '/pages/ops/acceptDetail?id=ac1' },
       { label: '线下预约', path: '/pages/ops/reservation' },
-      { label: '用料申请', path: '/pages/ops/materialApply' },
+      { label: '领料申请', path: '/pages/ops/materialApply' },
       { label: '还料申请', path: '/pages/ops/materialReturn' },
       { label: '线下维修', path: '/pages/ops/repairOffline?id=wo1' },
       { label: '线上维修', path: '/pages/ops/repairOnline?id=wo5' },
       { label: '维修记录', path: '/pages/ops/repairRecord' },
       { label: '工单详情', path: '/pages/ops/repairDetail?id=wo2' },
       { label: '车辆管理', path: '/pages/ops/vehicle' },
-      { label: '内协打卡', path: '/pages/ops/punch' },
-      { label: '实施日志', path: '/pages/ops/implementLog' },
+      { label: '项目实施', path: '/pages/ops/implementLog' },
       { label: '项目列表', path: '/pages/ops/project' },
       { label: '项目详情', path: '/pages/ops/projectDetail?id=p1' },
       { label: '巡检管理', path: '/pages/ops/inspection' },

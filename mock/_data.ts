@@ -1,5 +1,5 @@
 // mock/_data.ts —— 共享 mock 工具与数据（文件名以下划线开头，vite-plugin-mock 会忽略，不会当作 mock 接口）
-// 响应格式与 jeecg 后端一致：{ code: 200, success: true, result }
+// 响应格式与 SHKJ 后端一致：{ code: 200, success: true, result }
 import { readFileSync } from 'fs'
 import path from 'path'
 import { parse } from 'dotenv'
@@ -97,12 +97,12 @@ export const REPAIRERS = [
 ]
 
 export const MATERIALS = [
-  { id: 'm1', name: '交换机 S5735-L24P4XE-A', spec: '24口千兆', stock: 12, unit: '台', planQty: 2, outQty: 1 },
-  { id: 'm2', name: '网线 超五类', spec: '305米/箱', stock: 8, unit: '箱', planQty: 3, outQty: 2 },
-  { id: 'm3', name: '光纤收发器', spec: '千兆单模', stock: 25, unit: '对', planQty: 1, outQty: 0 },
-  { id: 'm4', name: '电源模块', spec: '48V', stock: 6, unit: '个', planQty: 4, outQty: 4 },
-  { id: 'm5', name: '门禁控制器', spec: '双门', stock: 3, unit: '台', planQty: 1, outQty: 0 },
-  { id: 'm6', name: '摄像头 400W', spec: '枪机', stock: 15, unit: '台', planQty: 2, outQty: 1 },
+  { id: 'm1', materialCode: 'WL000001', name: '交换机 S5735-L24P4XE-A', spec: '24口千兆', stock: 12, unit: '台', planQty: 2, outQty: 1 },
+  { id: 'm2', materialCode: 'WL000002', name: '网线 超五类', spec: '305米/箱', stock: 8, unit: '箱', planQty: 3, outQty: 2 },
+  { id: 'm3', materialCode: 'WL000003', name: '光纤收发器', spec: '千兆单模', stock: 25, unit: '对', planQty: 1, outQty: 0 },
+  { id: 'm4', materialCode: 'WL000004', name: '电源模块', spec: '48V', stock: 6, unit: '个', planQty: 4, outQty: 4 },
+  { id: 'm5', materialCode: 'WL000005', name: '门禁控制器', spec: '双门', stock: 3, unit: '台', planQty: 1, outQty: 0 },
+  { id: 'm6', materialCode: 'WL000006', name: '摄像头 400W', spec: '枪机', stock: 15, unit: '台', planQty: 2, outQty: 1 },
 ]
 
 export const VEHICLES = [

@@ -2,9 +2,9 @@
   "globalStyle": {
     "navigationStyle": "default",
     "navigationBarTitleText": "uniapp",
-    "navigationBarBackgroundColor": "#f8f8f8",
+    "navigationBarBackgroundColor": "#176ac7",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#000000"
+    "backgroundColor": "#f5f6f8"
   },
   "easycom": {
     "autoscan": true,
@@ -26,14 +26,8 @@
       {
         "iconPath": "static/tabbar/tabbar-home-2.png",
         "selectedIconPath": "static/tabbar/tabbar-home.png",
-        "pagePath": "pages/customer/home",
+        "pagePath": "pages/home/index",
         "text": "首页"
-      },
-      {
-        "iconPath": "static/tabbar/tabbar-message-2.png",
-        "selectedIconPath": "static/tabbar/tabbar-message.png",
-        "pagePath": "pages/customer/repairRecord",
-        "text": "记录"
       },
       {
         "iconPath": "static/tabbar/tabbar-user-2.png",
@@ -45,11 +39,11 @@
   },
   "pages": [
     {
-      "path": "pages/customer/home",
+      "path": "pages/home/index",
       "type": "home",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "首汇服务",
+        "navigationBarTitleText": "运维工作台",
         "disableScroll": true
       }
     },
@@ -72,6 +66,15 @@
       "type": "page",
       "style": {
         "navigationBarTitleText": "维修确认"
+      }
+    },
+    {
+      "path": "pages/customer/home",
+      "type": "page",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "首汇服务",
+        "disableScroll": true
       }
     },
     {
@@ -99,7 +102,7 @@
     },
     {
       "path": "pages/customer/repairRecord",
-      "type": "tab",
+      "type": "page",
       "style": {
         "navigationStyle": "custom",
         "navigationBarTitleText": "报修记录",
@@ -163,7 +166,7 @@
       "path": "pages/ops/implementLog",
       "type": "page",
       "style": {
-        "navigationBarTitleText": "实施日志"
+        "navigationBarTitleText": "项目实施"
       }
     },
     {
@@ -184,7 +187,7 @@
       "path": "pages/ops/materialApply",
       "type": "page",
       "style": {
-        "navigationBarTitleText": "用料申请"
+        "navigationBarTitleText": "领料申请"
       }
     },
     {
@@ -206,13 +209,6 @@
       "type": "page",
       "style": {
         "navigationBarTitleText": "项目详情"
-      }
-    },
-    {
-      "path": "pages/ops/punch",
-      "type": "page",
-      "style": {
-        "navigationBarTitleText": "内协打卡"
       }
     },
     {

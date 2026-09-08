@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="page" :scroll-y="true">
       <!-- 客户信息：可搜索带出 -->
       <SectionCard title="客户信息">
@@ -180,7 +180,7 @@ const submit = async () => {
   }
 }
 
-const goRecord = () => uni.switchTab({ url: '/pages/customer/repairRecord' })
+const goRecord = () => uni.navigateTo({ url: '/pages/customer/repairRecord' })
 </script>
 
 <style lang="scss" scoped>

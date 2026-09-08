@@ -1,6 +1,8 @@
 node_modules
 dist
 .cache
+.cert
+/mock/_*.bundled_*.mjs
 
 ## ide
 **/.idea

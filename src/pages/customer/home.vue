@@ -1,4 +1,4 @@
-<route lang="json5" type="home">
+<route lang="json5">
 {
   style: {
     navigationStyle: 'custom',
@@ -110,7 +110,7 @@ const notices = [
 ]
 
 const goRepair = () => uni.navigateTo({ url: '/pages/customer/repair' })
-const goRecord = () => uni.switchTab({ url: '/pages/customer/repairRecord' })
+const goRecord = () => uni.navigateTo({ url: '/pages/customer/repairRecord' })
 const goDetail = (r: any) => uni.navigateTo({ url: `/pages/customer/repairDetail?id=${r.id}` })
 
 const loadRecords = async () => {

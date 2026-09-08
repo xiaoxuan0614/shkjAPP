@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="page" :scroll-y="true">
       <SectionCard title="关联信息">
         <view class="form-row">

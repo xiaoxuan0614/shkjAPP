@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="detail.id">
+  <PageLayout :navbarShow="false" v-if="detail.id">
     <scroll-view class="page" :scroll-y="true">
       <!-- 状态卡 -->
       <view class="status-card" :style="{ background: statusBg }">

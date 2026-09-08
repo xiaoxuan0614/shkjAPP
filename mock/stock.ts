@@ -1,6 +1,26 @@
 // mock/stock.ts —— 库管域（用料/还料申请记录，出库/入库）
 import { ok, proxyPrefix } from './_data'
 
+const projectApplyItems: Record<string, any[]> = {
+  pa1: [
+    { id: 'pai1', materialId: 'm6', materialCode: 'WL000006', materialName: '摄像头 400W', model: '枪机', unitName: '台', executedQty: 14, status: 'APPROVED' },
+    { id: 'pai2', materialId: 'm2', materialCode: 'WL000002', materialName: '网线 超五类', model: '305米/箱', unitName: '箱', executedQty: 9, status: 'APPROVED' },
+  ],
+  pa2: [
+    { id: 'pai3', materialId: 'm1', materialCode: 'WL000001', materialName: '交换机 S5735-L24P4XE-A', model: '24口千兆', unitName: '台', executedQty: 2, status: 'APPROVED' },
+  ],
+  pa3: [
+    { id: 'pai4', materialId: 'm2', materialCode: 'WL000002', materialName: '网线 超五类', model: '305米/箱', unitName: '箱', executedQty: 3, status: 'APPROVED' },
+    { id: 'pai5', materialId: 'm4', materialCode: 'WL000004', materialName: '电源模块', model: '48V', unitName: '个', executedQty: 4, status: 'APPROVED' },
+  ],
+}
+
+const projectApplies = [
+  { id: 'pa1', projectNo: 'XM00000001', projectName: '苏州工业园区监控项目', bizType: 'PICK', applyType: 'OUT', executeStatus: 'EXECUTED' },
+  { id: 'pa2', projectNo: 'XM00000001', projectName: '苏州工业园区监控项目', bizType: 'PICK', applyType: 'OUT', executeStatus: 'EXECUTED' },
+  { id: 'pa3', projectNo: 'XM00000002', projectName: '上海首汇网络改造', bizType: 'PICK', applyType: 'OUT', executeStatus: 'EXECUTED' },
+]
+
 const applyList = [
   {
     id: 's1',
@@ -70,6 +90,22 @@ const applyList = [
 ]
 
 export default [
+  {
+    url: `${proxyPrefix}/stock/apply/list`,
+    method: 'get',
+    response: ({ query }: any) => {
+      const records = projectApplies.filter((item) => (!query?.projectNo || item.projectNo === query.projectNo) && (!query?.applyType || item.applyType === query.applyType))
+      return ok({ records, total: records.length, size: Number(query?.pageSize || 10), current: 1, pages: 1 })
+    },
+  },
+  {
+    url: `${proxyPrefix}/stock/apply/items`,
+    method: 'get',
+    response: ({ query }: any) => {
+      const records = projectApplyItems[query?.applyId] || []
+      return ok({ records, total: records.length, size: Number(query?.pageSize || 10), current: 1, pages: 1 })
+    },
+  },
   {
     url: `${proxyPrefix}/stock/applyList`,
     method: 'get',

@@ -1,7 +1,5 @@
 <script lang="ts">
-import { onLaunch, onShow, onHide, onLoad, onReady } from '@dcloudio/uni-app'
 import 'abortcontroller-polyfill/dist/abortcontroller-polyfill-only'
-import { beforEach } from '@/router/index'
  // #ifdef APP-PLUS
 import appUpdate from "@/common/appUpdate";
 // #endif
@@ -17,15 +15,6 @@ export default {
   onShow: function (options) {
     console.log('App Show')
     console.log('应用启动路径：', options.path)
-    // 首次进入页面时路由拦截
-    setTimeout(() => {
-      const currentPage = options.path
-      beforEach({ path: '/' }, { path: currentPage, fullPath: currentPage }, (data) => {
-        if (data?.path) {
-          uni.redirectTo({ url: data.path })
-        }
-      })
-    }, 100)
   },
   onHide: function () {
     console.log('App Hide')
@@ -50,6 +39,18 @@ page {
     Helvetica,
     sans-serif;
 }
+
+/* #ifdef H5 */
+uni-page-head .uni-page-head {
+  color: #ffffff !important;
+  background-color: #176ac7 !important;
+}
+
+uni-page-head .uni-page-head .uni-btn-icon {
+  color: #ffffff !important;
+}
+/* #endif */
+
 uni-page-body {
   height: 100%;
   & > uni-view {

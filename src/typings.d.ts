@@ -32,6 +32,10 @@ declare global {
     email?: string
     birthday?: string
     orgCode?: string
+    orgCodeTxt?: string
+    departIds?: string
+    departName?: string
+    roles?: Array<string | { value?: string; code?: string; roleCode?: string }>
     /** 微信的 openid，非微信没有这个字段 */
     openid?: string
     // 存到本地的时间戳

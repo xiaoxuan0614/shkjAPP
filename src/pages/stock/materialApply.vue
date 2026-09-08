@@ -6,9 +6,9 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <view class="tabs">
-      <view class="tab" :class="{ on: active === 0 }" @click="switchTab(0)">出库 · 用料申请</view>
+      <view class="tab" :class="{ on: active === 0 }" @click="switchTab(0)">出库 · 领料申请</view>
       <view class="tab" :class="{ on: active === 1 }" @click="switchTab(1)">入库 · 还料申请</view>
     </view>
 
@@ -19,11 +19,26 @@
           <text class="card__no">{{ a.applyNo }}</text>
           <StatusBadge :value="a.status" :dict="statusDict" />
         </view>
-        <view class="row"><text class="label">关联单号</text><text class="val">{{ a.orderNo }}</text></view>
-        <view class="row"><text class="label">客户</text><text class="val">{{ a.customerName }}</text></view>
-        <view class="row"><text class="label">申请时间</text><text class="val">{{ a.applyTime }}</text></view>
+        <view class="row">
+          <text class="label">关联单号</text>
+          <text class="val">{{ a.orderNo }}</text>
+        </view>
+        <view v-if="active === 0" class="row">
+          <text class="label">领料类型</text>
+          <text class="val">{{ getMaterialUsageTypeText(a.usageType) }}</text>
+        </view>
+        <view class="row">
+          <text class="label">客户</text>
+          <text class="val">{{ a.customerName }}</text>
+        </view>
+        <view class="row">
+          <text class="label">申请时间</text>
+          <text class="val">{{ a.applyTime }}</text>
+        </view>
         <view class="ops" @click.stop>
-          <text v-if="a.status === 'pending'" class="op op--primary" @click="execute(a)">{{ active === 0 ? '出库' : '入库' }}</text>
+          <button v-if="a.status === 'pending'" class="op op--primary" @click="goDetail(a)">
+            办理{{ active === 0 ? '出库' : '入库' }}
+          </button>
           <text v-else class="op op--done">已{{ active === 0 ? '出库' : '入库' }}</text>
         </view>
       </view>
@@ -34,11 +49,10 @@
 <script lang="ts" setup>
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { ref } from 'vue'
-import { useToast, useMessage } from 'wot-design-uni'
-import { http } from '@/utils/http'
+import { stockApi, unwrapRecords } from '@/service/shkj'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
+import { getMaterialUsageTypeText } from '@/types/business'
 
-const toast = useToast()
 const active = ref(0)
 const list = ref<any[]>([])
 const statusDict = [
@@ -46,10 +60,26 @@ const statusDict = [
   { value: 'done', label: '已完成', color: '#67c23a' },
 ]
 
+const normalizeApply = (item: any) => {
+  const executed = String(item.executeStatus || '').toUpperCase()
+  const done = ['EXECUTED', 'COMPLETED', 'DONE', '已出库', '已入库'].includes(executed)
+  return {
+    ...item,
+    applyNo: item.applyNo || item.id,
+    orderNo: item.projectNo || item.orderNo || '',
+    customerName: item.projectName || item.customerName || '',
+    applyTime: item.createTime || item.applyTime || '',
+    status: done ? 'done' : 'pending',
+  }
+}
+
 const load = async () => {
   try {
-    const res: any = await http.get('/stock/applyList', { type: active.value === 0 ? 'out' : 'in' })
-    list.value = res.result || []
+    const applyType = active.value === 0 ? 'OUT' : 'IN'
+    const res: any = await stockApi.applies({ applyType })
+    list.value = unwrapRecords(res)
+      .filter((item: any) => !item.applyType || item.applyType === applyType)
+      .map(normalizeApply)
   } catch (e) {
     /* ignore */
   }
@@ -61,17 +91,6 @@ const switchTab = (i: number) => {
 }
 
 const goDetail = (a: any) => uni.navigateTo({ url: `/pages/stock/materialDetail?id=${a.id}` })
-
-const execute = (a: any) => {
-  useMessage()
-    .confirm(`确认对 ${a.applyNo} 执行${active.value === 0 ? '出库' : '入库'}吗？`)
-    .then(async () => {
-      await http.post('/stock/apply/execute', { id: a.id, type: active.value === 0 ? 'out' : 'in' })
-      toast.success(`已${active.value === 0 ? '出库' : '入库'}`)
-      load()
-    })
-    .catch(() => {})
-}
 
 onLoad((query) => {
   if ((query as any)?.tab === 'in') active.value = 1
@@ -168,9 +187,18 @@ onShow(load)
   border-top: 1px solid #f5f5f5;
 
   .op {
+    min-width: 96px;
+    min-height: 44px;
+    margin: 0;
+    border: 0;
     font-size: 13px;
-    padding: 6px 20px;
-    border-radius: 16px;
+    line-height: 44px;
+    padding: 0 20px;
+    border-radius: 22px;
+
+    &::after {
+      border: 0;
+    }
 
     &--primary {
       background: #2f86ff;

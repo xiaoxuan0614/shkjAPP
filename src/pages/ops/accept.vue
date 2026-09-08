@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="page" :scroll-y="true">
       <view class="count-tip">共 {{ list.length }} 条待接单报修</view>
       <view v-for="r in list" :key="r.id" class="card">

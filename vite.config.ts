@@ -20,6 +20,7 @@ import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import ViteRestart from 'vite-plugin-restart'
 import { copyNativeRes } from './vite-plugins/copyNativeRes'
+import { pdfPreviewAssets } from './vite-plugins/pdfPreviewAssets'
 import { viteMockServe } from 'vite-plugin-mock'
 
 // https://vitejs.dev/config/
@@ -49,24 +50,37 @@ export default ({ command, mode }) => {
     VITE_APP_PROXY_PREFIX,
     VITE_USE_MOCK,
   } = env
+  const appPort = process.env.VITE_APP_PORT || VITE_APP_PORT
   console.log('环境变量 env -> ', env)
+  const lanHttpsCertPath = path.resolve(process.cwd(), '.cert/lan.pem')
+  const lanHttpsKeyPath = path.resolve(process.cwd(), '.cert/lan-key.pem')
+  const lanHttps =
+    command === 'serve' &&
+    UNI_PLATFORM === 'h5' &&
+    fs.existsSync(lanHttpsCertPath) &&
+    fs.existsSync(lanHttpsKeyPath)
+      ? {
+          cert: fs.readFileSync(lanHttpsCertPath),
+          key: fs.readFileSync(lanHttpsKeyPath),
+        }
+      : undefined
   // 在h5平台把vite环境变量提取出来替换成window上的属性
   const define = UNI_PLATFORM === 'h5' && mode === 'production' ? createDynamicDefine(env) : {}
   return defineConfig({
     envDir: './env', // 自定义env目录
+    optimizeDeps: {
+      include: UNI_PLATFORM === 'h5' ? ['exceljs', 'pdfjs-dist/legacy/build/pdf.mjs'] : [],
+    },
 
     plugins: [
+      UNI_PLATFORM === 'h5' && pdfPreviewAssets(),
       generateComponentTypes(),
       UniPages({
         exclude: ['**/components/**/**.*'],
         routeBlockLang: 'json5', // 虽然设了默认值，但是vue文件还是要加上 lang="json5", 这样才能很好地格式化
         // homePage 通过 vue 文件的 route-block 的type="home"来设定
         // pages 目录为 src/pages，分包目录不能配置在pages目录下
-        subPackages: [
-          'src/pages-user',
-          'src/pages-work',
-          'src/pages-sub',
-        ], // 是个数组，可以配置多个，但是不能为pages里面的目录
+        subPackages: ['src/pages-user', 'src/pages-work', 'src/pages-sub'], // 是个数组，可以配置多个，但是不能为pages里面的目录
         dts: 'src/types/uni-pages.d.ts',
       }),
       UniLayouts(),
@@ -111,7 +125,7 @@ export default ({ command, mode }) => {
         mode === 'production' &&
         visualizer({
           filename: './node_modules/.cache/visualizer/stats.html',
-          open: true,
+          open: false,
           gzipSize: true,
           brotliSize: true,
         }),
@@ -120,6 +134,8 @@ export default ({ command, mode }) => {
       viteMockServe({
         // 指定 mock 文件目录
         mockPath: './mock',
+        // 忽略插件运行时生成的临时 bundle，避免下次启动时被再次当作 Mock 源文件加载
+        ignore: /\.bundled_/,
         // 开发服务器才启用mock数据
         enable: mode === 'development' && JSON.parse(VITE_USE_MOCK),
       }),
@@ -150,7 +166,8 @@ export default ({ command, mode }) => {
     server: {
       host: '0.0.0.0',
       hmr: true,
-      port: Number.parseInt(VITE_APP_PORT, 10),
+      https: lanHttps,
+      port: Number.parseInt(appPort, 10),
       // 仅 H5 端生效，其他端不生效（其他端走build，不走devServer)
       proxy: JSON.parse(VITE_APP_PROXY)
         ? {

@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout>
+  <PageLayout :navbarShow="false">
     <scroll-view class="list" :scroll-y="true">
       <view v-if="!list.length" class="empty">暂无待审批工单</view>
       <view v-for="a in list" :key="a.id" class="card" @click="goDetail(a)">

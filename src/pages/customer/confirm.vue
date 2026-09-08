@@ -6,7 +6,7 @@
 }
 </route>
 <template>
-  <PageLayout v-if="info.id">
+  <PageLayout :navbarShow="false" v-if="info.id">
     <!-- 步骤条 -->
     <view class="steps">
       <view v-for="(s, i) in stepList" :key="i" class="step" :class="{ active: i < step, current: i === step }">
@@ -191,7 +191,7 @@ const submit = async () => {
       evaluate: evaluate.value,
     })
     message.alert({ title: '确认完成', msg: '维修确认与评价已提交\n感谢您的信任与支持' }).then(() => {
-      uni.switchTab({ url: '/pages/customer/repairRecord' })
+      uni.redirectTo({ url: '/pages/customer/repairRecord' })
     })
   } catch (e) {
     toast.error('提交失败，请重试')
@@ -201,7 +201,7 @@ const submit = async () => {
 }
 
 const back = () => {
-  uni.switchTab({ url: '/pages/customer/repairRecord' })
+  uni.redirectTo({ url: '/pages/customer/repairRecord' })
 }
 const preview = (urls: string[], index: number) => uni.previewImage({ urls, current: index })
 

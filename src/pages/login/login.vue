@@ -15,8 +15,9 @@
   <PageLayout :navbarShow="false">
     <view class="page-container">
       <view class="text-center">
-        <image :src="compLogo" mode="aspectFit" class="logo"></image>
-        <view class="title text-shadow">{{ compTitle || 'JEECG BOOT' }}</view>
+        <image v-if="compLogo" :src="compLogo" mode="aspectFit" class="logo"></image>
+        <view v-else class="brand-mark">SHKJ</view>
+        <view class="title text-shadow">{{ compTitle || 'SHKJ' }}</view>
         <view class="enter-area">
           <view v-if="loginWay == 1" class="account-login-area">
             <view class="box account">
@@ -69,7 +70,7 @@
           </view>
         </view>
         <view class="btn-area text-center">
-          <wd-button  custom-class="login align-top" :loading="loading" @click="hanldeLogin">
+          <wd-button custom-class="login align-top" :loading="loading" @click="hanldeLogin">
             {{ loading ? '登录...' : '登录' }}
           </wd-button>
           <wd-button v-if="loginWay == 2" plain hairline @click="toggleLoginWay(1)">
@@ -103,6 +104,9 @@ import {
 import { cache, getFileAccessHttpUrl } from '@/common/uitls'
 import { useRouter } from '@/plugin/uni-mini-router'
 import { useParamsStore } from '@/store/page-params'
+import { encryptLoginPassword } from '@/utils/cipher'
+import { authApi } from '@/service/auth'
+import { ensureCurrentAuthorization } from '@/service/permission'
 
 defineOptions({
   name: 'login',
@@ -113,37 +117,32 @@ defineOptions({
   },
 })
 const router = useRouter()
-const defLogo = 'https://static.jeecg.com/files/app_logo.png'
+const defLogo = ''
 const shape = ref()
 const loading = ref(false)
-const userName = ref()
-const password = ref()
+const userName = ref('')
+const password = ref('')
 const phoneNo = ref('')
 const smsCode = ref('')
-const showPassword = ref(false) //是否显示明文
-const loginWay = ref(1) //1: 账密，2：验证码
+const showPassword = ref(false) // 是否显示明文
+const loginWay = ref(1) // 1: 账密，2：验证码
 const smsCountDown = ref(0)
-let smsCountInterval = null
+let smsCountInterval: ReturnType<typeof setInterval> | undefined
 const toggleDelay = ref(false)
 const version = ref('')
 const compLogo = ref(defLogo)
-const compTitle = ref('Jeecg Uniapp')
+const compTitle = ref('SHKJ')
 const paramsStore = useParamsStore()
 paramsStore.reset()
 // 是否开启本地路由配置
-let isLocalConfig = getApp().globalData.isLocalConfig;
+const isLocalConfig = getApp().globalData.isLocalConfig
 if (import.meta.env.MODE === 'development') {
   userName.value = 'admin'
   password.value = '123456'
 }
 
-if (import.meta.env.MODE === 'production') {
-  userName.value = 'jeecg'
-  password.value = 'jeecg#123456'
-}
-
 const isSendSMSEnable = computed(() => {
-  return smsCountDown.value <= 0 && phoneNo.value.length < 4
+  return smsCountDown.value > 0 || phoneNo.value.length !== 11
 })
 const toast = useToast()
 const userStore = useUserStore()
@@ -154,35 +153,34 @@ const handleChangePassword = () => {
   showPassword.value = !showPassword.value
 }
 const handleSMSSend = () => {
-  let smsParams = { mobile: '', smsmode: '0' }
-  smsParams.mobile = phoneNo.value
-  let checkPhone = new RegExp(/^[1]([3-9])[0-9]{9}$/)
-  if (!smsParams.mobile || smsParams.mobile.length == 0) {
+  const mobile = phoneNo.value
+  const checkPhone = /^1[3-9][0-9]{9}$/
+  if (!mobile) {
     toast.warning('请输入手机号')
     return false
   }
-  if (!checkPhone.test(smsParams.mobile)) {
+  if (!checkPhone.test(mobile)) {
     toast.warning('请输入正确的手机号')
     return false
   }
   if (smsCountDown.value) {
     return
   }
-  http.post('/sys/sms', smsParams).then((res: any) => {
-    if (res.success) {
+  authApi
+    .sendLoginSms(mobile)
+    .then(() => {
       smsCountDown.value = 60
       startSMSTimer()
-    } else {
+    })
+    .catch(() => {
       smsCountDown.value = 0
-      toast.warning(res.message)
-    }
-  })
+    })
 }
 const startSMSTimer = () => {
   smsCountInterval = setInterval(() => {
     smsCountDown.value--
     if (smsCountDown.value <= 0) {
-      clearInterval(smsCountInterval)
+      if (smsCountInterval) clearInterval(smsCountInterval)
     }
   }, 1e3)
 }
@@ -197,6 +195,7 @@ const hanldeLogin = () => {
   loginWay.value === 1 ? accountLogin() : phoneLogin()
 }
 const accountLogin = () => {
+  if (loading.value) return
   if (userName.value.length === 0) {
     toast.warning('请输入账号')
     return
@@ -206,28 +205,17 @@ const accountLogin = () => {
     return
   }
   loading.value = true
-  http
-    .post('/sys/mLogin', { username: userName.value, password: password.value })
+  authApi
+    .login({
+      username: userName.value,
+      password: encryptLoginPassword(password.value),
+    })
     .then((res: any) => {
-      if (res.success) {
-        const { result } = res
-        const userInfo = result.userInfo
-        userStore.setUserInfo({
-          ...userInfo,
-          token: result.token,
-          userid: userInfo.id,
-          username: userInfo.username,
-          realname: userInfo.realname,
-          avatar: userInfo.avatar,
-          tenantId: userInfo.loginTenantId,
-          localStorageTime: +new Date(),
-        })
-        appConfig()
-        departConfig()
-        router.pushTab({ path: HOME_PAGE })
-      } else {
-        toast.warning(res.message)
-      }
+      saveLoginResult(res.result)
+      appConfig()
+    })
+    .catch((error: any) => {
+      if (error instanceof Error) toast.warning(error.message)
     })
     .finally(() => {
       loading.value = false
@@ -235,9 +223,9 @@ const accountLogin = () => {
 }
 
 const phoneLogin = () => {
-  let checkPhone = new RegExp(/^[1]([3-9])[0-9]{9}$/)
+  const checkPhone = /^1[3-9][0-9]{9}$/
 
-  if (!phoneNo.value || phoneNo.value.length == 0) {
+  if (!phoneNo.value) {
     toast.warning('请输入手机号')
     return
   }
@@ -245,86 +233,83 @@ const phoneLogin = () => {
     toast.warning('请输入正确的手机号')
     return false
   }
-  if (!smsCode.value || smsCode.value.length == 0) {
+  if (!smsCode.value) {
     toast.warning('请输入短信验证码')
     return
   }
-  let loginParams = {
-    mobile: phoneNo.value,
-    captcha: smsCode.value,
-  }
-  http
-    .post('/sys/phoneLogin', { mobile: phoneNo.value, captcha: smsCode.value })
+  loading.value = true
+  authApi
+    .phoneLogin(phoneNo.value, smsCode.value)
     .then((res: any) => {
-      if (res.success) {
-        const { result } = res
-        const userInfo = result.userInfo
-        userStore.setUserInfo({
-          token: result.token,
-          userid: userInfo.id,
-          username: userInfo.username,
-          realname: userInfo.realname,
-          avatar: userInfo.avatar,
-          tenantId: userInfo.loginTenantId,
-          localStorageTime: +new Date(),
-        })
-        //获取app配置
-        appConfig()
-        departConfig()
-      } else {
-        toast.warning(res.message)
-      }
+      saveLoginResult(res.result)
+      appConfig()
     })
     .catch((err) => {
-      let msg = err.message || '请求出现错误，请稍后再试'
+      const msg = err.message || '请求出现错误，请稍后再试'
       toast.warning(msg)
     })
+    .finally(() => {
+      loading.value = false
+    })
 }
-//部門配置
-const departConfig = () => {
-  const appQueryUser = () => {
-    http
-      .get('/sys/user/appQueryUser', {
-        username:userStore.userInfo.username,
-      })
-      .then((res: any) => {
-        if (res.success && res.result.length) {
-          let result = res.result[0];
-          userStore.editUserInfo({orgCodeTxt: result.orgCodeTxt})
-        }
-      })
+
+const saveLoginResult = (result: any) => {
+  const userInfo = result?.userInfo || {}
+  if (!result?.token || !userInfo.id) {
+    throw new Error('登录响应缺少 token 或用户信息，请联系管理员检查接口')
   }
-  appQueryUser()
+  const departs = Array.isArray(result?.departs) ? result.departs : []
+  const currentDepart =
+    departs.find((item: any) => item.orgCode === userInfo.loginOrgCode) ||
+    departs.find((item: any) => item.orgCode === userInfo.orgCode) ||
+    (departs.length === 1 ? departs[0] : undefined)
+  userStore.setUserInfo({
+    ...userInfo,
+    token: result?.token || '',
+    userid: userInfo.id,
+    tenantId: userInfo.loginTenantId,
+    departName: currentDepart?.departName || userInfo.departName || '',
+    orgCodeTxt: userInfo.orgCodeTxt || currentDepart?.departName || '',
+    localStorageTime: Date.now(),
+  })
 }
-const appConfig = () => {
-  if (isLocalConfig) {
+
+const enterAuthorizedHome = async () => {
+  try {
+    await ensureCurrentAuthorization(userStore.userInfo, true)
     toast.success('登录成功!')
     router.pushTab({ path: HOME_PAGE })
+  } catch (error) {
+    userStore.clearUserInfo()
+    toast.warning('菜单权限加载失败，请重新登录')
+  }
+}
+
+const appConfig = async () => {
+  if (isLocalConfig) {
+    await enterAuthorizedHome()
   } else {
-    http
-      .get('/eoa/sysAppConfig/queryAppConfigRoute')
-      .then((res: any) => {
-        if (res.success) {
-          cache(APP_ROUTE, res.result.route, HOME_CONFIG_EXPIRED_TIME)
-          cache(APP_CONFIG, res.result.config, HOME_CONFIG_EXPIRED_TIME)
-        }
-        toast.success('登录成功!')
-        router.pushTab({ path: HOME_PAGE })
-      })
-      .catch((err) => {
-        toast.success('登录成功!')
-        router.pushTab({ path: HOME_PAGE })
-      })
+    try {
+      const res: any = await http.get('/eoa/sysAppConfig/queryAppConfigRoute')
+      if (res.success) {
+        cache(APP_ROUTE, res.result.route, HOME_CONFIG_EXPIRED_TIME)
+        cache(APP_CONFIG, res.result.config, HOME_CONFIG_EXPIRED_TIME)
+      }
+    } catch (error) {
+      // App 配置不影响正式菜单权限初始化
+    }
+    await enterAuthorizedHome()
   }
 }
 
 const loadConfig = () => {
   http.get('/eoa/sysAppConfig/queryAppConfig').then((res: any) => {
     if (res.success) {
-      let info = res.result
+      const info = res.result
       if (info) {
-        compLogo.value = getFileAccessHttpUrl(info.appLogo) || defLogo
-        compTitle.value = info.appTitle || 'JEECG-BOOT'
+        const configuredLogo = getFileAccessHttpUrl(info.appLogo)
+        compLogo.value = /jeecg/i.test(configuredLogo || '') ? defLogo : configuredLogo || defLogo
+        compTitle.value = /jeecg/i.test(info.appTitle || '') ? 'SHKJ' : info.appTitle || 'SHKJ'
       } else {
         compLogo.value = defLogo
       }
@@ -349,7 +334,6 @@ const checkAccount = () => {}
 checkToken()
 checkAccount()
 // #endif
-// @ts-ignore
 if (isLocalConfig === false) {
   loadConfig()
 }
@@ -367,6 +351,20 @@ if (isLocalConfig === false) {
   .logo {
     width: 200upx;
     height: 150px;
+  }
+  .brand-mark {
+    display: flex;
+    width: 168upx;
+    height: 168upx;
+    margin: 0 auto 28upx;
+    font-size: 42upx;
+    font-weight: 750;
+    letter-spacing: 2upx;
+    color: #fff;
+    background: #176ac7;
+    border-radius: 28upx;
+    align-items: center;
+    justify-content: center;
   }
   .title {
     font-size: 58upx;
