@@ -220,6 +220,7 @@ const load = async () => {
     const response = await fetch(url, {
       headers: header,
       credentials: trusted ? 'same-origin' : 'omit',
+      redirect: 'error',
       signal: controller.signal,
     })
     if (!response.ok) throw new Error(`附件读取失败（${response.status}），请重试或检查文件权限`)

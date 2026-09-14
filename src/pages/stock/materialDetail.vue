@@ -240,7 +240,7 @@
         </button>
       </view>
 
-      <view v-else-if="!fromStockTodo && detail.type === 'in' && detail.executionDisplayStatus === 'pending'" class="bottom">
+      <view v-else-if="!fromStockTodo && canExecuteInbound" class="bottom">
         <button
           class="submit-button submit-button--full"
           :disabled="submitting"
@@ -283,6 +283,11 @@ const outboundReadonlyReason = computed(() => {
   return ''
 })
 const canExecuteOutbound = computed(() => !outboundReadonlyReason.value && !submitting.value)
+const isExecutableInboundHead = (head: any) =>
+  String(head.applyType).toUpperCase() === 'IN' && String(head.status) === '1' &&
+  ['PENDING', 'PARTIAL_EXECUTED'].includes(String(head.executeStatus).toUpperCase())
+const canExecuteInbound = computed(() => !loading.value && !loadError.value && !submitting.value &&
+  permission.hasPermission('mtl:goods:io') && isExecutableInboundHead(detail.value))
 
 const toQty = (value: unknown) => {
   const result = Number(value)
@@ -527,12 +532,20 @@ const executeOutbound = () => {
 }
 
 const executeInbound = () => {
+  if (!canExecuteInbound.value) return
   message
     .confirm('确认执行入库吗？')
     .then(async () => {
-      if (submitting.value) return
+      if (!canExecuteInbound.value) return
       submitting.value = true
       try {
+        const response: any = await stockApi.applyDetail(id.value)
+        const latest = response?.result || response || {}
+        if (String(latest.id) !== id.value || !permission.hasPermission('mtl:goods:io') || !isExecutableInboundHead(latest)) {
+          toast.warning('申请状态已变化或无执行权限，请查看最新详情')
+          await load()
+          return
+        }
         await stockApi.execute({ applyId: id.value })
         toast.success('操作成功')
         await load()

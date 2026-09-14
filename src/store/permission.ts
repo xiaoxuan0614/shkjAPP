@@ -63,6 +63,10 @@ export const usePermissionStore = defineStore(
     }
 
     const setLoadError = (message: string) => {
+      menus.value = []
+      permissionCodes.value = []
+      fullAccess.value = false
+      ownerKey.value = ''
       loadError.value = message
       // 同步失败时不能继续用旧菜单执行前端拦截，否则用户连“我的/退出登录”也无法进入。
       loaded.value = false

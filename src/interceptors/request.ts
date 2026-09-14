@@ -3,6 +3,7 @@ import qs from 'qs'
 import { useUserStore } from '@/store'
 import { platform } from '@/utils/platform'
 import { getEnvBaseUrl } from '@/utils'
+import { isTrustedApiUrl, removeSessionHeaders } from '@/utils/requestTrust'
 
 export type CustomRequestOptions = UniApp.RequestOptions & {
   query?: Record<string, any>
@@ -17,6 +18,7 @@ const baseUrl = getEnvBaseUrl()
 const httpInterceptor = {
   // 拦截前触发
   invoke(options: CustomRequestOptions) {
+    let trustedProxy = false
     // 接口请求支持通过 query 参数配置 queryString
     if (options.query) {
       const queryStr = qs.stringify(options.query)
@@ -27,11 +29,13 @@ const httpInterceptor = {
       }
     }
     // 非 http 开头需拼接地址
-    if (!options.url.startsWith('http')) {
+    if (!/^[a-z][\w+.-]*:/i.test(options.url) && !options.url.startsWith('//')) {
       // #ifdef H5
       // console.log(import.meta.env.VITE_APP_PROXY)
       if (JSON.parse(import.meta.env.VITE_APP_PROXY) && import.meta.env.MODE === 'development') {
-        // 啥都不需要做
+        const prefix = import.meta.env.VITE_APP_PROXY_PREFIX.replace(/\/$/, '')
+        trustedProxy = options.url.startsWith(`${prefix}/`) &&
+          isTrustedApiUrl(baseUrl.replace(/\/$/, '') + options.url.slice(prefix.length), baseUrl)
       } else {
         options.url = baseUrl + options.url
       }
@@ -52,7 +56,12 @@ const httpInterceptor = {
     // 3. 添加 token 请求头标识
     const userStore = useUserStore()
     const { token } = userStore.userInfo as unknown as IUserInfo
-    if (token) {
+    if (!trustedProxy && !isTrustedApiUrl(options.url, baseUrl)) {
+      removeSessionHeaders(options.header)
+      // #ifdef H5
+      options.withCredentials = false
+      // #endif
+    } else if (token) {
       options.header.Authorization = `${token}`
     }
   },

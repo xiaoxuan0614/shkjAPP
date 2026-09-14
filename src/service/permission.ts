@@ -3,6 +3,7 @@ import { normalizeMiniAppPath, usePermissionStore, type AuthorizedMenu } from '@
 
 const CURRENT_USER_MENU_URL = '/sys/permission/getUserPermissionByToken'
 const PERMISSION_CODE_URL = '/sys/permission/getPermCode'
+let authorizationCheckedAt = 0
 
 const toArray = (value: any): any[] => {
   if (Array.isArray(value)) return value
@@ -66,6 +67,7 @@ export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUser
       // 按钮权限加载失败不应拖垮菜单；按钮接口仍由后端独立鉴权。
     }
     permissionStore.setAuthorization(normalizeMenus(menuResponse), permissionCodes, ownerKey)
+    authorizationCheckedAt = Date.now()
     return permissionStore.menus
   } catch (error: any) {
     permissionStore.setLoadError(error?.message || error?.msg || '菜单权限加载失败')
@@ -76,7 +78,8 @@ export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUser
 export const ensureCurrentAuthorization = async (userInfo: IUserInfo, force = false) => {
   const permissionStore = usePermissionStore()
   const ownerKey = buildPermissionOwnerKey(userInfo)
-  if (!force && permissionStore.loaded && permissionStore.ownerKey === ownerKey) {
+  if (!force && permissionStore.loaded && permissionStore.ownerKey === ownerKey &&
+    Date.now() - authorizationCheckedAt < 60_000) {
     return permissionStore.menus
   }
   return loadCurrentAuthorization(ownerKey, userInfo)

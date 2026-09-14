@@ -1,13 +1,19 @@
-/**
- * 路由拦截，通常也是登录拦截
- * 可以设置路由白名单，或者黑名单，看业务需要选哪一个
- * 我这里应为大部分都可以随便进入，所以使用黑名单
- */
+/** 登录页以外的页面均需登录，覆盖导航、首次打开及刷新入口。 */
 import { usePermissionStore, useUserStore } from '@/store'
 import { HOME_PAGE } from '@/common/constants'
 import { buildPermissionOwnerKey } from '@/service/permission'
+import { isOAuth2AppEnv } from '@/common/uitls'
 const loginRoute = '/pages/login/login'
 const publicPages = new Set([loginRoute, '/pages/login/loginOauth2'])
+let redirectingToLogin = false
+
+const redirectToLogin = () => {
+  if (redirectingToLogin || isLogined()) return
+  redirectingToLogin = true
+  const url = isOAuth2AppEnv() ? '/pages/login/loginOauth2' : loginRoute
+  // 清空业务页栈，避免返回按钮再次显示未登录页面。
+  uni.reLaunch({ url, complete: () => { redirectingToLogin = false } })
+}
 
 const isLogined = () => {
   const userStore = useUserStore()
@@ -34,14 +40,25 @@ const navigateToInterceptor = {
       }
       return true
     }
-    const redirectRoute = `${loginRoute}?redirect=${encodeURIComponent(url)}`
-    uni.navigateTo({ url: redirectRoute })
+    redirectToLogin()
     return false
   },
 }
 
 export const routeInterceptor = {
-  install() {
+  install(app: any) {
+    // 首次直接访问和浏览器刷新不会经过 navigateTo 等导航方法。
+    app.mixin({
+      onShow() {
+        if (this.$mpType !== 'page' || isLogined()) return
+        const pages = getCurrentPages()
+        const current = pages[pages.length - 1]
+        const route = String(current?.route || this.$page?.route || '').split(/[?#]/)[0]
+        const path = route.startsWith('/') ? route : `/${route}`
+        if (publicPages.has(path)) return
+        redirectToLogin()
+      },
+    })
     uni.addInterceptor('navigateTo', navigateToInterceptor)
     uni.addInterceptor('reLaunch', navigateToInterceptor)
     uni.addInterceptor('redirectTo', navigateToInterceptor)

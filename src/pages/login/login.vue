@@ -136,10 +136,6 @@ const paramsStore = useParamsStore()
 paramsStore.reset()
 // 是否开启本地路由配置
 const isLocalConfig = getApp().globalData.isLocalConfig
-if (import.meta.env.MODE === 'development') {
-  userName.value = 'admin'
-  password.value = '123456'
-}
 
 const isSendSMSEnable = computed(() => {
   return smsCountDown.value > 0 || phoneNo.value.length !== 11

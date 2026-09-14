@@ -133,7 +133,7 @@
   "vueVersion": "3",
   "h5": {
     "router": {
-      "base": "/"
+      "base": "/h5/"
     },
     "sdkConfigs": {
       "maps": {

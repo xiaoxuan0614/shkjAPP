@@ -51,7 +51,7 @@ export default ({ command, mode }) => {
     VITE_USE_MOCK,
   } = env
   const appPort = process.env.VITE_APP_PORT || VITE_APP_PORT
-  console.log('环境变量 env -> ', env)
+  // 不向构建日志输出环境变量，避免泄露部署配置。
   const lanHttpsCertPath = path.resolve(process.cwd(), '.cert/lan.pem')
   const lanHttpsKeyPath = path.resolve(process.cwd(), '.cert/lan-key.pem')
   const lanHttps =
@@ -67,6 +67,7 @@ export default ({ command, mode }) => {
   // 在h5平台把vite环境变量提取出来替换成window上的属性
   const define = UNI_PLATFORM === 'h5' && mode === 'production' ? createDynamicDefine(env) : {}
   return defineConfig({
+    base: UNI_PLATFORM === 'h5' ? env.VITE_APP_PUBLIC_BASE || '/' : '/',
     envDir: './env', // 自定义env目录
     optimizeDeps: {
       include: UNI_PLATFORM === 'h5' ? ['exceljs', 'pdfjs-dist/legacy/build/pdf.mjs'] : [],
@@ -159,6 +160,8 @@ export default ({ command, mode }) => {
 
     resolve: {
       alias: {
+        // qs 官方浏览器包已包含依赖，避免旧 uni-app CommonJS 转换留下裸模块导入。
+        ...(UNI_PLATFORM === 'h5' ? { qs: path.resolve(process.cwd(), 'node_modules/qs/dist/qs.js') } : {}),
         '@': path.join(process.cwd(), './src'),
         '@img': path.join(process.cwd(), './src/static/images'),
       },
@@ -204,6 +207,13 @@ function createDynamicDefine(envVars) {
   }, {})
 }
 function createEnvConfigPlugin() {
+  const publicKeys = [
+    'VITE_APP_PUBLIC_BASE', 'VITE_APP_PROXY', 'VITE_APP_PROXY_PREFIX', 'VITE_USE_MOCK',
+    'VITE_SERVER_BASEURL', 'VITE_UPLOAD_BASEURL', 'VITE_GD_MAP_KEY__WEIXIN',
+    'VITE_SERVER_BASEURL__WEIXIN_DEVELOP', 'VITE_SERVER_BASEURL__WEIXIN_TRIAL',
+    'VITE_SERVER_BASEURL__WEIXIN_RELEASE', 'VITE_UPLOAD_BASEURL__WEIXIN_DEVELOP',
+    'VITE_UPLOAD_BASEURL__WEIXIN_TRIAL', 'VITE_UPLOAD_BASEURL__WEIXIN_RELEASE',
+  ]
   let mode = 'production'
   let envDir = process.cwd()
 
@@ -215,9 +225,9 @@ function createEnvConfigPlugin() {
     },
     async writeBundle(options) {
       const env = loadEnv(mode, path.resolve(process.cwd(), 'env'))
-      delete env['VITE_ROOT_DIR']
+      const publicEnv = Object.fromEntries(publicKeys.map(key => [key, env[key] || '']))
       // 生成动态配置文件
-      const configContent = `window.__APP_CONFIG__ = ${JSON.stringify(env)};`
+      const configContent = `window.__APP_CONFIG__ = ${JSON.stringify(publicEnv)};`
       const outputDir = options.dir || path.resolve(envDir, 'dist')
       const configPath = path.join(outputDir, 'app.config.js')
       // 写入配置文件

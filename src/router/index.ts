@@ -67,10 +67,12 @@ export const beforEach = async (to, _from, next) => {
   try {
     await ensureCurrentAuthorization(userStore.userInfo)
   } catch (error) {
-    // 权限服务异常时允许进入页面，由后端接口继续执行最终鉴权；
-    // 避免网络或按钮权限接口异常被误报为“当前角色没有权限”。
-    if (to.path !== HOME_PAGE)
-      uni.showToast({ icon: 'none', title: '权限服务暂不可用，数据仍由接口鉴权' })
+    // 保留首页及退出登录入口，业务页在授权失败时关闭。
+    if (![HOME_PAGE, '/pages/customer/mine'].includes(to.path)) {
+      uni.showToast({ icon: 'none', title: '权限加载失败，请稍后重试' })
+      next({ path: HOME_PAGE })
+      return
+    }
   }
 
   const permissionStore = usePermissionStore()
