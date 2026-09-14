@@ -14,6 +14,7 @@
           <text class="label">领料类型</text>
           <picker
             mode="selector"
+            :disabled="!!requestedReworkId || submitting || projectSelecting"
             :range="usageTypeOptions"
             range-key="label"
             :value="usageTypeIndex"
@@ -48,6 +49,7 @@
 
       <!-- 领料明细 -->
       <SectionCard title="领料明细">
+        <text v-if="reworkId" class="static-val">本轮返工额外领料；不使用首次施工额度。</text>
         <view v-for="m in selectedMaterials" :key="m.id" class="material">
           <view class="material__title">
             <text class="material__name">{{ m.name }}</text>
@@ -279,7 +281,8 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import dayjs from 'dayjs'
 import { useToast, useMessage } from 'wot-design-uni'
 import { useUserStore } from '@/store/user'
@@ -292,12 +295,15 @@ import {
 } from '@/service/shkj'
 import { MATERIAL_USAGE_TYPE } from '@/types/business'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
+import { getReworkMaterials, validateRework } from '@/service/reworkMaterials'
 
 const toast = useToast()
 const message = useMessage()
 const userStore = useUserStore()
 const orderNo = ref('')
 const orderInfo = ref<any>({})
+const reworkId = ref(''), requestedReworkId = ref('')
+const projectSelecting = ref(false)
 const participatedProjects = ref<any[]>([])
 const projectKeyword = ref('')
 const showProject = ref(false)
@@ -329,6 +335,8 @@ const projectMaterialPeriodStatus = [
   'DEBUGGING',
   'DEBUG_COMPLETED',
   'IMPLEMENT_COMPLETED',
+  'PENDING_ACCEPT',
+  'REWORKING',
   'INTERNAL_ACCEPTING',
   'ACCEPTING',
 ].join(',')
@@ -403,7 +411,7 @@ const loadProjectMaterials = async (reset = false) => {
   materialsLoading.value = true
   materialsError.value = false
   try {
-    const res: any = await projectApi.materialAccounts(periodId, {
+    const res: any = reworkId.value ? { result: await getReworkMaterials(periodId, reworkId.value) } : await projectApi.materialAccounts(periodId, {
       pageNo,
       pageSize: materialPageSize,
       ...(keyword ? { keyword } : {}),
@@ -504,14 +512,24 @@ const loadParticipatedProjects = async () => {
   }
 }
 
-onMounted(loadParticipatedProjects)
+onLoad(async (query) => {
+  requestedReworkId.value = String(query?.reworkId || '').trim()
+  await loadParticipatedProjects()
+  const requestedPeriodId = String(query?.periodId || '').trim()
+  if (!requestedPeriodId) return
+  const selected = participatedProjects.value.find(item => String(item.periodId || item.id) === requestedPeriodId)
+  if (selected) await selectProject(selected)
+  else if (!projectsError.value) toast.warning('当前分期不在可领料项目范围内，请重新选择项目')
+})
 
 const changeUsageType = (event: any) => {
+  if (submitting.value || projectSelecting.value || requestedReworkId.value) return
   const nextIndex = Number(event.detail.value)
   if (nextIndex === usageTypeIndex.value) return
   usageTypeIndex.value = nextIndex
   orderNo.value = ''
   orderInfo.value = {}
+  reworkId.value = ''
   resetMaterialSource()
   selectedMaterials.value = []
   pickerSelectedMaterials.value = []
@@ -519,13 +537,24 @@ const changeUsageType = (event: any) => {
 }
 
 const openProjectPicker = async () => {
+  if (submitting.value || projectSelecting.value) return
+  if (reworkId.value && requestedReworkId.value) return toast.warning('返工领料已锁定当前分期')
   if (!participatedProjects.value.length && !projectsLoading.value) await loadParticipatedProjects()
   showProject.value = true
 }
 
-const selectProject = (project: any) => {
-  const projectChanged = String(project.id || '') !== String(orderInfo.value.id || '')
+const selectProject = async (project: any) => {
+  if (submitting.value || projectSelecting.value) return
+  projectSelecting.value = true
+  try {
+    const response: any = await projectApi.detail(String(project.id))
+    const current = String(response?.result?.currentReworkId || '')
+    if (requestedReworkId.value && current !== requestedReworkId.value) throw new Error('返工轮次已变化，请返回项目详情重新进入')
+    if (current) await validateRework(String(project.id), current)
+    project = { ...project, currentReworkId: current }
+  const projectChanged = String(project.id || '') !== String(orderInfo.value.id || '') || String(project.currentReworkId || '') !== reworkId.value
   orderInfo.value = project
+  reworkId.value = String(project.currentReworkId || '')
   orderNo.value = project.periodNo || project.projectNo || ''
   showProject.value = false
   projectKeyword.value = ''
@@ -535,6 +564,8 @@ const selectProject = (project: any) => {
     pickerSelectedMaterials.value = []
     materialKeyword.value = ''
   }
+  } catch (error: any) { toast.warning(error?.message || '项目加载失败，请重试') }
+  finally { projectSelecting.value = false }
 }
 
 const isSelected = (m: any) =>
@@ -630,6 +661,7 @@ const dec = (m: any) => {
 }
 
 const submit = async () => {
+  if (submitting.value || projectSelecting.value) return
   if (isProjectUsage.value && !orderInfo.value.id) return toast.warning('请选择关联单号')
   if (!selectedMaterials.value.length) return toast.warning('请选择物料')
   const invalid = selectedMaterials.value.find((m) => !Number(m.qty) || Number(m.qty) <= 0)
@@ -640,6 +672,18 @@ const submit = async () => {
   if (overPlan) return toast.warning(`${overPlan.name}的申请数量不能超过当前可申请数量`)
   submitting.value = true
   try {
+    if (isProjectUsage.value) {
+      const project: any = await projectApi.detail(String(orderInfo.value.id))
+      const currentRework = String(project?.result?.currentReworkId || '')
+      if (currentRework !== reworkId.value) throw new Error('项目返工轮次已变化，请重新选择项目和物料')
+      if (reworkId.value) {
+        const fresh = await getReworkMaterials(String(orderInfo.value.id), reworkId.value)
+        if (selectedMaterials.value.some(item => {
+          const row = fresh.find((row: any) => String(row.materialId) === String(item.id))
+          return !row || Number(item.qty) > Number(row.availableApplyQty)
+        })) return toast.warning('本轮可申请数量已变化，请重新选择物料')
+      }
+    }
     const user = userStore.userInfo as any
     const res: any = await stockApi.addApply({
       applyType: 'OUT',
@@ -648,6 +692,7 @@ const submit = async () => {
       ...(isProjectUsage.value
         ? {
             periodId: String(orderInfo.value.id),
+            ...(reworkId.value ? { reworkId: reworkId.value } : {}),
           }
         : {}),
       applyUserId: user.userid || user.id || '',
@@ -661,17 +706,19 @@ const submit = async () => {
     })
     applyNo.value = res.result?.applyNo || res.result?.id || ''
     const noText = applyNo.value ? `申请单号：${applyNo.value}\n` : ''
+    const approvalText = String(res.result?.status) === '1' ? '申请已通过，等待库管出库。' : String(res.result?.status) === '2' ? '申请已提交，等待审批；审批通过后由库管办理出库。' : '申请已提交，请在申请记录中查看审批和出库进度。'
     message
-      .alert({ title: '申请提交成功', msg: `${noText}库管出库后，请及时领取物料` })
+      .alert({ title: '申请提交成功', msg: `${noText}${approvalText}` })
       .then(() => uni.navigateBack())
-  } catch (e) {
-    toast.error('提交失败，请重试')
+  } catch (e: any) {
+    toast.error(e?.message || '提交失败，请重试')
   } finally {
     submitting.value = false
   }
 }
 
 const openMaterialPicker = async () => {
+  if (projectSelecting.value || submitting.value) return
   if (isProjectUsage.value && !orderInfo.value.id) return toast.warning('请先选择关联单号')
   pickerSelectedMaterials.value = selectedMaterials.value.map((item) => ({ ...item }))
   showMaterial.value = true

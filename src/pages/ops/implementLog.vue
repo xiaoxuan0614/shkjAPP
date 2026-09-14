@@ -63,7 +63,7 @@
                 >
                   <text class="select-control__text">
                     {{
-                      processesLoading ? '正在加载工序…' : project.currentProcess || '暂无可选工序'
+                      processesLoading ? '正在加载工序…' : project.currentProcess || '暂无未完成工序'
                     }}
                   </text>
                   <wd-icon
@@ -85,6 +85,7 @@
             :location="location"
             :locating="locating"
             :sites="implementationSites"
+            :suspended="showProjectPicker"
             @refresh="getLocation"
           />
         </SectionCard>
@@ -101,13 +102,20 @@
           />
           <view class="form-row top photo-field">
             <text class="label">现场照片</text>
-            <view class="photos">
-              <view v-for="(photo, index) in signInPhotos" :key="photo" class="photo">
-                <image :src="photo" mode="aspectFill" />
-                <text @click="signInPhotos.splice(index, 1)">×</text>
-              </view>
-              <view v-if="signInPhotos.length < 3" class="photo add-photo" @click="addSignInPhoto">
-                添加
+            <view class="media-field__body">
+              <text class="media-hint">自动添加定位和当前时间水印</text>
+              <view class="photos">
+                <view v-for="(photo, index) in signInPhotos" :key="photo" class="photo">
+                  <image :src="mediaPreviewUrl(photo)" mode="aspectFill" @click="previewPhotos(photo, signInPhotos)" />
+                  <text @click="signInPhotos.splice(index, 1)">×</text>
+                </view>
+                <view
+                  v-if="signInPhotos.length < 3"
+                  class="photo add-photo"
+                  @click="addSignInPhoto"
+                >
+                  添加
+                </view>
               </view>
             </view>
           </view>
@@ -122,14 +130,14 @@
           <text>正在继续上一次未完成的实施流程，完成签退后才能再次签到。</text>
         </view>
         <view class="session-strip">
-          <view>
+          <view class="session-strip__main">
             <view class="session-strip__title">实施进行中</view>
             <view class="session-strip__meta">
-              {{ project.name }} · {{ project.currentProcess }}
+              {{ projectOptionText(project) }} · {{ project.currentProcess }}
             </view>
           </view>
           <view class="session-strip__time">
-            <text>签到 {{ shortTime(session.checkInTime) }}</text>
+            <text>签到时间 {{ formatDateTime(session.checkInTime) }}</text>
             <text>已持续 {{ elapsedText }}</text>
           </view>
         </view>
@@ -147,7 +155,7 @@
         <SectionCard v-if="logStep === 0" title="项目信息">
           <view class="row">
             <text class="label">项目名称</text>
-            <text class="val">{{ project.name }}</text>
+            <text class="val">{{ projectOptionText(project) }}</text>
           </view>
           <view class="row">
             <text class="label">客户名称</text>
@@ -189,128 +197,149 @@
             />
           </view>
           <view class="form-row top">
-            <text class="label">现场照片</text>
-            <view class="photos">
-              <view v-for="(photo, index) in photos" :key="photo" class="photo">
-                <image :src="photo" mode="aspectFill" />
-                <text @click="photos.splice(index, 1)">×</text>
-              </view>
-              <view v-if="photos.length < 3" class="photo add-photo" @click="addPhoto">添加</view>
-            </view>
-          </view>
-          <view v-if="!isSiteLeader" class="role-note">
-            仅当前工序现场负责人可调整参与人员和外协信息。
-          </view>
-          <view class="form-row">
-            <text class="label">其他参与人员</text>
-            <view class="choice-group" :class="{ disabled: !isSiteLeader }">
-              <text
-                :class="{ on: !form.hasOtherParticipants }"
-                @click="setOtherParticipants(false)"
-              >
-                否
-              </text>
-              <text :class="{ on: form.hasOtherParticipants }" @click="setOtherParticipants(true)">
-                是
-              </text>
-            </view>
-          </view>
-          <view v-if="form.hasOtherParticipants" class="form-row top">
-            <text class="label">选择人员</text>
-            <view class="chips" :class="{ disabled: !isSiteLeader }">
-              <text
-                v-for="person in persons"
-                :key="person.id"
-                class="chip"
-                :class="{ on: form.personIds.includes(person.id) }"
-                @click="togglePerson(person.id)"
-              >
-                {{ person.name }}
-              </text>
-              <text
-                v-if="membersError"
-                class="inline-empty inline-empty--error"
-                @click="loadMembers"
-              >
-                参与人员加载失败，点击重试
-              </text>
-              <text v-else-if="!persons.length" class="inline-empty">当前项目暂无其他可选人员</text>
-            </view>
-          </view>
-          <view class="form-row">
-            <text class="label">是否需外协</text>
-            <view class="choice-group" :class="{ disabled: !isSiteLeader }">
-              <text :class="{ on: !form.needsOutsource }" @click="setNeedsOutsource(false)">
-                否
-              </text>
-              <text :class="{ on: form.needsOutsource }" @click="setNeedsOutsource(true)">是</text>
-            </view>
-          </view>
-          <view v-if="form.needsOutsource" class="outsourcing-list">
-            <view v-for="row in form.outsourcingList" :key="row.key" class="outsourcing-row">
-              <view class="form-row">
-                <text class="label">外协单位</text>
-                <picker
-                  mode="selector"
-                  :range="outsourceNames"
-                  :value="outsourceIndex(row.unitId)"
-                  :disabled="!isSiteLeader"
-                  @change="onOutsourceUnit(row, $event)"
+            <text class="label">现场影像</text>
+            <view class="media-field__body">
+              <text class="media-hint">照片 {{ logPhotoCount }}/6，视频 {{ logVideoCount }}/2（每段最多60秒）；照片自动添加定位和时间水印</text>
+              <view class="media-grid">
+                <view
+                  v-for="(item, index) in logMedia"
+                  :key="`${item.type}-${item.path}`"
+                  class="media-card"
                 >
-                  <view
-                    class="picker-value picker-value--select"
-                    :class="{ placeholder: !row.unitId }"
-                  >
-                    {{ row.unitName || '请选择计划外协单位' }}
+                  <image
+                    v-if="item.type === 'image'"
+                    class="media-card__preview"
+                    :src="mediaPreviewUrl(item.path)"
+                    mode="aspectFill"
+                    @click="previewLogPhoto(item.path)"
+                  />
+                  <VideoCover
+                    v-else
+                    :height="108"
+                    :src="mediaPreviewUrl(item.path)"
+                    @preview="previewLogVideo(item.path)"
+                  />
+                  <view class="media-card__footer">
+                    <text>{{ item.type === 'video' ? '视频' : '照片' }} {{ index + 1 }}</text>
+                    <text class="media-card__remove" @click="logMedia.splice(index, 1)">
+                      删除
+                    </text>
                   </view>
-                </picker>
+                </view>
+                <view v-if="logPhotoCount < 6 || logVideoCount < 2" class="add-media" @click="addLogMedia">
+                  <wd-icon name="video" size="22px" color="#176ac7" />
+                  <text>添加影像</text>
+                </view>
               </view>
-              <view class="outsourcing-fields">
-                <view>
-                  <text>人数</text>
-                  <input
-                    v-model="row.headcount"
-                    type="number"
-                    placeholder="0"
-                    :disabled="!isSiteLeader"
-                  />
-                </view>
-                <view>
-                  <text>工时</text>
-                  <input
-                    v-model="row.workHours"
-                    type="digit"
-                    placeholder="0"
-                    :disabled="!isSiteLeader"
-                  />
-                  <text>小时</text>
-                </view>
+            </view>
+          </view>
+          <template v-if="isSiteLeader">
+            <view class="form-row">
+              <text class="label">其他参与人员</text>
+              <view class="choice-group">
                 <text
-                  v-if="isSiteLeader"
-                  class="outsourcing-remove"
-                  @click="removeOutsource(row.key)"
+                  :class="{ on: !form.hasOtherParticipants }"
+                  @click="setOtherParticipants(false)"
                 >
-                  删除
+                  否
+                </text>
+                <text
+                  :class="{ on: form.hasOtherParticipants }"
+                  @click="setOtherParticipants(true)"
+                >
+                  是
                 </text>
               </view>
-              <view v-if="row.plannedHeadcount || row.plannedWorkHours" class="outsourcing-plan">
-                计划：{{ row.plannedHeadcount || 0 }} 人 · {{ row.plannedWorkHours || 0 }} 小时
+            </view>
+            <view v-if="form.hasOtherParticipants" class="form-row top">
+              <text class="label">选择人员</text>
+              <view class="chips">
+                <text
+                  v-for="person in persons"
+                  :key="person.id"
+                  class="chip"
+                  :class="{ on: form.personIds.includes(person.id) }"
+                  @click="togglePerson(person.id)"
+                >
+                  {{ person.name }}
+                </text>
+                <text
+                  v-if="membersError"
+                  class="inline-empty inline-empty--error"
+                  @click="loadMembers"
+                >
+                  参与人员加载失败，点击重试
+                </text>
+                <text v-else-if="!persons.length" class="inline-empty">
+                  当前项目暂无其他可选人员
+                </text>
               </view>
             </view>
-            <view
-              v-if="outsourcesError"
-              class="inline-empty inline-empty--error"
-              @click="loadOutsources"
-            >
-              计划外协加载失败，点击重试
+            <view class="form-row">
+              <text class="label">是否需外协</text>
+              <view class="choice-group">
+                <text :class="{ on: !form.needsOutsource }" @click="setNeedsOutsource(false)">
+                  否
+                </text>
+                <text :class="{ on: form.needsOutsource }" @click="setNeedsOutsource(true)">
+                  是
+                </text>
+              </view>
             </view>
-            <view v-else-if="!outsourceOptions.length" class="inline-empty">
-              当前项目计划中暂无外协单位
+            <view v-if="form.needsOutsource" class="outsourcing-list">
+              <view v-for="row in form.outsourcingList" :key="row.key" class="outsourcing-row">
+                <view class="form-row">
+                  <text class="label">外协单位</text>
+                  <picker
+                    mode="selector"
+                    :range="outsourceNames"
+                    :value="outsourceIndex(row.outsourceMemberId)"
+                    @change="onOutsourceUnit(row, $event)"
+                  >
+                    <view
+                      class="picker-value picker-value--select"
+                      :class="{ placeholder: !row.outsourceMemberId }"
+                    >
+                      {{ row.unitName || '请选择计划外协单位' }}
+                    </view>
+                  </picker>
+                </view>
+                <view class="outsourcing-fields">
+                  <view class="outsourcing-field">
+                    <text class="outsourcing-field__label">实际人数</text>
+                    <view class="outsourcing-input">
+                      <input v-model="row.headcount" type="number" placeholder="请输入" />
+                      <text>人</text>
+                    </view>
+                  </view>
+                  <view class="outsourcing-field">
+                    <text class="outsourcing-field__label">实际工时</text>
+                    <view class="outsourcing-input">
+                      <input v-model="row.workHours" type="digit" placeholder="请输入" />
+                      <text>小时</text>
+                    </view>
+                  </view>
+                </view>
+                <view class="outsourcing-row__footer">
+                  <text v-if="row.plannedHeadcount || row.plannedWorkHours" class="outsourcing-plan">
+                    计划：{{ row.plannedHeadcount || 0 }} 人 · {{ row.plannedWorkHours || 0 }} 小时
+                  </text>
+                  <text class="outsourcing-remove" @click="removeOutsource(row.key)">删除本条</text>
+                </view>
+              </view>
+              <text
+                v-if="outsourcesError"
+                class="inline-empty inline-empty--error"
+                @click="loadOutsources"
+              >
+                计划外协加载失败，点击重试
+              </text>
+              <text v-else-if="!outsourceOptions.length" class="inline-empty">
+                当前项目计划中暂无外协单位
+              </text>
+              <view v-else class="material-select" @click="addOutsource">＋ 添加当天外协</view>
             </view>
-            <view v-else-if="isSiteLeader" class="material-select" @click="addOutsource">
-              ＋ 添加当天外协
-            </view>
-          </view>
+          </template>
         </SectionCard>
 
         <template v-if="logStep === 2">
@@ -318,7 +347,9 @@
             <view class="form-row">
               <text class="label">使用车辆</text>
               <input
-                v-model.trim="form.plate"
+                :value="form.plate"
+                @input="onPlateInput"
+                @blur="validateVehiclePlate"
                 class="input"
                 maxlength="20"
                 placeholder="手动填写车牌号（选填）"
@@ -337,13 +368,13 @@
               <text class="unit">km</text>
             </view>
           </SectionCard>
-          <SectionCard title="用料记录（选填）">
+          <SectionCard v-if="isSiteLeader" title="用料记录（选填）">
             <view v-for="material in selectedMaterials" :key="material.id" class="material-row">
               <view class="material-copy">
                 <view>{{ material.name }}</view>
                 <text>
-                  {{ material.spec || '暂无规格' }} · 本项目已出库 {{ material.outQty
-                  }}{{ material.unit }} · 计划 {{ material.planQty }}{{ material.unit }}
+                  {{ material.spec || '暂无规格' }} · 计划量：{{ material.planQty }}{{ material.unit }}
+                  · 可用量：{{ material.availableQty }}{{ material.unit }}
                 </text>
               </view>
               <view class="quantity">
@@ -406,6 +437,7 @@
             :location="location"
             :locating="locating"
             :sites="implementationSites"
+            :suspended="showProjectPicker"
             @refresh="getLocation"
           />
         </SectionCard>
@@ -419,17 +451,20 @@
           />
           <view class="form-row top photo-field">
             <text class="label">现场照片</text>
-            <view class="photos">
-              <view v-for="(photo, index) in signOutPhotos" :key="photo" class="photo">
-                <image :src="photo" mode="aspectFill" />
-                <text @click="signOutPhotos.splice(index, 1)">×</text>
-              </view>
-              <view
-                v-if="signOutPhotos.length < 3"
-                class="photo add-photo"
-                @click="addSignOutPhoto"
-              >
-                添加
+            <view class="media-field__body">
+              <text class="media-hint">自动添加定位和当前时间水印</text>
+              <view class="photos">
+                <view v-for="(photo, index) in signOutPhotos" :key="photo" class="photo">
+                  <image :src="mediaPreviewUrl(photo)" mode="aspectFill" @click="previewPhotos(photo, signOutPhotos)" />
+                  <text @click="signOutPhotos.splice(index, 1)">×</text>
+                </view>
+                <view
+                  v-if="signOutPhotos.length < 3"
+                  class="photo add-photo"
+                  @click="addSignOutPhoto"
+                >
+                  添加
+                </view>
               </view>
             </view>
           </view>
@@ -445,7 +480,7 @@
           <view class="complete-list">
             <view>
               <text>项目名称</text>
-              <text>{{ project.name }}</text>
+              <text>{{ projectOptionText(project) }}</text>
             </view>
             <view>
               <text>到场时间</text>
@@ -571,6 +606,8 @@
     <wd-popup
       v-model="showProjectPicker"
       position="bottom"
+      root-portal
+      :z-index="50"
       custom-style="border-radius:16px 16px 0 0;"
     >
       <view class="project-popup">
@@ -676,8 +713,8 @@
               <view>{{ material.name }}</view>
               <text>物料编号：{{ material.materialCode || '暂无编号' }}</text>
               <text>
-                {{ material.spec || '暂无规格' }} · 已出库 {{ material.outQty
-                }}{{ material.unit }} · 计划 {{ material.planQty }}{{ material.unit }}
+                {{ material.spec || '暂无规格' }} · 计划量：{{ material.planQty }}{{ material.unit }}
+                · 可用量：{{ material.availableQty }}{{ material.unit }}
               </text>
             </view>
             <view class="material-check">{{ isMaterialSelected(material.id) ? '✓' : '' }}</view>
@@ -697,6 +734,14 @@
         </view>
       </view>
     </wd-popup>
+    <wd-popup v-model="videoPreviewVisible" position="center" :root-portal="true" :z-index="2400">
+      <view class="log-video-preview">
+        <video v-if="videoPreviewVisible" :key="videoPreviewPath" :src="mediaPreviewUrl(videoPreviewPath)" controls :autoplay="false" object-fit="contain" @error="videoPreviewError = true" />
+        <text v-if="videoPreviewError" class="media-hint">视频无法播放，请检查网络或视频编码；可尝试使用 H.264 编码的 MP4 文件。</text>
+        <button @click="videoPreviewVisible = false">关闭预览</button>
+      </view>
+    </wd-popup>
+    <PhotoWatermarkCanvas ref="photoWatermarkCanvas" />
   </PageLayout>
 </template>
 
@@ -704,12 +749,16 @@
 import { onLoad } from '@dcloudio/uni-app'
 import dayjs from 'dayjs'
 import { computed, ref } from 'vue'
-import { useMessage, useToast } from 'wot-design-uni'
+import { useToast } from 'wot-design-uni'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import LocationPanel from './components/LocationPanel.vue'
+import PhotoWatermarkCanvas from './components/PhotoWatermarkCanvas.vue'
+import VideoCover from './components/VideoCover.vue'
+import { getFileAccessHttpUrl } from '@/common/uitls'
 import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
 import { normalizeProject, projectApi, unwrapRecords } from '@/service/shkj'
+import { isValidVehiclePlate, normalizeVehiclePlate } from '@/utils/vehiclePlate'
 
 type SessionStatus = 'NOT_STARTED' | 'CHECKED_IN' | 'LOG_DRAFT' | 'LOG_SUBMITTED' | 'COMPLETED'
 type LocationStatus = 'PENDING' | 'NORMAL' | 'OUT_OF_RANGE' | 'FAILED' | 'NO_SITE'
@@ -731,6 +780,7 @@ type SiteLocation = {
   distance?: number
 }
 type Session = {
+  logId?: string
   periodId?: string
   project?: any
   processId?: string
@@ -755,7 +805,6 @@ type DictOption = {
 }
 
 const toast = useToast()
-const message = useMessage()
 const userStore = useUserStore()
 const loading = ref(true)
 const submitting = ref(false)
@@ -787,8 +836,31 @@ const implementationSites = ref<ImplementationSite[]>([])
 const sitesLoading = ref(false)
 const sitesError = ref(false)
 const signInPhotos = ref<string[]>([])
-const photos = ref<string[]>([])
+type LogMediaItem = { path: string; type: 'image' | 'video' }
+const logMedia = ref<LogMediaItem[]>([])
 const signOutPhotos = ref<string[]>([])
+const mediaProcessing = ref(false)
+const logPhotoCount = computed(() => logMedia.value.filter(item => item.type === 'image').length)
+const logVideoCount = computed(() => logMedia.value.filter(item => item.type === 'video').length)
+const videoPreviewVisible = ref(false)
+const videoPreviewPath = ref('')
+const videoPreviewError = ref(false)
+const previewLogVideo = (path: string) => {
+  videoPreviewPath.value = path
+  videoPreviewError.value = false
+  videoPreviewVisible.value = true
+}
+const photoWatermarkCanvas = ref<{
+  applyWatermark: (
+    filePath: string,
+    meta: {
+      locationText: string
+      latitude?: number
+      longitude?: number
+      timestamp: string
+    },
+  ) => Promise<string>
+}>()
 const issuedMaterials = ref<any[]>([])
 const selectedMaterials = ref<any[]>([])
 const materialsLoading = ref(false)
@@ -823,7 +895,20 @@ const form = ref(createEmptyForm())
 const mainSteps = ['签到', '实施日志', '签退']
 const logSteps = ['项目信息', '实施记录', '用车与用料']
 
-const projectOptionText = (item: any) => item.name || '未命名分期'
+const projectOptionText = (item: any) => item.projectLabel ||
+  [item.projectName, item.periodName || (item.name !== item.projectName ? item.name : '')]
+    .map(value => String(value ?? '').trim()).filter(Boolean).join('-') || '未命名项目'
+const onPlateInput = (event: any) => {
+  const plate = normalizeVehiclePlate(event.detail.value)
+  form.value.plate = plate
+  return plate
+}
+const validateVehiclePlate = () => {
+  form.value.plate = normalizeVehiclePlate(form.value.plate)
+  if (isValidVehiclePlate(form.value.plate)) return true
+  toast.warning('车牌号格式不正确，请填写正确的普通或新能源车牌号')
+  return false
+}
 const filteredProjects = computed(() => {
   const keyword = projectKeyword.value.trim().toLowerCase()
   if (!keyword) return projects.value
@@ -872,11 +957,11 @@ const backfillMinTime = computed(() => {
   const value = dayjs(session.value.checkInTime)
   return value.isValid() ? value.valueOf() : dayjs().subtract(30, 'day').valueOf()
 })
-const remainDaysText = computed(() =>
-  project.value.remainDays < 0
-    ? `已延期 ${-project.value.remainDays} 天`
-    : `${project.value.remainDays ?? 0} 天`,
-)
+const remainDaysText = computed(() => {
+  const remainDays = Number(project.value.remainDays)
+  if (!Number.isFinite(remainDays)) return '--'
+  return remainDays < 0 ? `已延期 ${-remainDays} 天` : `${remainDays} 天`
+})
 const elapsedText = computed(() => {
   if (!session.value.checkInTime) return '--'
   const end = session.value.checkOutTime ? dayjs(session.value.checkOutTime) : dayjs()
@@ -911,11 +996,11 @@ const filteredIssuedMaterials = computed(() => {
 const allFilteredMaterialsSelected = computed(
   () =>
     filteredIssuedMaterials.value.some(
-      (item: any) => item.materialPlanId && Number(item.planQty) > 0 && Number(item.outQty) > 0,
+      (item: any) => item.materialPlanId && Number(item.availableQty) > 0,
     ) &&
     filteredIssuedMaterials.value
       .filter(
-        (item: any) => item.materialPlanId && Number(item.planQty) > 0 && Number(item.outQty) > 0,
+        (item: any) => item.materialPlanId && Number(item.availableQty) > 0,
       )
       .every((item: any) =>
         selectedMaterials.value.some((selected: any) => String(selected.id) === String(item.id)),
@@ -923,7 +1008,14 @@ const allFilteredMaterialsSelected = computed(
 )
 const formatDateTime = (value?: string) =>
   value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '--'
-const shortTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '--')
+
+const remainingDaysUntil = (plannedEndTime?: string) => {
+  if (!plannedEndTime) return undefined
+  const endTime = dayjs(plannedEndTime)
+  return endTime.isValid()
+    ? endTime.startOf('day').diff(dayjs().startOf('day'), 'day') + 1
+    : undefined
+}
 
 const processTime = (item: any) => {
   const value = dayjs(item.plannedStartTime)
@@ -963,13 +1055,14 @@ const applySelectedProcess = (index: number) => {
     processPlan: currentProcess
       ? [currentProcess.plannedStartTime, currentProcess.plannedEndTime].filter(Boolean).join(' ~ ')
       : '',
+    remainDays: currentProcess ? remainingDaysUntil(currentProcess.plannedEndTime) : undefined,
   }
 }
 const resetCurrentFlow = () => {
   session.value = { status: 'NOT_STARTED' }
   form.value = createEmptyForm()
   signInPhotos.value = []
-  photos.value = []
+  logMedia.value = []
   signOutPhotos.value = []
   selectedMaterials.value = []
   logStep.value = 0
@@ -1055,7 +1148,7 @@ const loadCheckInContext = async (preferredProcessId = '') => {
   sitesError.value = false
   const [detailResult, processResult, locationResult] = await Promise.allSettled([
     projectApi.detail(project.value.id),
-    projectApi.processes(project.value.id),
+    projectApi.processes(project.value.id, { onlyUnfinishedProcess: true }),
     projectApi.locations(project.value.id),
     loadWorkTypeOptions(),
   ])
@@ -1066,7 +1159,9 @@ const loadCheckInContext = async (preferredProcessId = '') => {
     }
   }
   const processRows = processResult.status === 'fulfilled' ? unwrapRecords(processResult.value) : []
-  processes.value = [...processRows].sort(
+  processes.value = processRows.filter((item: any) =>
+    ['NOT_STARTED', 'IN_PROGRESS'].includes(String(item.status ?? '').trim().toUpperCase()),
+  ).sort(
     (a: any, b: any) =>
       processTime(a) - processTime(b) ||
       Number(a.sortNo ?? Number.MAX_SAFE_INTEGER) - Number(b.sortNo ?? Number.MAX_SAFE_INTEGER),
@@ -1085,9 +1180,6 @@ const loadCheckInContext = async (preferredProcessId = '') => {
     .sort()
   project.value.startDate = startDates[0] || project.value.startDate || ''
   project.value.endDate = endDates[endDates.length - 1] || project.value.endDate || ''
-  project.value.remainDays = project.value.endDate
-    ? dayjs(project.value.endDate).startOf('day').diff(dayjs().startOf('day'), 'day')
-    : 0
   if (locationResult.status === 'fulfilled') {
     implementationSites.value = unwrapRecords(locationResult.value)
       .map(normalizeSite)
@@ -1105,10 +1197,10 @@ const loadParticipatedProjects = async () => {
   projectsLoading.value = true
   projectsError.value = false
   try {
-    const response = await projectApi.participatedProjects()
+    const response = await projectApi.participatedProjects({ onlyUnfinishedProcess: true })
     const uniqueProjects = new Map<string, any>()
     unwrapRecords(response)
-      .map(normalizeProject)
+      .map((item: any) => normalizeProject({ ...item, status: item.periodStatus ?? item.status }))
       .forEach((item: any) => {
         if (item.id) uniqueProjects.set(String(item.id), item)
       })
@@ -1122,7 +1214,7 @@ const loadParticipatedProjects = async () => {
 }
 const openProjectPicker = async () => {
   showProjectPicker.value = true
-  if (!projects.value.length && !projectsLoading.value) await loadParticipatedProjects()
+  if (!projectsLoading.value) await loadParticipatedProjects()
 }
 const resetLogResources = () => {
   materialRequestId++
@@ -1169,9 +1261,9 @@ const setNeedsOutsource = (value: boolean) => {
   if (!value) form.value.outsourcingList = []
   else if (!form.value.outsourcingList.length && outsourceOptions.value.length) addOutsource()
 }
-const outsourceIndex = (unitId: string) => {
+const outsourceIndex = (outsourceMemberId: string) => {
   const index = outsourceOptions.value.findIndex(
-    (item: any) => String(item.unitId) === String(unitId),
+    (item: any) => String(item.outsourceMemberId) === String(outsourceMemberId),
   )
   return index >= 0 ? index : 0
 }
@@ -1205,19 +1297,187 @@ const removeOutsource = (key: number) => {
   if (!isSiteLeader.value) return toast.warning('仅当前工序现场负责人可填写外协信息')
   form.value.outsourcingList = form.value.outsourcingList.filter((item: any) => item.key !== key)
 }
-const choosePhotos = (target: 'signIn' | 'log' | 'signOut') => {
-  const targetPhotos =
-    target === 'signIn' ? signInPhotos : target === 'signOut' ? signOutPhotos : photos
+const photoWatermarkLocation = () =>
+  location.value.matchedSiteName ||
+  location.value.name ||
+  location.value.address ||
+  form.value.location.trim() ||
+  '定位信息不可用'
+
+const addPhotoWatermark = async (filePath: string) => {
+  if (!photoWatermarkCanvas.value) throw new Error('照片水印组件尚未就绪')
+  return photoWatermarkCanvas.value.applyWatermark(filePath, {
+    locationText: photoWatermarkLocation(),
+    latitude: location.value.latitude,
+    longitude: location.value.longitude,
+    timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  })
+}
+
+const uploadBiz = () => {
+  const periodId = String(session.value.periodId || project.value.id || '').trim()
+  if (!periodId) throw new Error('缺少项目分期ID')
+  return `${periodId.replace(/\/+$/, '')}/`
+}
+const mediaPreviewUrl = (resourcePath: string) => {
+  const source = String(resourcePath || '').trim().replace(/\\/g, '/')
+  if (!source) return ''
+  if (/^(blob:|data:|file:|wxfile:)/i.test(source)) return source
+  const staticPath = source
+    .replace(/^\/?shouhuiApi\/sys\/common\/static\//i, '')
+    .replace(/^\/?sys\/common\/static\//i, '')
+    .replace(/^\/+/, '')
+  let url = /^https?:\/\//i.test(source) ? source : getFileAccessHttpUrl(staticPath)
+  // #ifdef H5
+  // HTTPS 开发页通过同源代理读取静态文件，避免 HTTP 内网图片被拦截。
+  const base = import.meta.env.VITE_SERVER_BASEURL.replace(/\/$/, '')
+  if (import.meta.env.DEV && import.meta.env.VITE_APP_PROXY === 'true' && url.startsWith(`${base}/`)) {
+    url = import.meta.env.VITE_APP_PROXY_PREFIX + url.slice(base.length)
+  }
+  // #endif
+  return url
+}
+const previewPhotos = (current: string, paths: string[]) => {
+  const urls = paths.filter(Boolean).map(mediaPreviewUrl)
+  if (!urls.length) return
+  uni.previewImage({
+    current: mediaPreviewUrl(current),
+    urls,
+    fail: () => toast.error('照片预览失败，请稍后重试'),
+  })
+}
+const previewLogPhoto = (path: string) => {
+  previewPhotos(path, logMedia.value.filter((item) => item.type === 'image').map((item) => item.path))
+}
+const uploadMedia = async (filePath: string, typeName: '照片' | '视频', file?: any) => {
+  const response: any = await http.upload('/sys/common/upload', {
+    filePath,
+    // #ifdef H5
+    file,
+    // #endif
+    name: 'file',
+    timeout: typeName === '视频' ? 180000 : 60000,
+    formData: { biz: uploadBiz() },
+  })
+  const data = response?.data || {}
+  if (![0, 200].includes(Number(data.code))) throw new Error(data.message || `${typeName}上传失败`)
+  const resourcePath = String(data.message || '').trim()
+  if (!resourcePath) throw new Error(`${typeName}上传后未返回资源路径`)
+  return resourcePath
+}
+const uploadPhoto = (filePath: string) => uploadMedia(filePath, '照片')
+const uploadVideo = (filePath: string, file?: any) => uploadMedia(filePath, '视频', file)
+
+const chooseExceptionPhotos = (target: 'signIn' | 'signOut') => {
+  if (mediaProcessing.value) return
+  const targetPhotos = target === 'signIn' ? signInPhotos : signOutPhotos
   const remaining = 3 - targetPhotos.value.length
   if (remaining <= 0) return
   uni.chooseImage({
     count: remaining,
-    success: (result) => targetPhotos.value.push(...result.tempFilePaths),
+    sourceType: ['camera', 'album'],
+    success: async (result) => {
+      mediaProcessing.value = true
+      uni.showLoading({ title: '正在处理并上传…', mask: true })
+      let failedCount = 0
+      try {
+        for (const filePath of result.tempFilePaths) {
+          try {
+            const watermarkedPath = await addPhotoWatermark(filePath)
+            targetPhotos.value.push(await uploadPhoto(watermarkedPath))
+          } catch (error) {
+            failedCount++
+            console.warn('[implementLog] 照片处理或上传失败', error)
+          }
+        }
+      } finally {
+        uni.hideLoading()
+        mediaProcessing.value = false
+      }
+      if (failedCount) toast.error('部分照片处理或上传失败，请重新选择')
+    },
   })
 }
-const addSignInPhoto = () => choosePhotos('signIn')
-const addPhoto = () => choosePhotos('log')
-const addSignOutPhoto = () => choosePhotos('signOut')
+const chooseLogPhotos = (sourceType: ('camera' | 'album')[]) => {
+  if (mediaProcessing.value) return
+  const remaining = 6 - logPhotoCount.value
+  if (remaining <= 0) return toast.warning('最多上传6张照片')
+  uni.chooseImage({
+    count: remaining,
+    sourceType,
+    success: async (result) => {
+      mediaProcessing.value = true
+      uni.showLoading({ title: '正在处理并上传…', mask: true })
+      let failedCount = 0
+      try {
+        for (const filePath of result.tempFilePaths) {
+          if (logPhotoCount.value >= 6) break
+          try {
+            const watermarkedPath = await addPhotoWatermark(filePath)
+            const resourcePath = await uploadPhoto(watermarkedPath)
+            logMedia.value.push({ path: resourcePath, type: 'image' })
+          } catch (error) {
+            failedCount++
+            console.warn('[implementLog] 照片处理或上传失败', error)
+          }
+        }
+      } finally {
+        uni.hideLoading()
+        mediaProcessing.value = false
+      }
+      if (failedCount) toast.error('部分照片处理或上传失败，请重新选择')
+    },
+  })
+}
+const chooseLogVideo = (sourceType: ('camera' | 'album')[]) => {
+  if (mediaProcessing.value) return
+  if (logVideoCount.value >= 2) return toast.warning('最多上传2个视频')
+  uni.chooseVideo({
+    sourceType,
+    compressed: true,
+    maxDuration: 60,
+    success: async (result) => {
+      if (logVideoCount.value >= 2) return toast.warning('最多上传2个视频')
+      if (Number(result.duration) > 60) {
+        toast.warning('请选择60秒以内的视频')
+        return
+      }
+      mediaProcessing.value = true
+      uni.showLoading({ title: '正在上传视频…', mask: true })
+      try {
+        const resourcePath = await uploadVideo(result.tempFilePath, (result as any).tempFile)
+        logMedia.value.push({ path: resourcePath, type: 'video' })
+      } catch (error) {
+        console.warn('[implementLog] 视频上传失败', error)
+        const failure = error as any
+        const reason = String(failure?.data?.message || failure?.message || failure?.errMsg || '')
+        toast.error(failure?.statusCode === 413 ? '视频超过服务器大小限制，请压缩后重试' : /timeout/i.test(reason) ? '视频上传超时，请检查网络后重试' : reason || '视频上传失败，请检查网络后重试')
+      } finally {
+        uni.hideLoading()
+        mediaProcessing.value = false
+      }
+    },
+    fail: (error) => {
+      if (!String((error as any)?.errMsg || '').includes('cancel')) {
+        toast.error('视频选择失败，请重试')
+      }
+    },
+  })
+}
+const addSignInPhoto = () => chooseExceptionPhotos('signIn')
+const addSignOutPhoto = () => chooseExceptionPhotos('signOut')
+const addLogMedia = () => {
+  if (mediaProcessing.value || (logPhotoCount.value >= 6 && logVideoCount.value >= 2)) return
+  uni.showActionSheet({
+    itemList: ['拍照', '从相册选择照片', '拍摄视频', '从相册选择视频'],
+    success: ({ tapIndex }) => {
+      if (tapIndex === 0) chooseLogPhotos(['camera'])
+      else if (tapIndex === 1) chooseLogPhotos(['album'])
+      else if (tapIndex === 2) chooseLogVideo(['camera'])
+      else chooseLogVideo(['album'])
+    },
+  })
+}
 
 const distanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   const toRad = (value: number) => (value * Math.PI) / 180
@@ -1385,6 +1645,9 @@ const parsePhotoList = (value: unknown) =>
         .map((item) => item.trim())
         .filter(Boolean)
 
+const isVideoPath = (value: string) =>
+  /\.(mp4|mov|m4v|3gp|webm|avi)(?:[?#].*)?$/i.test(String(value || ''))
+
 const restoreDraft = (draft: any) => {
   if (!draft) return
   const participantIds = String(draft.internalParticipantIds || '')
@@ -1416,7 +1679,7 @@ const restoreDraft = (draft: any) => {
     personIds: participantIds,
     needsOutsource: outsourcingList.length > 0,
     outsourcingList,
-    plate: draft.vehicleNo || '',
+    plate: normalizeVehiclePlate(draft.vehicleNo),
     mileage: draft.mileage ?? '',
   }
   outsourceSeed = Math.max(
@@ -1424,7 +1687,13 @@ const restoreDraft = (draft: any) => {
     ...form.value.outsourcingList.map((item: any) => Number(item.key) || 0),
   )
   signInPhotos.value = parsePhotoList(draft.signInPhotos)
-  photos.value = parsePhotoList(draft.photos)
+  const draftMedia = Array.from(
+    new Set([...parsePhotoList(draft.photos), ...parsePhotoList(draft.videos)]),
+  )
+  logMedia.value = draftMedia.map((path) => ({
+    path,
+    type: (isVideoPath(path) ? 'video' : 'image') as LogMediaItem['type'],
+  }))
   const issuedMap = new Map<string, any>()
   issuedMaterials.value.forEach((item: any) => {
     issuedMap.set(String(item.id), item)
@@ -1439,32 +1708,32 @@ const restoreDraft = (draft: any) => {
     .map((item: any) => ({ ...item.source, qty: item.qty }))
 }
 const loadProjectMaterials = async (projectId: string) => {
-  const currentProject = projects.value.find((item: any) => item.id === projectId) || project.value
-  const projectNo = currentProject?.periodNo || currentProject?.projectNo || currentProject?.xmNo
-  if (!projectNo) return
+  if (!projectId) return
   const requestId = ++materialRequestId
   materialsLoading.value = true
   materialsError.value = false
   try {
-    const [applyRes, planRes]: any[] = await Promise.all([
-      http.get('/stock/apply/list', {
-        projectNo,
-        applyType: 'OUT',
-        pageNo: 1,
-        pageSize: 1000,
-      }),
+    const pageSize = 200
+    const [firstAccountRes, planRes]: any[] = await Promise.all([
+      projectApi.materialAccounts(projectId, { pageNo: 1, pageSize }),
       projectApi.materialPlans(projectId),
     ])
-    const applies = unwrapRecords(applyRes).filter(
-      (item: any) =>
-        String(item.projectNo || '') === String(projectNo) &&
-        (item.applyType === 'OUT' || item.bizType === 'PICK'),
-    )
-    const itemResponses: any[] = await Promise.all(
-      applies.map((item: any) =>
-        http.get('/stock/apply/items', { applyId: item.id, pageNo: 1, pageSize: 1000 }),
-      ),
-    )
+    const firstAccountResult = firstAccountRes?.result ?? firstAccountRes
+    const accountRows = Array.isArray(firstAccountResult)
+      ? [...firstAccountResult]
+      : Array.isArray(firstAccountResult?.records)
+        ? [...firstAccountResult.records]
+        : []
+    const total = Number(firstAccountResult?.total)
+    if (!Array.isArray(firstAccountResult) && Number.isFinite(total) && accountRows.length < total) {
+      const totalPages = Math.ceil(total / pageSize)
+      const remainingResponses: any[] = await Promise.all(
+        Array.from({ length: Math.max(totalPages - 1, 0) }, (_, index) =>
+          projectApi.materialAccounts(projectId, { pageNo: index + 2, pageSize }),
+        ),
+      )
+      remainingResponses.forEach((response: any) => accountRows.push(...unwrapRecords(response)))
+    }
     if (requestId !== materialRequestId) return
     const planMetaMap = new Map<string, { materialPlanId: string; planQty: number }>()
     unwrapRecords(planRes).forEach((item: any) => {
@@ -1476,24 +1745,24 @@ const loadProjectMaterials = async (projectId: string) => {
         planQty: Number(old?.planQty || 0) + Number(item.plannedQty ?? item.planQty ?? 0),
       })
     })
-    const materialMap = new Map<string, any>()
-    itemResponses.flatMap(unwrapRecords).forEach((item: any) => {
-      const outQty = Number(item.executedQty ?? item.outQty ?? 0)
-      if (!item.materialId || outQty <= 0) return
-      const old = materialMap.get(item.materialId)
-      const plan = planMetaMap.get(String(item.materialId))
-      materialMap.set(item.materialId, {
-        id: item.materialId,
-        materialPlanId: plan?.materialPlanId || '',
-        materialCode: item.materialCode || item.code || old?.materialCode || '',
-        name: item.materialName || old?.name || '未命名物料',
-        spec: item.model || item.spec || old?.spec || '',
-        unit: item.unitName || item.unit || old?.unit || '',
-        outQty: Number(old?.outQty || 0) + outQty,
-        planQty: plan?.planQty || 0,
+    issuedMaterials.value = accountRows
+      .filter((item: any) => item.materialId && Number.isFinite(Number(item.remainingReturnQty)) && Number(item.remainingReturnQty) > 0)
+      .map((item: any) => {
+        const plan = planMetaMap.get(String(item.materialId))
+        return {
+          id: String(item.materialId),
+          materialPlanId: String(item.materialPlanId || plan?.materialPlanId || ''),
+          materialCode: item.materialCode || '',
+          name: item.materialName || '未命名物料',
+          spec: item.model || '',
+          unit: item.baseUnitName || '',
+          outQty: Number(item.outboundQty || 0),
+          availableQty: Number(item.remainingReturnQty),
+          consumedQty: Number(item.consumedQty || 0),
+          planQty: Number(item.plannedQty ?? plan?.planQty ?? 0),
+        }
       })
-    })
-    issuedMaterials.value = [...materialMap.values()]
+      .filter((item: any) => item.materialPlanId)
     const selectedQty = new Map(selectedMaterials.value.map((item: any) => [item.id, item.qty]))
     selectedMaterials.value = issuedMaterials.value
       .filter((item: any) => selectedQty.has(item.id))
@@ -1512,13 +1781,13 @@ const toggleMaterial = (material: any) => {
   const index = selectedMaterials.value.findIndex((item: any) => item.id === material.id)
   if (index >= 0) selectedMaterials.value.splice(index, 1)
   else {
-    if (Number(material.planQty) <= 0) {
-      toast.warning(`${material.name}未配置计划数量，不能记录使用量`)
+    if (!material.materialPlanId || !(Number(material.availableQty) > 0)) {
+      toast.warning(`${material.name}暂无可用数量或未关联计划`)
       return
     }
     selectedMaterials.value.push({
       ...material,
-      qty: Math.min(1, Number(material.outQty), Number(material.planQty)),
+      qty: Math.min(1, Number(material.availableQty)),
     })
   }
 }
@@ -1534,11 +1803,11 @@ const toggleSelectAllMaterials = () => {
   const selectedIds = new Set(selectedMaterials.value.map((item: any) => String(item.id)))
   filteredIssuedMaterials.value.forEach((material: any) => {
     if (selectedIds.has(String(material.id))) return
-    if (!material.materialPlanId || Number(material.planQty) <= 0 || Number(material.outQty) <= 0)
+    if (!material.materialPlanId || !(Number(material.availableQty) > 0))
       return
     selectedMaterials.value.push({
       ...material,
-      qty: Math.min(1, Number(material.outQty), Number(material.planQty)),
+      qty: Math.min(1, Number(material.availableQty)),
     })
   })
 }
@@ -1591,6 +1860,10 @@ const loadOutsources = async () => {
 }
 const loadLogResources = async () => {
   if (!project.value.id || logResourcesLoading.value || logResourcesLoaded.value) return
+  if (!isSiteLeader.value) {
+    logResourcesLoaded.value = true
+    return
+  }
   logResourcesLoading.value = true
   try {
     await Promise.allSettled([
@@ -1663,7 +1936,7 @@ const load = async () => {
 
 const logPayload = () => ({
   ...form.value,
-  photos: photos.value,
+  photos: logMedia.value.map((item) => item.path),
   persons: persons.value.filter((item) => form.value.personIds.includes(item.id)),
   materials: selectedMaterials.value.map((item) => ({
     id: item.id,
@@ -1673,6 +1946,7 @@ const logPayload = () => ({
     unit: item.unit,
     planQty: Number(item.planQty),
     outQty: Number(item.outQty),
+    availableQty: Number(item.availableQty),
   })),
 })
 const checkIn = async () => {
@@ -1699,11 +1973,7 @@ const checkIn = async () => {
     return toast.warning('请上传签到位置异常的现场照片')
   submitting.value = true
   try {
-    const checkInTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
-    const uploadedSignInPhotos = isSignInLocationAbnormal.value
-      ? await Promise.all(signInPhotos.value.map(uploadPhoto))
-      : []
-    signInPhotos.value = uploadedSignInPhotos
+    const signInPhotoPaths = isSignInLocationAbnormal.value ? signInPhotos.value : []
     const response: any = await projectApi.signInImplementLog({
       periodId: project.value.id,
       processId: project.value.processId,
@@ -1713,7 +1983,7 @@ const checkIn = async () => {
         ? signInRemark.value.trim() || undefined
         : undefined,
       signInPhotos: isSignInLocationAbnormal.value
-        ? uploadedSignInPhotos.join(',') || undefined
+        ? signInPhotoPaths.join(',') || undefined
         : undefined,
     })
     const result = response?.result || response?.data || {}
@@ -1723,13 +1993,13 @@ const checkIn = async () => {
       project: project.value,
       processId: project.value.processId,
       status: 'CHECKED_IN',
-      checkInTime: result.signInTime || checkInTime,
+      checkInTime: result.signInTime || '',
       checkInLocation: location.value,
       checkInType: checkInType === 'EXCEPTION' ? 'EXCEPTION' : 'NORMAL',
       signInRemark: isSignInLocationAbnormal.value
         ? result.signInRemark || signInRemark.value.trim()
         : '',
-      signInPhotos: parsePhotoList(result.signInPhotos || uploadedSignInPhotos),
+      signInPhotos: parsePhotoList(result.signInPhotos || signInPhotoPaths),
     }
     activeProcessStatus.value = 'IN_PROGRESS'
     hasUnsignedLog.value = true
@@ -1744,20 +2014,28 @@ const checkIn = async () => {
   }
 }
 const validateMaterialUsage = () => {
-  const invalidMaterial = selectedMaterials.value.find(
-    (item: any) =>
-      Number(item.qty) <= 0 ||
-      !item.materialPlanId ||
-      Number(item.qty) > Number(item.outQty) ||
-      Number(item.qty) > Number(item.planQty),
+  if (!isSiteLeader.value) return true
+  const invalidQuantity = selectedMaterials.value.find((item: any) => !Number.isFinite(Number(item.qty)) || Number(item.qty) <= 0)
+  if (invalidQuantity) {
+    toast.warning('使用数量必须大于 0，请核实。')
+    return false
+  }
+  const missingPlan = selectedMaterials.value.find((item: any) => !item.materialPlanId)
+  if (missingPlan) {
+    toast.warning('物料未关联计划，请核实。')
+    return false
+  }
+  const exceedsAvailable = selectedMaterials.value.find(
+    (item: any) => !Number.isFinite(Number(item.availableQty)) || Number(item.qty) > Number(item.availableQty),
   )
-  if (!invalidMaterial) return true
-  toast.warning(
-    `${invalidMaterial.name}的使用数量应大于 0，且不能超过计划数量 ${invalidMaterial.planQty}${invalidMaterial.unit || ''}和已出库数量 ${invalidMaterial.outQty}${invalidMaterial.unit || ''}`,
-  )
-  return false
+  if (exceedsAvailable) {
+    toast.warning('使用数量超过可用量，请核实。')
+    return false
+  }
+  return true
 }
 const validateRecord = () => {
+  if (!validateVehiclePlate()) return false
   if (!form.value.location.trim()) {
     toast.warning('请填写具体实施位置')
     return false
@@ -1766,11 +2044,11 @@ const validateRecord = () => {
     toast.warning('请填写本次实施内容')
     return false
   }
-  if (form.value.hasOtherParticipants && !form.value.personIds.length) {
+  if (isSiteLeader.value && form.value.hasOtherParticipants && !form.value.personIds.length) {
     toast.warning('请选择本次日志的其他参与人员')
     return false
   }
-  if (form.value.needsOutsource) {
+  if (isSiteLeader.value && form.value.needsOutsource) {
     if (!form.value.outsourcingList.length) {
       toast.warning('请至少添加一条当天外协记录')
       return false
@@ -1778,7 +2056,6 @@ const validateRecord = () => {
     const invalidOutsource = form.value.outsourcingList.find(
       (item: any) =>
         !item.outsourceMemberId ||
-        !item.unitId ||
         Number(item.headcount) <= 0 ||
         Number(item.workHours) <= 0,
     )
@@ -1786,8 +2063,10 @@ const validateRecord = () => {
       toast.warning('请选择外协单位，并填写大于 0 的人数和工时')
       return false
     }
-    const unitIds = form.value.outsourcingList.map((item: any) => String(item.unitId))
-    if (new Set(unitIds).size !== unitIds.length) {
+    const outsourceMemberIds = form.value.outsourcingList.map((item: any) =>
+      String(item.outsourceMemberId),
+    )
+    if (new Set(outsourceMemberIds).size !== outsourceMemberIds.length) {
       toast.warning('同一个外协单位当天只需添加一次')
       return false
     }
@@ -1796,13 +2075,17 @@ const validateRecord = () => {
 }
 const saveDraft = async (silent: boolean) => {
   if (!session.value.periodId || !session.value.processId || submitting.value) return false
+  if (mediaProcessing.value) { toast.warning('影像正在上传，请稍候再保存'); return false }
+  if (logPhotoCount.value > 6 || logVideoCount.value > 2) {
+    toast.warning('最多保留6张照片、2个视频，请删除超出部分后保存')
+    return false
+  }
+  if (!validateVehiclePlate()) return false
   if (!silent && !validateMaterialUsage()) return false
   submitting.value = true
   try {
     const data = logPayload()
-    const uploadedPhotos = await Promise.all((data.photos || []).map(uploadPhoto))
-    photos.value = uploadedPhotos
-    const outsources = data.needsOutsource
+    const outsources = isSiteLeader.value && data.needsOutsource
       ? data.outsourcingList
           .filter(
             (item: any) =>
@@ -1822,17 +2105,20 @@ const saveDraft = async (silent: boolean) => {
       processId: session.value.processId,
       implementLocationName: data.location.trim() || undefined,
       workContent: data.content,
-      photos: uploadedPhotos.join(','),
+      photos: data.photos.join(','),
     }
-    const internalParticipantIds = data.hasOtherParticipants ? data.personIds.join(',') : ''
-    const materials = data.materials.map((item: any) => ({
-      materialPlanId: item.materialPlanId,
-      usedQty: Number(item.qty),
-    }))
+    const internalParticipantIds =
+      isSiteLeader.value && data.hasOtherParticipants ? data.personIds.join(',') : ''
+    const materials = isSiteLeader.value
+      ? data.materials.map((item: any) => ({
+          materialPlanId: item.materialPlanId,
+          usedQty: Number(item.qty),
+        }))
+      : []
     if (internalParticipantIds) draftPayload.internalParticipantIds = internalParticipantIds
     if (materials.length) draftPayload.materials = materials
     if (outsources.length) draftPayload.outsources = outsources
-    if (data.plate.trim()) draftPayload.vehicleNo = data.plate.trim()
+    if (data.plate.trim()) draftPayload.vehicleNo = normalizeVehiclePlate(data.plate)
     if (data.plate.trim() && String(data.mileage).trim())
       draftPayload.mileage = Number(data.mileage)
     await projectApi.saveSignOutDraft(draftPayload)
@@ -1840,7 +2126,7 @@ const saveDraft = async (silent: boolean) => {
       ...session.value,
       status: session.value.status === 'LOG_SUBMITTED' ? 'LOG_SUBMITTED' : 'LOG_DRAFT',
       logStep: logStep.value,
-      logData: { ...data, photos: uploadedPhotos },
+      logData: { ...data },
     }
     if (!silent) toast.success('草稿已保存')
     return true
@@ -1863,23 +2149,8 @@ const submitLog = async () => {
   toast.success('日志已保存，下一步请完成签退')
 }
 
-const uploadPhoto = async (filePath: string) => {
-  if (/^https?:\/\//.test(filePath)) return filePath
-  const response: any = await http.upload('/sys/common/upload', {
-    filePath,
-    name: 'file',
-    formData: { biz: String(project.value.id || 'project') },
-  })
-  const data = response?.data || {}
-  if (![0, 200].includes(Number(data.code))) throw new Error(data.message || '照片上传失败')
-  return data.message as string
-}
-
 const buildSignOutPayload = async (signOutRemark?: string, signOutTime?: string) => {
-  const uploadedSignOutPhotos = isLocationAbnormal.value
-    ? await Promise.all(signOutPhotos.value.map(uploadPhoto))
-    : []
-  signOutPhotos.value = uploadedSignOutPhotos
+  const signOutPhotoPaths = isLocationAbnormal.value ? signOutPhotos.value : []
   const longitude = Number(location.value.longitude)
   const latitude = Number(location.value.latitude)
   return {
@@ -1891,11 +2162,11 @@ const buildSignOutPayload = async (signOutRemark?: string, signOutTime?: string)
     implementLocationName: form.value.location || undefined,
     signOutRemark: signOutRemark || undefined,
     signOutPhotos: isLocationAbnormal.value
-      ? uploadedSignOutPhotos.join(',') || undefined
+      ? signOutPhotoPaths.join(',') || undefined
       : undefined,
   }
 }
-const finishCurrentFlow = (checkOutTime: string, signOutType?: string) => {
+const finishCurrentFlow = (checkOutTime: string, signOutType?: string, logId?: string) => {
   const normalizedSignOutType = String(signOutType || '').toUpperCase()
   const checkOutLocationStatus: LocationStatus =
     normalizedSignOutType === 'NORMAL'
@@ -1911,6 +2182,7 @@ const finishCurrentFlow = (checkOutTime: string, signOutType?: string) => {
   session.value = {
     ...session.value,
     status: 'COMPLETED',
+    logId: String(logId || '').trim(),
     checkOutTime,
     checkOutLocation: location.value,
     checkOutLocationStatus,
@@ -1940,6 +2212,7 @@ const checkOut = async () => {
     finishCurrentFlow(
       result.signOutTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
       result.signOutType,
+      result.id,
     )
     toast.success('签退成功，本次实施已闭环')
   } catch (error) {
@@ -1980,7 +2253,7 @@ const submitBackfill = async () => {
     const response: any = await projectApi.backfillSignOutImplementLog(payload)
     const result = response?.result || response?.data || {}
     showBackfill.value = false
-    finishCurrentFlow(result.signOutTime || signOutTime, result.signOutType)
+    finishCurrentFlow(result.signOutTime || signOutTime, result.signOutType, result.id)
     toast.success('补签退成功，上一次实施流程已完成')
   } catch (error) {
     toast.error('补签退失败，请核对时间和原因后重试')
@@ -2011,19 +2284,11 @@ const returnToImplementationLog = () => {
   logStep.value = 1
 }
 const showLogDetail = () => {
-  const data = session.value.logData || form.value
-  const personText = (data.persons || []).map((item: any) => item.name || item).join('、') || '无'
-  const outsourceText =
-    (data.outsourcingList || [])
-      .map((item: any) => `${item.unitName} ${item.headcount}人/${item.workHours}小时`)
-      .join('；') || '无'
-  const materialText =
-    (data.materials || [])
-      .map((item: any) => `${item.name} ${item.qty}${item.unit || ''}`)
-      .join('；') || '无'
-  message.alert({
-    title: '实施日志',
-    msg: `实施位置：${data.location || '--'}\n实施内容：${data.content || '--'}\n其他参与人员：${personText}\n当天外协：${outsourceText}\n车辆：${data.plate || '无'}${data.plate ? ` / ${data.mileage || 0}km` : ''}\n本次用料：${materialText}`,
+  const { logId, periodId } = session.value
+  if (!logId || !periodId) return toast.warning('签退响应未返回日志信息，请到项目实施记录查看')
+  uni.navigateTo({
+    url: `/pages/ops/implementRecordDetail?id=${encodeURIComponent(logId)}&periodId=${encodeURIComponent(periodId)}&projectName=${encodeURIComponent(projectOptionText(project.value))}&processName=${encodeURIComponent(project.value.currentProcess || '')}`,
+    fail: () => toast.warning('日志详情打开失败，请重试'),
   })
 }
 const backToProject = () =>
@@ -2099,6 +2364,10 @@ onLoad((query) => {
   font-size: 15px;
   font-weight: 650;
 }
+.session-strip__main {
+  min-width: 0;
+  flex: 1;
+}
 .session-strip__meta {
   max-width: 210px;
   margin-top: 3px;
@@ -2110,10 +2379,12 @@ onLoad((query) => {
 }
 .session-strip__time {
   display: flex;
+  min-width: 132px;
   font-size: 11px;
   color: #456785;
   text-align: right;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 3px;
 }
 .sub-steps {
@@ -2298,6 +2569,17 @@ onLoad((query) => {
   padding-top: 14px;
   margin-top: 12px;
 }
+.media-field__body {
+  min-width: 0;
+  flex: 1;
+}
+.media-hint {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #68788a;
+}
 .role-note {
   padding: 10px 12px;
   margin: 10px 0 2px;
@@ -2362,46 +2644,69 @@ onLoad((query) => {
   border-radius: 12px;
 }
 .outsourcing-fields {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
-.outsourcing-fields > view {
+.outsourcing-field {
+  min-width: 0;
+}
+.outsourcing-field__label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+.outsourcing-input {
   display: flex;
-  min-width: 0;
-  font-size: 12px;
-  color: #566579;
-  align-items: center;
-  flex: 1;
-  gap: 5px;
-}
-.outsourcing-fields input {
-  min-width: 0;
-  padding: 7px 8px;
-  font-size: 14px;
-  color: #222;
-  text-align: center;
+  min-height: 48px;
+  padding: 0 12px;
   background: #fff;
-  border: 1px solid #d8dee6;
-  border-radius: 8px;
+  border: 1px solid #cfd8e3;
+  border-radius: 10px;
+  align-items: center;
+  gap: 8px;
+}
+.outsourcing-input input {
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  font-size: 16px;
+  color: #222;
   flex: 1;
 }
-.outsourcing-fields input[disabled] {
+.outsourcing-input > text {
+  font-size: 13px;
+  color: #64748b;
+  flex: none;
+}
+.outsourcing-input input[disabled] {
   color: #6d7785;
   background: #eef1f4;
 }
+.outsourcing-row__footer {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
 .outsourcing-remove {
-  min-height: 36px;
-  padding: 0 2px 0 8px;
-  font-size: 12px;
-  line-height: 36px;
+  min-width: 68px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 44px;
   color: #a13a3a;
+  text-align: right;
   flex: none;
 }
 .outsourcing-plan {
-  margin-top: 7px;
-  font-size: 11px;
+  min-width: 0;
+  font-size: 12px;
   color: #68788a;
+  flex: 1;
 }
 .photo {
   position: relative;
@@ -2433,7 +2738,76 @@ onLoad((query) => {
   background: rgb(0 0 0 / 58%);
 }
 .add-photo {
+  min-width: 64px;
+  padding: 0 6px;
+  color: #176ac7;
+  text-align: center;
+  background: #f8fbff;
   border: 1px dashed #aaa;
+}
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.media-card {
+  overflow: hidden;
+  background: #f6f8fa;
+  border: 1px solid #e3e8ee;
+  border-radius: 10px;
+}
+.log-video-preview {
+  width: min(92vw, 640px);
+  padding: 12px;
+  box-sizing: border-box;
+  background: #fff;
+}
+.log-video-preview video {
+  display: block;
+  width: 100%;
+  height: 52vh;
+  background: #000;
+}
+.log-video-preview button {
+  margin-top: 12px;
+  min-height: 44px;
+  font-size: 16px;
+}
+.media-card__preview {
+  display: block;
+  width: 100%;
+  height: 108px;
+  background: #111827;
+}
+.media-card__footer {
+  display: flex;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #475569;
+  align-items: center;
+  justify-content: space-between;
+}
+.media-card__remove {
+  min-width: 44px;
+  min-height: 44px;
+  line-height: 44px;
+  color: #a13a3a;
+  text-align: right;
+}
+.add-media {
+  display: flex;
+  min-height: 152px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #176ac7;
+  background: #f8fbff;
+  border: 1px dashed #a8c9ed;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
 }
 .chip {
   padding: 6px 13px;

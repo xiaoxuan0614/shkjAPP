@@ -25,6 +25,11 @@
         </button>
       </div>
       <div class="preview-scroll">
+        <iframe v-if="kind === 'docx'" class="preview-word" :srcdoc="wordHtml" sandbox="" :title="file.name" />
+        <div v-else-if="kind === 'doc'" class="preview-state">
+          <span>此文件为旧版 Word（.doc），请下载后使用 Word / WPS 打开，或另存为 .docx 后上传预览。</span>
+          <a :href="imageUrl" :download="file.name">下载 Word 文件</a>
+        </div>
         <div v-if="kind === 'pdf'" ref="pdfHost" class="preview-pdf" :aria-busy="rendering" />
         <img v-else-if="kind === 'image'" :src="imageUrl" :alt="file.name" @error="renderError" />
         <template v-else-if="kind === 'xlsx'">
@@ -69,6 +74,7 @@ const errorMessage = ref('')
 const rendering = ref(false)
 const pdfHost = ref<any>()
 const imageUrl = ref('')
+const wordHtml = ref('')
 const pageNo = ref(1)
 const pageCount = ref(0)
 const zoom = ref(1)
@@ -91,6 +97,7 @@ const dispose = () => {
   pdf = undefined
   if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
   imageUrl.value = ''
+  wordHtml.value = ''
 }
 const renderError = () => {
   errorMessage.value = '文件内容无法解析，请确认文件完整后重试'
@@ -207,8 +214,8 @@ const load = async () => {
   controller = new AbortController()
   const timer = setTimeout(() => controller?.abort(), 30000)
   try {
-    if (!['image', 'pdf', 'xlsx'].includes(kind))
-      throw new Error('网页预览支持 PDF、XLSX 和图片；其他格式请在小程序中打开')
+    if (!['image', 'pdf', 'xlsx', 'docx', 'doc'].includes(kind))
+      throw new Error('网页预览支持 DOCX、PDF、XLSX 和图片；其他格式请在小程序中打开')
     const { url, header, trusted } = contractFileRequest(props.file.path)
     const response = await fetch(url, {
       headers: header,
@@ -240,6 +247,19 @@ const load = async () => {
       if (current !== sequence) return
       pdf = document
       pageCount.value = pdf.numPages
+    } else if (kind === 'docx') {
+      const { renderAsync } = await import('docx-preview')
+      if (current !== sequence) return
+      const host = document.createElement('div')
+      await renderAsync(buffer, host, undefined, {
+        ignoreWidth: true, ignoreHeight: true, breakPages: false,
+        useBase64URL: true, renderAltChunks: false,
+      })
+      if (current !== sequence) return
+      // 文件内容放入无脚本、无外部请求权限的沙箱，文档样式不影响审批页面。
+      wordHtml.value = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline';"><style>body{margin:0;color:#27364a;background:white} .docx-wrapper{padding:12px!important;background:white!important}section.docx{padding:12px!important;box-shadow:none!important;max-width:100%;box-sizing:border-box}img{max-width:100%;height:auto}table{max-width:100%}p{overflow-wrap:anywhere}</style></head><body>${host.innerHTML}</body></html>`
+    } else if (kind === 'doc') {
+      imageUrl.value = URL.createObjectURL(new Blob([buffer], { type: 'application/msword' }))
     } else if (kind === 'xlsx') {
       const parsed = await parseWorkbook(buffer)
       if (current !== sequence) return
@@ -272,6 +292,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.preview-word { display: block; width: 100%; height: 100%; min-height: 60vh; border: 0; background: #fff; }
 .preview-content {
   display: flex;
   flex: 1;

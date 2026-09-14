@@ -172,6 +172,7 @@ export const httpUpload = <T>(url: string, {
   // #endif
   filePath,
   name,
+  timeout,
   // #ifdef H5
   file,
   // #endif
@@ -194,6 +195,7 @@ export const httpUpload = <T>(url: string, {
       baseUrl: getEnvBaseUrl(),
       url,
       filePath,
+      timeout,
       method: 'UPLOAD',
       name,
       header: {...globalHeader, ...header},
@@ -223,6 +225,7 @@ export const httpUpload = <T>(url: string, {
     const _config = {
       url: buildURL(buildFullPath(handleRe.baseUrl, handleRe.url), handleRe.params),
       filePath: handleRe.filePath,
+      timeout: handleRe.timeout,
       name: handleRe.name,
       header: handleRe.header,
       formData: handleRe.formData,

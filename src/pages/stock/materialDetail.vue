@@ -36,9 +36,9 @@
             <text class="label">关联单号</text>
             <text class="val">{{ detail.orderNo }}</text>
           </view>
-          <view v-if="detail.customerName" class="row">
+          <view class="row">
             <text class="label">项目名称</text>
-            <text class="val">{{ detail.customerName }}</text>
+            <text class="val">{{ detail.projectLabel }}</text>
           </view>
           <view class="row">
             <text class="label">使用时间</text>
@@ -55,6 +55,7 @@
         </SectionCard>
 
         <SectionCard v-if="detail.type === 'out'" title="出库物料">
+          <view v-if="outboundReadonlyReason" class="empty-state">{{ outboundReadonlyReason }}</view>
           <view v-if="loadError" class="inline-error" @click="load">
             {{ loadError }}，点击重新加载
           </view>
@@ -64,7 +65,7 @@
               <button
                 class="select-all-button"
                 :class="{ 'select-all-button--disabled': !executableItems.length }"
-                :disabled="!executableItems.length"
+                :disabled="!executableItems.length || submitting"
                 :aria-label="allSelected ? '取消全选' : '全选可出库物料'"
                 :aria-pressed="allSelected"
                 @click="toggleSelectAll"
@@ -94,7 +95,7 @@
               <view class="material-item__top">
                 <button
                   class="item-check-button"
-                  :disabled="!material.executable"
+                  :disabled="!canExecuteOutbound || !material.executable"
                   :aria-label="materialCheckLabel(material)"
                   :aria-pressed="material.checked"
                   @click="toggleItem(material)"
@@ -126,7 +127,7 @@
 
               <view class="quantity-grid">
                 <view class="quantity-cell">
-                  <text class="quantity-label">审批数量</text>
+                  <text class="quantity-label">申请数量</text>
                   <text class="quantity-value">{{ formatQty(material.approvedQty) }}</text>
                   <text class="quantity-unit">{{ material.unitName }}</text>
                 </view>
@@ -151,7 +152,7 @@
                 </view>
               </view>
 
-              <view v-if="material.approvalPassed && material.pendingQty > 0" class="execute-panel">
+              <view v-if="canExecuteOutbound && material.approvalPassed && material.pendingQty > 0" class="execute-panel">
                 <view class="execute-row">
                   <text class="execute-label">本次出库</text>
                   <view class="quantity-control">
@@ -239,7 +240,7 @@
         </button>
       </view>
 
-      <view v-else-if="detail.type === 'in' && detail.status === 'pending'" class="bottom">
+      <view v-else-if="!fromStockTodo && detail.type === 'in' && detail.status === 'pending'" class="bottom">
         <button
           class="submit-button submit-button--full"
           :disabled="submitting"
@@ -256,9 +257,10 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useMessage, useToast } from 'wot-design-uni'
-import { stockApi, unwrapRecords } from '@/service/shkj'
+import { stockApi, unwrapRecords, formatStockProjectName } from '@/service/shkj'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
+import { usePermissionStore } from '@/store/permission'
 
 const toast = useToast()
 const message = useMessage()
@@ -267,6 +269,20 @@ const id = ref('')
 const loading = ref(false)
 const loadError = ref('')
 const submitting = ref(false)
+const fromStockTodo = ref(false)
+const permission = usePermissionStore()
+const isExecutableOutboundHead = (head: any) =>
+  String(head.applyType).toUpperCase() === 'OUT' &&
+  String(head.status) === '1' &&
+  ['PENDING', 'PARTIAL_EXECUTED'].includes(String(head.executeStatus).toUpperCase())
+const outboundReadonlyReason = computed(() => {
+  if (loading.value) return '正在更新申请状态，请稍候'
+  if (loadError.value) return '加载失败，请重新加载后再执行'
+  if (!permission.hasPermission('mtl:goods:io')) return '当前账号无出库执行权限，仅可查看详情'
+  if (!isExecutableOutboundHead(detail.value)) return '当前申请已完成或状态已变化，仅可查看详情'
+  return ''
+})
+const canExecuteOutbound = computed(() => !outboundReadonlyReason.value && !submitting.value)
 
 const toQty = (value: unknown) => {
   const result = Number(value)
@@ -321,7 +337,7 @@ const normalizeOutboundItem = (item: any, headStatus: unknown) => {
 }
 
 const executableItems = computed(() =>
-  (detail.value.items || []).filter((item: any) => item.executable),
+  !outboundReadonlyReason.value ? (detail.value.items || []).filter((item: any) => item.executable) : [],
 )
 const selectedItems = computed(() => executableItems.value.filter((item: any) => item.checked))
 const allSelected = computed(
@@ -331,6 +347,7 @@ const allSelected = computed(
 const someSelected = computed(() => selectedItems.value.length > 0)
 
 const load = async () => {
+  if (loading.value) return
   if (!id.value) {
     loadError.value = '缺少申请单信息'
     return
@@ -344,6 +361,10 @@ const load = async () => {
       stockApi.applyItems(id.value),
     ])
     const head = headRes?.result || headRes || {}
+    if (!head.id || String(head.id) !== id.value) throw new Error('申请单不存在或返回不匹配')
+    if (fromStockTodo.value && String(head.applyType).toUpperCase() !== 'OUT') {
+      throw new Error('待办关联的不是出库申请')
+    }
     const applyType = String(head.applyType || '').toUpperCase()
     const executed = String(head.executeStatus || '').toUpperCase()
     const items = unwrapRecords(itemRes).map((item: any) => {
@@ -366,7 +387,7 @@ const load = async () => {
       type: applyType === 'IN' ? 'in' : 'out',
       typeText: applyType === 'IN' ? '还料申请' : '领料申请',
       orderNo: head.projectNo || head.orderNo || '',
-      customerName: head.projectName || head.customerName || '',
+      projectLabel: formatStockProjectName(head),
       useTime: head.useDate || head.useTime || '',
       applyTime: head.createTime || head.applyTime || '',
       status: ['EXECUTED', 'COMPLETED', 'DONE', '已出库', '已入库'].includes(executed)
@@ -382,6 +403,7 @@ const load = async () => {
 }
 
 const toggleSelectAll = () => {
+  if (!canExecuteOutbound.value) return
   const checked = !allSelected.value
   executableItems.value.forEach((item: any) => {
     item.checked = checked
@@ -390,7 +412,7 @@ const toggleSelectAll = () => {
 }
 
 const toggleItem = (item: any) => {
-  if (!item.executable) return
+  if (!canExecuteOutbound.value || !item.executable) return
   item.checked = !item.checked
   if (item.checked && toQty(item.executeQty) <= 0) item.executeQty = item.maxExecuteQty
 }
@@ -453,6 +475,7 @@ const materialSpec = (item: any) =>
   [item.brand, item.spec].filter(Boolean).join(' · ') || '暂无品牌规格'
 
 const executeOutbound = () => {
+  if (!canExecuteOutbound.value) return
   if (!selectedItems.value.length) {
     toast.warning('请至少选择一种物料')
     return
@@ -468,19 +491,26 @@ const executeOutbound = () => {
   }
 
   const itemCount = selectedItems.value.length
+  const items = selectedItems.value.map((item: any) => ({
+    itemId: item.id,
+    executeQty: roundQty(Number(item.executeQty)),
+  }))
   message
     .confirm({
       title: '确认执行出库',
       msg: '已选择 ' + itemCount + ' 种物料，确认后将按填写数量扣减实时库存。',
     })
     .then(async () => {
-      if (submitting.value) return
+      if (!canExecuteOutbound.value) return
       submitting.value = true
       try {
-        const items = selectedItems.value.map((item: any) => ({
-          itemId: item.id,
-          executeQty: roundQty(Number(item.executeQty)),
-        }))
+        const response: any = await stockApi.applyDetail(id.value)
+        const latest = response?.result || response || {}
+        if (!permission.hasPermission('mtl:goods:io') || !isExecutableOutboundHead(latest)) {
+          toast.warning('申请状态已变化或无执行权限，请查看最新详情')
+          await load()
+          return
+        }
         await stockApi.execute({
           applyId: id.value,
           itemIds: items.map((item) => item.itemId),
@@ -514,6 +544,7 @@ const executeInbound = () => {
 
 onLoad((query) => {
   id.value = query?.id || ''
+  fromStockTodo.value = query?.from === 'stockOutTodo'
   load()
 })
 </script>

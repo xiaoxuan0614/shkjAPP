@@ -14,7 +14,7 @@
     </view>
 
     <map
-      v-if="hasMapCenter"
+      v-if="hasMapCenter && !suspended"
       class="location-panel__map"
       :latitude="mapCenter.latitude"
       :longitude="mapCenter.longitude"
@@ -22,6 +22,10 @@
       :circles="circles"
       :scale="16"
     ></map>
+    <view
+      v-else-if="suspended"
+      class="location-panel__map location-panel__map--suspended"
+    ></view>
     <view v-else class="location-panel__map location-panel__map--empty">
       <view class="location-panel__radar">
         <view class="location-panel__radar-dot"></view>
@@ -64,6 +68,7 @@ const props = defineProps<{
   location: SiteLocation
   locating?: boolean
   sites?: ImplementationSite[]
+  suspended?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -231,6 +236,10 @@ const refresh = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+.location-panel__map--suspended {
+  background: #eaf1f7;
 }
 
 .location-panel__radar {

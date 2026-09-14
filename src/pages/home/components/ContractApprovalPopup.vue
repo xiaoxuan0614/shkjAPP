@@ -59,7 +59,7 @@
             </view>
             <view class="contract-popup__section">回款计划</view>
             <view v-if="!paymentRecords.length" class="contract-popup__muted">暂无回款计划</view>
-            <scroll-view v-else class="contract-popup__payment-scroll" scroll-x>
+            <view v-else class="contract-popup__payment-container">
               <view class="contract-popup__payment-table" role="table" aria-label="回款计划">
                 <view
                   class="contract-popup__payment-row contract-popup__payment-row--head"
@@ -101,7 +101,7 @@
                   </text>
                 </view>
               </view>
-            </scroll-view>
+            </view>
           </template>
           <button
             class="contract-popup__detail-link"
@@ -608,7 +608,7 @@ button::after {
   flex: 1;
   text-align: right;
 }
-.contract-popup__payment-scroll {
+.contract-popup__payment-container {
   box-sizing: border-box;
   width: calc(100% - 32px);
   margin: 0 16px;
@@ -617,13 +617,14 @@ button::after {
   overflow: hidden;
 }
 .contract-popup__payment-table {
-  min-width: 400px;
+  width: 100%;
+  min-width: 0;
   background: #fff;
 }
 .contract-popup__payment-row {
   display: grid;
   min-height: 52px;
-  grid-template-columns: minmax(112px, 1fr) 58px 112px 78px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .7fr) minmax(0, 1.4fr) minmax(0, .9fr);
   border-bottom: 1px solid #edf0f3;
 }
 .contract-popup__payment-row:last-child {
@@ -638,8 +639,9 @@ button::after {
 }
 .contract-popup__payment-cell {
   display: flex;
+  box-sizing: border-box;
   min-width: 0;
-  padding: 10px 8px;
+  padding: 12px 6px;
   color: #27364a;
   font-size: 13px;
   line-height: 1.45;
@@ -658,7 +660,7 @@ button::after {
   justify-content: flex-end;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  white-space: normal;
 }
 .contract-popup__payment-node {
   display: flex;
@@ -671,6 +673,12 @@ button::after {
   color: #68788a;
   font-size: 11px;
   line-height: 1.4;
+}
+@media (min-width: 480px) {
+  .contract-popup__payment-cell {
+    padding: 12px 10px;
+    font-size: 14px;
+  }
 }
 .contract-popup__detail-link {
   display: flex;

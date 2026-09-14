@@ -10,91 +10,189 @@
     <scroll-view class="page" :scroll-y="true">
       <SectionCard title="关联信息">
         <view class="form-row">
-          <text class="label">关联单号</text>
-          <view class="search-box">
-            <input class="search-input" v-model="orderNo" placeholder="输入项目XM/故障GZ单号" placeholder-style="color:#bbb" @confirm="queryOrder" />
-            <text class="search-btn" @click="queryOrder">查询</text>
-          </view>
-        </view>
-        <view v-if="orderInfo.customerName" class="form-row">
-          <text class="label">客户名称</text>
-          <text class="static-val">{{ orderInfo.customerName }}</text>
+          <text class="label">关联项目</text>
+          <button class="project-trigger" :disabled="submitting || submitted" @click="openProjects">{{ selectedProject ? formatProjectName(selectedProject) : '输入项目名称查询' }} <wd-icon name="arrow-down" size="14px" /></button>
         </view>
         <view class="form-row">
-          <text class="label">还料时间</text>
-          <picker mode="date" :value="returnTime" @change="(e: any) => (returnTime = e.detail.value)">
-            <view class="picker-value">{{ returnTime }}</view>
-          </picker>
+          <text class="label">备注</text>
+          <textarea v-model="remark" class="return-remark" :disabled="submitting || submitted" placeholder="选填" placeholder-style="color:#767676" />
         </view>
       </SectionCard>
 
       <SectionCard title="还料信息">
-        <view v-if="!items.length" class="empty-tip">查询单号后展示「申请数量 − 使用数量 > 0」的物料</view>
-        <view class="item-head" v-if="items.length">
-          <text>物料</text><text>申请</text><text>使用</text><text>还料</text>
-        </view>
-        <view v-for="m in items" :key="m.id" class="material">
-          <view class="material__info">
-            <view class="material__name">{{ m.name }}</view>
-            <view class="material__spec">{{ m.spec }}</view>
+        <view v-if="!items.length" class="empty-tip">{{ materialsLoading ? '正在加载可还料物料…' : materialsError ? '物料加载失败，请重试' : selectedProject ? '暂无可还料物料' : '选择项目后查看可还料物料' }}<button v-if="materialsError" @click="loadMaterials">重新加载</button></view>
+        <view v-for="m in visibleItems" :key="m.materialId" class="return-material">
+          <view class="return-material__head"><text>{{ m.name }}</text><text>{{ m.materialCode }}</text></view>
+          <text v-if="m.spec" class="return-material__spec">{{ m.spec }}</text>
+          <view class="return-material__quantity"><text>系统应还</text><text>{{ m.shouldReturnQty }} {{ m.unitName }}</text></view>
+          <view class="return-material__quantity">
+            <text>本次还料</text>
+            <input v-model="m.returnQty" type="digit" :disabled="submitting || submitted" :aria-label="`${m.name}本次还料数量`" placeholder="请输入数量" placeholder-style="color:#767676" />
+            <text>{{ m.unitName }}</text>
           </view>
-          <view class="material__num">{{ m.applyQty }}</view>
-          <view class="material__num">{{ m.usedQty }}</view>
-          <view class="material__num material__num--key">{{ m.returnQty }}</view>
+          <view v-if="needsDifferenceReason(m)" class="return-difference">
+            <text>差异原因（必填）</text>
+            <textarea v-model="m.differenceReason" :disabled="submitting || submitted" placeholder="说明本次还料数量与系统应还数量不一致的原因" placeholder-style="color:#767676" />
+          </view>
         </view>
-        <view v-if="items.length" class="tip">还料数量 = 申请数量 − 使用数量，请核对后提交</view>
+        <view v-if="items.length" class="return-pagination">
+          <button :disabled="materialPage <= 1" @click="materialPage--">上一页</button><text>{{ materialPage }} / {{ materialPages }} · 共 {{ items.length }} 项</text><button :disabled="materialPage >= materialPages" @click="materialPage++">下一页</button>
+        </view>
+        <view v-if="items.length" class="tip">默认按系统应还数量填写，可改为 0 表示本次不还。部分还料须填写差异原因；合格回库、报废或遗失由库管核对处置，提交申请不会直接入库。</view>
       </SectionCard>
 
       <view class="submit-wrap">
-        <wd-button size="large" type="primary" :loading="submitting" @click="submit">提交还料申请</wd-button>
+        <template v-if="submitted"><text class="success-text">还料申请已提交{{ returnNo ? `，单号：${returnNo}` : '' }}。{{ submissionMessage }}</text><wd-button @click="back">返回</wd-button></template>
+        <wd-button v-else size="large" type="primary" :loading="submitting" :disabled="materialsLoading || materialsError || !items.length" @click="submit">提交还料申请</wd-button>
       </view>
     </scroll-view>
+    <wd-popup v-model="showProjects" position="bottom" :root-portal="true" :safe-area-inset-bottom="true">
+      <view class="project-picker">
+        <view class="project-picker__head"><text>选择参与项目</text><button @click="showProjects = false">关闭</button></view>
+        <input v-model="projectKeyword" class="project-picker__input" placeholder="输入主项目或分期项目名称" placeholder-style="color:#767676" confirm-type="search" />
+        <scroll-view scroll-y class="project-picker__list">
+          <text v-if="projectsLoading" class="empty-tip">正在加载参与项目…</text>
+          <button v-else-if="projectsError" @click="loadProjects">项目加载失败，点击重试</button>
+          <template v-else>
+            <button v-for="project in filteredProjects" :key="project.periodId" class="project-picker__row" @click="selectProject(project)">
+              <text>{{ project.projectName || '主项目名称未返回' }}</text><text>{{ project.periodName || '分期名称未返回' }}</text>
+            </button>
+            <text v-if="!filteredProjects.length" class="empty-tip">{{ projectKeyword.trim() ? '没有匹配的参与项目' : '暂无已确认参与的项目' }}</text>
+          </template>
+        </scroll-view>
+      </view>
+    </wd-popup>
   </PageLayout>
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue'
-import dayjs from 'dayjs'
-import { useToast, useMessage } from 'wot-design-uni'
-import { http } from '@/utils/http'
+import { computed, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import { useToast } from 'wot-design-uni'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
+import { projectApi, stockApi, unwrapRecords, formatProjectName } from '@/service/shkj'
 
 const toast = useToast()
-const message = useMessage()
-const orderNo = ref('')
-const orderInfo = ref<any>({})
-const returnTime = ref(dayjs().format('YYYY-MM-DD'))
+const remark = ref(''), submitted = ref(false)
 const items = ref<any[]>([])
+const materialPage = ref(1)
+const materialPages = computed(() => Math.max(1, Math.ceil(items.value.length / 10)))
+const visibleItems = computed(() => items.value.slice((materialPage.value - 1) * 10, materialPage.value * 10))
+const needsDifferenceReason = (item: any) => Number(item.returnQty) > 0 && Math.abs(Number(item.returnQty) - item.shouldReturnQty) > 1e-8
 const submitting = ref(false)
 const returnNo = ref('')
-
-const queryOrder = async () => {
-  if (!orderNo.value.trim()) return toast.warning('请输入关联单号')
+const submissionMessage = ref('请在申请记录中查看审批和入库进度。')
+const selectedProject = ref<any>(null), projects = ref<any[]>([]), projectKeyword = ref('')
+const showProjects = ref(false), projectsLoading = ref(false), projectsError = ref(false)
+const materialsLoading = ref(false), materialsError = ref(false)
+let materialRequest = 0
+const filteredProjects = computed(() => {
+  const keyword = projectKeyword.value.trim().toLowerCase()
+  return projects.value.filter(project => !keyword || [project.projectName, project.periodName].some(name => String(name || '').toLowerCase().includes(keyword)))
+})
+const loadProjects = async () => {
+  if (projectsLoading.value) return
+  projectsLoading.value = true; projectsError.value = false
   try {
-    const [orderRes, itemRes]: any = await Promise.all([
-      http.get('/ops/orderCustomer', { orderNo: orderNo.value }),
-      http.get('/ops/materialReturn/items', { orderNo: orderNo.value }),
-    ])
-    orderInfo.value = orderRes.result || {}
-    items.value = itemRes.result || []
-    if (!orderInfo.value.customerName) toast.info('未找到该单号')
+    // 不传状态或用户 ID：后端返回当前成员已确认参与的全部项目分期。
+    const response = await projectApi.participatedProjects()
+    const unique = new Map<string, any>()
+    unwrapRecords(response).forEach(project => { if (project.periodId) unique.set(String(project.periodId), project) })
+    projects.value = [...unique.values()]
+  } catch { projects.value = []; projectsError.value = true }
+  finally { projectsLoading.value = false }
+}
+const openProjects = () => {
+  if (submitting.value || submitted.value) return
+  projectKeyword.value = ''; showProjects.value = true
+  void loadProjects()
+}
+const selectProject = (project: any) => {
+  if (submitting.value || submitted.value) return
+  showProjects.value = false
+  if (String(selectedProject.value?.periodId || '') === String(project.periodId) && !materialsError.value) return
+  selectedProject.value = project
+  void loadMaterials()
+}
+onLoad(async (query) => {
+  await loadProjects()
+  const requestedId = String(query?.periodId || '')
+  if (!requestedId) return
+  const project = projects.value.find(item => String(item.periodId) === requestedId)
+  if (project) selectProject(project)
+})
+
+const loadMaterials = async () => {
+  if (submitting.value || submitted.value) return
+  const current = ++materialRequest
+  const periodId = String(selectedProject.value?.periodId || '')
+  items.value = []; materialPage.value = 1; materialsError.value = false; materialsLoading.value = false
+  if (!periodId) return
+  materialsLoading.value = true
+  try {
+    const all = new Map<string, any>()
+    const pageSize = 100
+    for (let pageNo = 1; ; pageNo++) {
+      const response: any = await projectApi.materialAccounts(periodId, { pageNo, pageSize })
+      if (current !== materialRequest || periodId !== String(selectedProject.value?.periodId)) return
+      const result = response?.result
+      if (!Array.isArray(result?.records) || !Number.isFinite(Number(result.total))) throw new Error('总账响应异常')
+      for (const row of result.records) {
+        const qty = Number(row.remainingReturnQty)
+        if (row.materialId && Number.isFinite(qty) && qty > 0) all.set(String(row.materialId), {
+          materialId: String(row.materialId), name: row.materialName || '未命名物料', materialCode: row.materialCode || '',
+          spec: [row.brand, row.model].filter(Boolean).join(' / '), unitName: row.baseUnitName || '',
+          shouldReturnQty: qty, returnQty: String(qty), differenceReason: '',
+        })
+      }
+      if (pageNo * pageSize >= Number(result.total)) break
+      if (!result.records.length) throw new Error('总账分页数据不完整')
+    }
+    items.value = [...all.values()]
   } catch (e) {
-    /* ignore */
-  }
+    if (current === materialRequest) materialsError.value = true
+  } finally { if (current === materialRequest) materialsLoading.value = false }
 }
 
 const submit = async () => {
-  if (!orderNo.value.trim()) return toast.warning('请填写关联单号')
+  if (submitting.value || submitted.value || materialsLoading.value || materialsError.value) return
+  const periodId = String(selectedProject.value?.periodId || '')
+  if (!periodId) return toast.warning('请选择关联项目')
   if (!items.value.length) return toast.warning('无可还料物料')
+  const invalid = items.value.find(item => String(item.returnQty).trim() === '' || !Number.isFinite(Number(item.returnQty)) || Number(item.returnQty) < 0 || Number(item.returnQty) > item.shouldReturnQty)
+  if (invalid) {
+    materialPage.value = Math.floor(items.value.indexOf(invalid) / 10) + 1
+    return toast.warning(`${invalid.name}还料数量须在 0 至 ${invalid.shouldReturnQty} 之间`)
+  }
+  const selected = items.value.filter(item => Number(item.returnQty) > 0)
+  if (!selected.length) return toast.warning('请至少填写一条大于 0 的还料数量')
+  const missingUnit = selected.find(item => !item.unitName)
+  if (missingUnit) return toast.warning(`${missingUnit.name}缺少基准单位，请核实`)
+  const missingReason = selected.find(item => needsDifferenceReason(item) && !item.differenceReason.trim())
+  if (missingReason) {
+    materialPage.value = Math.floor(items.value.indexOf(missingReason) / 10) + 1
+    return toast.warning(`${missingReason.name}请填写差异原因`)
+  }
+  const payload = {
+    applyType: 'IN', bizType: 'RETURN', usageType: 'PROJECT', periodId,
+    ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
+    itemList: selected.map(item => ({
+      materialId: item.materialId, unitName: item.unitName, unitQty: Number(item.returnQty),
+      ...(needsDifferenceReason(item) ? { remark: item.differenceReason.trim() } : {}),
+    })),
+  }
   submitting.value = true
   try {
-    const res: any = await http.post('/ops/materialReturn/save', {
-      orderNo: orderNo.value,
-      returnTime: returnTime.value,
-      items: items.value.map((m) => ({ id: m.id, name: m.name, returnQty: m.returnQty })),
-    })
-    returnNo.value = res.result?.returnNo || 'HL' + Date.now()
-    message.alert({ title: '还料申请提交成功', msg: `申请单号：${returnNo.value}\n请等待库管核对数量后入库` }).then(() => uni.navigateBack())
+    const confirmed = await new Promise<boolean>(resolve => uni.showModal({
+      title: '提交还料申请', content: `确认提交“${formatProjectName(selectedProject.value)}”的 ${selected.length} 项还料？`,
+      success: result => resolve(Boolean(result.confirm)), fail: () => resolve(false),
+    }))
+    if (!confirmed) return
+    const res: any = await stockApi.addApply(payload)
+    returnNo.value = String(res?.result?.applyNo || '')
+    submissionMessage.value = String(res?.result?.status) === '1' ? '申请已通过，等待库管办理入库。' : String(res?.result?.status) === '2' ? '等待审批，通过后由库管办理入库。' : '请在申请记录中查看审批和入库进度。'
+    submitted.value = true
+    toast.success('还料申请已提交')
   } catch (e) {
     toast.error('提交失败，请重试')
   } finally {
@@ -102,10 +200,35 @@ const submit = async () => {
   }
 }
 
-const back = () => uni.navigateBack()
+const back = () => getCurrentPages().length > 1 ? uni.navigateBack() : uni.redirectTo({ url: '/pages/ops/project' })
 </script>
 
 <style lang="scss" scoped>
+.return-remark { flex: 1; min-width: 0; height: 64px; font-size: 14px; line-height: 1.6; }
+.return-material { padding: 16px 0; border-bottom: 1px solid #edf0f4; color: #253247; }
+.return-material__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; line-height: 1.6; }
+.return-material__head text:first-child { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.return-material__head text:last-child { max-width: 40%; font-size: 12px; color: #536176; overflow-wrap: anywhere; text-align: right; }
+.return-material__spec { display: block; margin-top: 4px; font-size: 13px; color: #536176; overflow-wrap: anywhere; }
+.return-material__quantity { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+.return-material__quantity text:first-child { flex: 1; }
+.return-material__quantity input { width: 112px; height: 44px; padding: 0 10px; box-sizing: border-box; border: 1px solid #cbd2dc; border-radius: 6px; text-align: right; font-size: 16px; }
+.return-difference { margin-top: 12px; font-size: 14px; }
+.return-difference textarea { width: 100%; height: 88px; box-sizing: border-box; margin-top: 8px; padding: 10px; border: 1px solid #cbd2dc; border-radius: 6px; line-height: 1.6; }
+.return-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 16px; font-size: 12px; color: #536176; }
+.return-pagination button { margin: 0; padding: 0 12px; min-height: 44px; line-height: 44px; font-size: 13px; }
+.success-text { display: block; margin-bottom: 16px; color: #253247; font-size: 14px; line-height: 1.7; }
+.project-trigger { flex: 1; min-width: 0; margin: 0; padding: 8px 0; min-height: 44px; background: transparent; text-align: left; font-size: 14px; line-height: 1.6; color: #536176; overflow-wrap: anywhere; }
+.project-trigger::after, .project-picker__row::after { border: 0; }
+.project-picker { display: flex; flex-direction: column; height: 70vh; padding: 16px; box-sizing: border-box; background: #fff; }
+.project-picker__head { display: flex; align-items: center; justify-content: space-between; font-size: 18px; color: #253247; }
+.project-picker__head button { margin: 0; min-height: 44px; font-size: 14px; background: transparent; }
+.project-picker__input { flex: none; height: 44px; padding: 0 12px; margin: 12px 0; background: #f4f6f8; border-radius: 8px; font-size: 16px; }
+.project-picker__list { flex: 1; min-height: 0; height: 0; }
+.project-picker__row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 14px 0; margin: 0; min-height: 48px; background: #fff; border-bottom: 1px solid #edf0f4; border-radius: 0; text-align: left; line-height: 1.6; }
+.project-picker__row text:first-child { flex: 1; min-width: 0; color: #253247; font-size: 16px; overflow-wrap: anywhere; }
+.project-picker__row text:last-child { max-width: 42%; color: #536176; font-size: 14px; text-align: right; overflow-wrap: anywhere; }
+.project-picker .empty-tip { display: block; color: #536176; }
 .page {
   min-height: 0;
 }
@@ -213,7 +336,8 @@ const back = () => uni.navigateBack()
 
 .tip {
   font-size: 12px;
-  color: #999;
+  color: #536176;
+  line-height: 1.7;
   margin-top: 10px;
   background: #f7f8fa;
   padding: 8px 10px;

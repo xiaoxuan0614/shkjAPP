@@ -16,9 +16,10 @@
 | ------------------ | ---------------------------------------------- | ---------------------------- | --------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
 | 运维-项目列表      | `/pages/ops/project`                           | 项目管理                     | `/project/list`                         | `project/index`                          | 已复用项目分期列表                                                          |
 | 运维-项目详情      | `/pages/ops/projectDetail`                     | 项目详情（隐藏）             | `/project/detail/:id`                   | `project/detail/index`                   | 已复用详情各子接口                                                          |
+| 运维-实施记录/详情 | `/pages/ops/implementRecords`、`/pages/ops/implementRecordDetail` | 项目详情子页面（隐藏） | 项目详情实施记录 | — | 只读页面，继承项目详情访问范围，无需独立菜单 |
 | 运维-实施日志      | `/pages/ops/implementLog`                      | 实施管理/查看日志            | `/implement/list`、`/implement/log/:id` | `implement/index`、`implement/log/index` | 已接工序状态校验、签到、服务端草稿、正常签退及补签退；支持项目与工序并行实施 |
 | 运维-领料申请      | `/pages/ops/materialApply`                     | 领料申请（隐藏）             | `/material/pick`                        | `material/pick/index`                    | 已复用搜索、物料、申请新增                                                  |
-| 运维-还料申请      | `/pages/ops/materialReturn`                    | 还料申请（隐藏）             | `/material/return`                      | `material/return/index`                  | 正式待还列表仍待后端                                                        |
+| 运维-还料申请      | `/pages/ops/materialReturn`                    | 还料申请（隐藏）             | `/material/return`                      | `material/return/index`                  | 参与项目 → 物料总账 remainingReturnQty → stock/apply/add 还料申请；路由权限不变 |
 | 库管-申请记录/详情 | `/pages/stock/materialApply`、`materialDetail` | 出入库管理                   | `/material/record`                      | `material/record/index`                  | 已复用列表、详情、明细、执行                                                |
 | 运维-车辆          | `/pages/ops/vehicle`                           | 车辆管理                     | `/resource/vehicle`                     | `resource/vehicle/index`                 | 当前 Apifox 路径为 `/vehicle/*`；实施选车已接 `/vehicle/list`，记录页待改造 |
 | 客户报修/确认      | `/pages/customer/*`                            | 暂无字段一致的正式菜单       | —                                       | —                                        | 待后端维修域接口                                                            |
@@ -32,6 +33,8 @@ PC 端在“系统管理 → 菜单管理”配置，正式事实源是后端菜
 
 1. 一级菜单使用 `LAYOUT`；子菜单的 component 对应 PC 仓库 `src/views/`，不带前导 `/` 和 `.vue`。
 2. 项目详情、领料、还料等虽不显示在侧边栏，也必须建立隐藏菜单，否则 PC 按钮跳转会 404。
+
+2026-09-11：移动端项目详情待验收时“提交验收”按钮需 `project:acceptance:submit`；接口同时校验项目成员。此权限不同于办理内部/客户验收的权限，不互相替代。本次仅接入按钮权限判断，未修改正式角色授权；账号未获授权时不显示提交按钮。
 3. 在子菜单下增加“按钮”类型权限项，再到“角色管理 → 授权”的“移动端权限”页签单独勾选。
 4. 修改后重新登录；若仍未生效，检查后端菜单/Redis 权限缓存。
 
@@ -53,6 +56,10 @@ PC 已确认的项目按钮权限：
 物料基础维护已确认使用 `mtl:goods:add/edit/delete/deleteBatch/io` 等权限；领料申请、库管审批和执行的移动端专用权限码需以后端菜单和 Apifox 为准，不能自行编造。
 
 ## 4. 当前角色授权基线
+
+2026-09-13 两端同步增量：移动端验收嵌入详情，不新增路由；验收主入口 project:acceptance:view，内验 project:internalAccept，客户验收 project:accept 且本项目经理，内置 admin 办理例外与 PC 一致。当前实现尚在旧 Token/权限读取链，后端已提供 APP/PHONE Token 专用权限接口，不能将本次按钮代码同步视为独立 APP 角色授权迁移完成。详见项目两端规则同步与后端待办.md。
+
+2026-09-13 补充：领还料页面应覆盖全部项目参与人员，再按本分期有效参与关系控制范围。用户确认经理审批、经理本人申请自动通过，库管仅办理已通过单；后端文档仍为项目领料全员免审，待同步验证。临时邀约仅本分期负责人，工序完成允许负责人和对应现场负责人（当前仍复用 project:implement 加业务身份检查）。到货确认沿用 project:arrival:confirm，详情底部直显；参与关系不自动授予到货权限。本次未修改后台授权。
 
 | 角色       | 默认入口     | 允许页面                                         | 应由后端返回的能力范围       |
 | ---------- | ------------ | ------------------------------------------------ | ---------------------------- |

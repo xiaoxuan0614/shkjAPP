@@ -18,6 +18,8 @@ const PAGE_PARENT_ACCESS: Record<string, string[]> = {
   '/pages/customer/repairDetail': ['/pages/customer/home'],
   '/pages/customer/confirm': ['/pages/customer/home'],
   '/pages/ops/projectDetail': ['/pages/ops/project', '/pages/ops/home'],
+  '/pages/ops/implementRecords': ['/pages/ops/project', '/pages/ops/home', '/pages/ops/projectDetail'],
+  '/pages/ops/implementRecordDetail': ['/pages/ops/project', '/pages/ops/home', '/pages/ops/projectDetail'],
   '/pages/ops/materialReturn': ['/pages/ops/materialApply', '/pages/ops/home'],
   '/pages/stock/materialDetail': ['/pages/stock/materialApply'],
   '/pages/dispatch/detail': ['/pages/dispatch/list'],

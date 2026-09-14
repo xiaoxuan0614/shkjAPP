@@ -21,6 +21,8 @@ interface NavigateToOptions {
        "/pages/ops/acceptDetail" |
        "/pages/ops/home" |
        "/pages/ops/implementLog" |
+       "/pages/ops/implementRecordDetail" |
+       "/pages/ops/implementRecords" |
        "/pages/ops/inspection" |
        "/pages/ops/inspectionDetail" |
        "/pages/ops/materialApply" |

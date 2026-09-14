@@ -12,8 +12,25 @@
       <view class="tab" :class="{ on: active === 1 }" @click="switchTab(1)">入库 · 还料申请</view>
     </view>
 
-    <scroll-view class="list" :scroll-y="true">
-      <view v-if="!list.length" class="empty">暂无{{ active === 0 ? '出库' : '入库' }}记录</view>
+    <view class="stock-filters">
+      <picker :range="executeOptions" range-key="label" :value="executeIndex" @change="changeExecute">
+        <view class="stock-filter"><text>执行状态</text><view>{{ executeOptions[executeIndex]?.label }} <wd-icon name="arrow-down" size="14px" /></view></view>
+      </picker>
+      <picker :range="usageOptions" range-key="label" :value="usageIndex" @change="changeUsage">
+        <view class="stock-filter"><text>用料类型</text><view>{{ usageOptions[usageIndex].label }} <wd-icon name="arrow-down" size="14px" /></view></view>
+      </picker>
+      <button class="stock-filter-reset" :disabled="!executeFilter && !usageFilter && !selectedProject.id" @click="resetFilters">重置</button>
+    </view>
+    <view class="stock-project-filter">
+      <button @click="showProjectSearch = true">{{ selectedProject.label || '输入主项目或分期项目名称查询' }} <wd-icon name="search" size="16px" /></button>
+      <button v-if="selectedProject.id" @click="clearProject">清除</button>
+    </view>
+    <StockProjectSearch v-if="showProjectSearch" @close="showProjectSearch = false" @select="selectProject" />
+
+    <scroll-view class="list" :scroll-y="true" :scroll-top="scrollTop" :lower-threshold="100" @scrolltolower="onReachBottom">
+      <view v-if="loading && !list.length" class="empty">正在加载记录…</view>
+      <view v-else-if="loadError && !list.length" class="empty"><text>记录加载失败</text><button @click="load(1)">重新加载</button></view>
+      <view v-else-if="!list.length" class="empty">暂无符合筛选条件的{{ active === 0 ? '出库' : '入库' }}记录</view>
       <view v-for="a in list" :key="a.id" class="card" @click="goDetail(a)">
         <view class="card__head">
           <text class="card__no">{{ a.applyNo }}</text>
@@ -23,24 +40,23 @@
           <text class="label">关联单号</text>
           <text class="val">{{ a.orderNo }}</text>
         </view>
-        <view v-if="active === 0" class="row">
-          <text class="label">领料类型</text>
-          <text class="val">{{ getMaterialUsageTypeText(a.usageType) }}</text>
+        <view class="row">
+          <text class="label">用料类型</text>
+          <text class="val">{{ usageOptions.find(option => option.value === a.usageType)?.label || getMaterialUsageTypeText(a.usageType) }}</text>
         </view>
         <view class="row">
-          <text class="label">客户</text>
-          <text class="val">{{ a.customerName }}</text>
+          <text class="label">项目名称</text>
+          <text class="val">{{ a.projectLabel }}</text>
         </view>
         <view class="row">
           <text class="label">申请时间</text>
           <text class="val">{{ a.applyTime }}</text>
         </view>
-        <view class="ops" @click.stop>
-          <button v-if="a.status === 'pending'" class="op op--primary" @click="goDetail(a)">
-            办理{{ active === 0 ? '出库' : '入库' }}
-          </button>
-          <text v-else class="op op--done">已{{ active === 0 ? '出库' : '入库' }}</text>
-        </view>
+      </view>
+      <view v-if="list.length && (loading || loadError || finished)" class="stock-load-more">
+        <text v-if="loading">正在加载更多…</text>
+        <button v-else-if="loadError" @click="loadMore">加载失败，点击重试</button>
+        <text v-else-if="finished">没有更多记录了</text>
       </view>
     </scroll-view>
   </PageLayout>
@@ -48,42 +64,126 @@
 
 <script lang="ts" setup>
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { ref } from 'vue'
-import { stockApi, unwrapRecords } from '@/service/shkj'
+import { computed, nextTick, ref } from 'vue'
+import { http } from '@/utils/http'
+import { stockApi, unwrapRecords, formatStockProjectName } from '@/service/shkj'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
+import StockProjectSearch from './components/StockProjectSearch.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
 
 const active = ref(0)
 const list = ref<any[]>([])
-const statusDict = [
-  { value: 'pending', label: '待处理', color: '#e6a23c' },
-  { value: 'done', label: '已完成', color: '#67c23a' },
+const statusDict = ref([
+  { value: 'PENDING', label: '待执行', color: '#e6a23c' },
+  { value: 'PARTIAL_EXECUTED', label: '部分执行', color: '#409eff' },
+  { value: 'EXECUTED', label: '已完成', color: '#67c23a' },
+])
+const executeFilter = ref(''), usageFilter = ref('')
+const showProjectSearch = ref(false)
+const selectedProject = ref({ id: '', label: '' })
+const selectProject = (value: { id: string; label: string }) => {
+  selectedProject.value = value; showProjectSearch.value = false; void load(1)
+}
+const clearProject = () => { selectedProject.value = { id: '', label: '' }; void load(1) }
+const page = ref(1), total = ref(0), loading = ref(false), loadError = ref(false)
+const finished = ref(false), scrollTop = ref(0)
+let requestId = 0
+const usageOptions = [
+  { value: '', label: '全部类型' },
+  { value: 'PROJECT', label: '项目用料' },
+  { value: 'MAINTENANCE', label: '运维用料' },
+  { value: 'LABOR_PROTECTION', label: '劳保用品' },
 ]
+const executeOptions = computed(() => [{ value: '', label: '全部状态' }, ...statusDict.value])
+const executeIndex = computed(() => Math.max(0, executeOptions.value.findIndex(item => item.value === executeFilter.value)))
+const usageIndex = computed(() => Math.max(0, usageOptions.findIndex(item => item.value === usageFilter.value)))
+const changeExecute = (event: any) => { executeFilter.value = executeOptions.value[Number(event.detail.value)].value; void load(1) }
+const changeUsage = (event: any) => { usageFilter.value = usageOptions[Number(event.detail.value)].value; void load(1) }
+const resetFilters = () => { executeFilter.value = ''; usageFilter.value = ''; selectedProject.value = { id: '', label: '' }; void load(1) }
+const loadStatusDictionary = async () => {
+  try {
+    const rows = unwrapRecords(await http.get('/sys/dict/getDictItems/stock_execute_status'))
+    if (rows.length) statusDict.value = rows.filter(item => item.value != null).map(item => ({
+      value: String(item.value), label: item.text || item.label || String(item.value), color: item.color || '#68788a',
+    }))
+  } catch { /* 字典失败时保留接口协议对应的执行状态 */ }
+}
 
 const normalizeApply = (item: any) => {
   const executed = String(item.executeStatus || '').toUpperCase()
-  const done = ['EXECUTED', 'COMPLETED', 'DONE', '已出库', '已入库'].includes(executed)
   return {
     ...item,
     applyNo: item.applyNo || item.id,
     orderNo: item.projectNo || item.orderNo || '',
-    customerName: item.projectName || item.customerName || '',
+    projectLabel: item.periodId || item.projectName ? '正在加载项目名称…' : '—',
     applyTime: item.createTime || item.applyTime || '',
-    status: done ? 'done' : 'pending',
+    status: executed || '未知',
   }
 }
 
-const load = async () => {
+const loadProjectNames = async (rows: any[], request: number) => {
+  const groups = new Map<string, any[]>()
+  for (const row of rows) {
+    if (!row.periodId && !row.projectName) continue
+    const key = String(row.periodId || row.id)
+    groups.set(key, [...(groups.get(key) || []), row])
+  }
+  const pending = [...groups.values()]
+  // 仅补齐当前页，按分期去重并限制并发，避免每张卡片重复加载详情。
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (pending.length && request === requestId) {
+      const group = pending.shift()!
+      let label = '项目名称加载失败，请进入详情查看'
+      try {
+        const response: any = await stockApi.applyDetail(group[0].id)
+        label = formatStockProjectName(response?.result ?? response)
+      } catch { /* 名称请求失败不影响卡片及筛选操作 */ }
+      if (request !== requestId) return
+      const ids = new Set(group.map(row => row.id))
+      list.value.forEach(row => { if (ids.has(row.id)) row.projectLabel = label })
+    }
+  }))
+}
+
+const load = async (nextPage = 1) => {
+  const reset = nextPage === 1
+  if (!reset && (loading.value || finished.value)) return
+  // 同一筛选条件的追加页共用代次，避免中断前一批项目名称回显。
+  if (reset) {
+    ++requestId
+    list.value = []; page.value = 0; total.value = 0; finished.value = false
+    scrollTop.value = 1
+    void nextTick(() => { scrollTop.value = 0 })
+  }
+  const request = requestId
+  loading.value = true
+  loadError.value = false
   try {
     const applyType = active.value === 0 ? 'OUT' : 'IN'
-    const res: any = await stockApi.applies({ applyType })
-    list.value = unwrapRecords(res)
+    const res: any = await stockApi.applies({
+      applyType, pageNo: nextPage, pageSize: 20,
+      ...(executeFilter.value ? { executeStatus: executeFilter.value } : {}),
+      ...(usageFilter.value ? { usageType: usageFilter.value } : {}),
+      ...(selectedProject.value.id ? { periodId: selectedProject.value.id } : {}),
+    })
+    if (request !== requestId) return
+    if (!Array.isArray(res.result?.records)) throw new Error('列表响应异常')
+    total.value = Number(res.result.total || 0)
+    const rows = unwrapRecords(res)
       .filter((item: any) => !item.applyType || item.applyType === applyType)
       .map(normalizeApply)
+    const existing = new Set(list.value.map(item => item.id))
+    const additions = rows.filter(item => !existing.has(item.id))
+    list.value.push(...additions)
+    page.value = nextPage
+    finished.value = res.result.records.length === 0 || nextPage * 20 >= total.value
+    void loadProjectNames(additions, request)
   } catch (e) {
-    /* ignore */
-  }
+    if (request === requestId) loadError.value = true
+  } finally { if (request === requestId) loading.value = false }
 }
+const loadMore = () => { if (!loading.value && !finished.value) void load(page.value + 1) }
+const onReachBottom = () => { if (!loadError.value) void loadMore() }
 
 const switchTab = (i: number) => {
   active.value = i
@@ -95,7 +195,7 @@ const goDetail = (a: any) => uni.navigateTo({ url: `/pages/stock/materialDetail?
 onLoad((query) => {
   if ((query as any)?.tab === 'in') active.value = 1
 })
-onShow(load)
+onShow(() => { void loadStatusDictionary(); void load(1) })
 </script>
 
 <style lang="scss" scoped>
@@ -131,9 +231,22 @@ onShow(load)
 }
 
 .list {
-  height: calc(100vh - 44px - 80px);
+  height: calc(100vh - 44px - 48px - 82px - 64px);
   padding: 12px;
+  box-sizing: border-box;
 }
+.stock-project-filter { display: flex; align-items: center; gap: 8px; padding: 0 12px 12px; background: #fff; }
+.stock-project-filter button { min-width: 0; margin: 0; min-height: 44px; padding: 10px; line-height: 24px; font-size: 14px; color: #596574; }
+.stock-project-filter button:first-child { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; overflow-wrap: anywhere; }
+
+.stock-filters { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-top: 1px solid #edf0f4; }
+.stock-filters picker { flex: 1; min-width: 0; }
+.stock-filter { min-height: 52px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.stock-filter > text { font-size: 12px; color: #596574; }
+.stock-filter > view { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; color: #253247; }
+.stock-filter-reset { flex-shrink: 0; margin: 0; padding: 0 8px; min-height: 44px; line-height: 44px; font-size: 13px; color: #176ac7; }
+.stock-load-more { text-align: center; color: #596574; font-size: 13px; padding: 16px 0 calc(16px + env(safe-area-inset-bottom)); }
+.stock-load-more button { display: inline-block; margin: 0; padding: 0 12px; min-height: 44px; line-height: 44px; font-size: 13px; }
 
 .empty {
   text-align: center;
@@ -174,40 +287,11 @@ onShow(load)
 
   .val {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 13px;
     color: #333;
   }
 }
 
-.ops {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #f5f5f5;
-
-  .op {
-    min-width: 96px;
-    min-height: 44px;
-    margin: 0;
-    border: 0;
-    font-size: 13px;
-    line-height: 44px;
-    padding: 0 20px;
-    border-radius: 22px;
-
-    &::after {
-      border: 0;
-    }
-
-    &--primary {
-      background: #2f86ff;
-      color: #fff;
-    }
-
-    &--done {
-      color: #67c23a;
-    }
-  }
-}
 </style>

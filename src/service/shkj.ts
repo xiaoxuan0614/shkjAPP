@@ -1,5 +1,9 @@
 import { http } from '@/utils/http'
 
+// 仅用于 stock/apply/queryById：该接口 projectName 为主项目名，periodName 为分期名。
+export const formatStockProjectName = (detail: any) =>
+  [detail?.projectName, detail?.periodName].map(value => String(value || '').trim()).filter(Boolean).join('-') || '—'
+
 export const unwrapRecords = (response: any): any[] => {
   const result = response?.result
   if (Array.isArray(result)) return result
@@ -25,8 +29,12 @@ export const normalizeProjectStatus = (status: unknown) => {
   return statusMap[value] || String(status || '')
 }
 
+export const formatProjectName = (item: any) =>
+  [item?.projectName, item?.periodName].map(value => String(value ?? '').trim()).filter(Boolean).join('-') || '—'
+
 export const normalizeProject = (item: any) => ({
   ...item,
+  projectLabel: formatProjectName(item),
   id: item.periodId || item.id,
   periodId: item.periodId || item.id,
   projectId: item.projectId,
@@ -82,16 +90,19 @@ export const projectApi = {
   detail: (periodId: string) => http.get('/project/project/projectPeriodDetail', { periodId }),
   search: (keyword: string) =>
     http.get('/project/period/searchByName', { keyword, pageNo: 1, pageSize: 20 }),
-  participatedProjects: (params: { periodStatus?: string } = {}) =>
+  participatedProjects: (params: { periodStatus?: string; onlyUnfinishedProcess?: boolean } = {}) =>
     http.get('/project/member/participatedProjects', params),
   contractDetail: (periodId: string) => http.get('/project/contract/queryById', { periodId }),
   confirmArrival: (periodId: string) =>
     http.post('/project/period/arrivalStatus', { periodId, arrivalStatus: 1 }),
   members: (periodId: string) =>
     http.get('/project/member/list', { periodId, pageNo: 1, pageSize: 1000 }),
+  inviteMembers: (periodId: string, records: { userId: string; memberRole: string }[]) =>
+    http.post('/project/member/addBatch', { periodId, records }),
   outsources: (periodId: string) =>
     http.get('/project/memberOutsource/list', { periodId, pageNo: 1, pageSize: 1000 }),
-  processes: (periodId: string) => http.get('/project/process/detail', { periodId }),
+  processes: (periodId: string, params: { onlyUnfinishedProcess?: boolean } = {}) =>
+    http.get('/project/process/detail', { periodId, ...params }),
   locations: (periodId: string) =>
     http.get('/project/location/list', { periodId, pageNo: 1, pageSize: 1000 }),
   implementLogs: (periodId: string) =>
@@ -115,6 +126,8 @@ export const projectApi = {
   backfillSignOutImplementLog: (data: Record<string, any>) =>
     http.post('/project/implementLog/backfillSignOut', data),
   addDelay: (data: Record<string, any>) => http.post('/project/delay/add', data),
+  submitAcceptance: (periodId: string) =>
+    http.post('/project/period/status', { periodId, status: 'PENDING_ACCEPT' }),
 }
 
 export const stockApi = {

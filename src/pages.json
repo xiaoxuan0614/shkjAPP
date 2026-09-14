@@ -170,6 +170,20 @@
       }
     },
     {
+      "path": "pages/ops/implementRecordDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "实施日志详情"
+      }
+    },
+    {
+      "path": "pages/ops/implementRecords",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "实施记录"
+      }
+    },
+    {
       "path": "pages/ops/inspection",
       "type": "page",
       "style": {

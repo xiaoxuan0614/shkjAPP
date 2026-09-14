@@ -87,6 +87,7 @@
     "crypt": "0.0.2",
     "crypto-js": "^4.2.0",
     "dayjs": "1.11.10",
+    "docx-preview": "^0.4.0",
     "echarts": "^5.6.0",
     "exceljs": "4.4.0",
     "is-buffer": "~1.1.6",

@@ -3,6 +3,13 @@ dist
 .cache
 .cert
 /mock/_*.bundled_*.mjs
+.pnpm-store/
+.playwright-mcp/
+unpackage/
+.DS_Store
+*.log
+.env.local
+.env.*.local
 
 ## ide
 **/.idea
