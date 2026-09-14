@@ -240,7 +240,7 @@
         </button>
       </view>
 
-      <view v-else-if="!fromStockTodo && detail.type === 'in' && detail.status === 'pending'" class="bottom">
+      <view v-else-if="!fromStockTodo && detail.type === 'in' && detail.executionDisplayStatus === 'pending'" class="bottom">
         <button
           class="submit-button submit-button--full"
           :disabled="submitting"
@@ -390,7 +390,8 @@ const load = async () => {
       projectLabel: formatStockProjectName(head),
       useTime: head.useDate || head.useTime || '',
       applyTime: head.createTime || head.applyTime || '',
-      status: ['EXECUTED', 'COMPLETED', 'DONE', '已出库', '已入库'].includes(executed)
+      // 保留 head.status 的审批状态，执行状态展示不能覆盖出库资格校验字段。
+      executionDisplayStatus: ['EXECUTED', 'COMPLETED', 'DONE', '已出库', '已入库'].includes(executed)
         ? 'done'
         : 'pending',
       items,
