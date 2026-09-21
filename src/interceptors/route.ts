@@ -3,6 +3,7 @@ import { usePermissionStore, useUserStore } from '@/store'
 import { HOME_PAGE } from '@/common/constants'
 import { buildPermissionOwnerKey } from '@/service/permission'
 import { isOAuth2AppEnv } from '@/common/uitls'
+import { normalizeMiniAppPath } from '@/store/permission'
 const loginRoute = '/pages/login/login'
 const publicPages = new Set([loginRoute, '/pages/login/loginOauth2'])
 let redirectingToLogin = false
@@ -24,7 +25,7 @@ const navigateToInterceptor = {
   // 注意，这里的url是 '/' 开头的，如 '/pages/index/index'，跟 'pages.json' 里面的 path 不同
   invoke({ url }: { url: string }) {
     // console.log(url) // /pages/route-interceptor/index?name=feige&age=30
-    const path = url.split('?')[0]
+    const path = normalizeMiniAppPath(url)
     if (publicPages.has(path)) return true
     const hasLogin = isLogined()
     if (hasLogin) {

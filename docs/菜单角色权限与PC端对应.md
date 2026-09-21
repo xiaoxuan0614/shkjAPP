@@ -1,5 +1,9 @@
 # SHKJ 移动端菜单、角色权限与 PC 端对应
 
+2026-09-16 验收入口名统一“验收”，沿用project:acceptance:view。运维部门主管配置project:internalAccept；本项目经理配置project:accept办理外验、project:acceptance:submit申请内外失败项复验、project:rework:apply申请施工返工，审批仍用project:rework:approve。复验/返工另外核验本分期已接受且memberRole含2的有效成员身份。admin原验收办理兜底保留；本轮未在线改角色/节点，不新增权限。APP授权仍独立于PC，消息接收和数据范围以后端鉴权为准。
+
+2026-09-15：首页领料审批弹窗开放 `PROJECT_MATERIAL_APPLY_APPROVAL` / `STOCK_OUT_APPROVAL`。项目领料按本分期有效、已接受邀请的经理成员关系判断；非项目领料按 `mtl:apply:approve`、部门负责人身份及负责部门判断。仅待审批 OUT 可提交，打开和提交前核验。待办可见不等于有审批权限，后端仍需最终鉴权，详见 [领料审批待办](领料审批待办.md)。
+
 > 最后更新：2026-09-01。PC 与移动端共用菜单节点定义，但使用独立角色授权关系。移动端工作台只展示当前角色移动端授权结果中配置了 `miniAppPath` 的入口，按钮权限决定可执行动作，项目数据范围最终由后端接口控制。
 
 ## 1. 当前移动端入口机制
@@ -57,7 +61,7 @@ PC 已确认的项目按钮权限：
 
 ## 4. 当前角色授权基线
 
-2026-09-13 两端同步增量：移动端验收嵌入详情，不新增路由；验收主入口 project:acceptance:view，内验 project:internalAccept，客户验收 project:accept 且本项目经理，内置 admin 办理例外与 PC 一致。当前实现尚在旧 Token/权限读取链，后端已提供 APP/PHONE Token 专用权限接口，不能将本次按钮代码同步视为独立 APP 角色授权迁移完成。详见项目两端规则同步与后端待办.md。
+2026-09-14：统一入口名为“返工验收”，仍用 project:acceptance:view；详情记录及返工待办复用弹层，不增加新页面路由。project:rework:apply 控制本人申请/撤回，project:rework:approve 控制待审批记录的通过/驳回；内验 project:internalAccept、客户验收 project:accept 与本项目经理身份保持独立。APP 与 PC 授权分开配置，本次未修改实际角色权限或后台节点名称。只有入口权限不授予办理权，也不能因无内外验办理权阻止返工审批人查记录。
 
 2026-09-13 补充：领还料页面应覆盖全部项目参与人员，再按本分期有效参与关系控制范围。用户确认经理审批、经理本人申请自动通过，库管仅办理已通过单；后端文档仍为项目领料全员免审，待同步验证。临时邀约仅本分期负责人，工序完成允许负责人和对应现场负责人（当前仍复用 project:implement 加业务身份检查）。到货确认沿用 project:arrival:confirm，详情底部直显；参与关系不自动授予到货权限。本次未修改后台授权。
 

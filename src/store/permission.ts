@@ -32,7 +32,9 @@ export const normalizeMiniAppPath = (value?: string) => {
     .split('?')[0]
     .split('#')[0]
   if (!path) return ''
-  return path.startsWith('/') ? path : `/${path}`
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  // uni-parse-pages 为首页生成 / 别名，H5 Tab 切换可能使用该地址。
+  return normalized === '/' ? HOME_PAGE : normalized
 }
 
 export const usePermissionStore = defineStore(

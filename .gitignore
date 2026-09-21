@@ -2,7 +2,6 @@ node_modules
 dist
 .cache
 .cert
-/mock/_*.bundled_*.mjs
 .pnpm-store/
 .playwright-mcp/
 unpackage/

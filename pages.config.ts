@@ -1,4 +1,15 @@
 import { defineUniPages } from '@uni-helper/vite-plugin-uni-pages'
+import { loadEnv } from 'vite'
+import path from 'node:path'
+
+const env = loadEnv(process.env.NODE_ENV || 'development', path.resolve(process.cwd(), 'env'))
+// H5 的 tabBar 静态路径不会自动跟随 Vite base，需要显式加部署前缀。
+const tabIcon = (name: string) => {
+  const asset = `static/tabbar/${name}.png`
+  if (process.env.UNI_PLATFORM !== 'h5') return asset
+  const base = (env.VITE_APP_PUBLIC_BASE || '/').replace(/\/$/, '')
+  return `${base}/${asset}`
+}
 
 export default defineUniPages({
   globalStyle: {
@@ -27,14 +38,14 @@ export default defineUniPages({
     spacing: '3px',
     list: [
       {
-        iconPath: 'static/tabbar/tabbar-home-2.png',
-        selectedIconPath: 'static/tabbar/tabbar-home.png',
+        iconPath: tabIcon('tabbar-home-2'),
+        selectedIconPath: tabIcon('tabbar-home'),
         pagePath: 'pages/home/index',
         text: '首页',
       },
       {
-        iconPath: 'static/tabbar/tabbar-user-2.png',
-        selectedIconPath: 'static/tabbar/tabbar-user.png',
+        iconPath: tabIcon('tabbar-user-2'),
+        selectedIconPath: tabIcon('tabbar-user'),
         pagePath: 'pages/customer/mine',
         text: '我的',
       },

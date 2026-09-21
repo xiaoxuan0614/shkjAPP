@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { usePermissionStore } from './permission'
+import { normalizeIdentity } from '@/utils/loginIdentity'
 
 const initState = {
   token: '',
@@ -53,7 +54,9 @@ export const useUserStore = defineStore(
       usePermissionStore().reset()
     }
     const isLogined = computed(() => !!userInfo.value.token)
+    const identity = computed(() => normalizeIdentity(userInfo.value))
     return {
+      identity,
       userInfo,
       setUserInfo,
       getUserInfo,

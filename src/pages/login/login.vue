@@ -16,8 +16,8 @@
     <view class="page-container">
       <view class="text-center">
         <image v-if="compLogo" :src="compLogo" mode="aspectFit" class="logo"></image>
-        <view v-else class="brand-mark">SHKJ</view>
-        <view class="title text-shadow">{{ compTitle || 'SHKJ' }}</view>
+        <view v-else class="brand-mark">首汇科技</view>
+        <view class="title text-shadow">{{ compTitle || '首汇科技' }}</view>
         <view class="enter-area">
           <view v-if="loginWay == 1" class="account-login-area">
             <view class="box account">
@@ -117,7 +117,7 @@ defineOptions({
   },
 })
 const router = useRouter()
-const defLogo = ''
+const defLogo = `${import.meta.env.BASE_URL}static/company-logo.png`
 const shape = ref()
 const loading = ref(false)
 const userName = ref('')
@@ -131,7 +131,7 @@ let smsCountInterval: ReturnType<typeof setInterval> | undefined
 const toggleDelay = ref(false)
 const version = ref('')
 const compLogo = ref(defLogo)
-const compTitle = ref('SHKJ')
+const compTitle = ref('首汇科技')
 const paramsStore = useParamsStore()
 paramsStore.reset()
 // 是否开启本地路由配置
@@ -261,6 +261,7 @@ const saveLoginResult = (result: any) => {
     (departs.length === 1 ? departs[0] : undefined)
   userStore.setUserInfo({
     ...userInfo,
+    belongDepIds: userInfo.belongDepIds ?? departs.map((item: any) => item.id),
     token: result?.token || '',
     userid: userInfo.id,
     tenantId: userInfo.loginTenantId,
@@ -303,8 +304,8 @@ const loadConfig = () => {
     if (res.success) {
       const info = res.result
       if (info) {
-        const configuredLogo = getFileAccessHttpUrl(info.appLogo)
-        compLogo.value = /jeecg/i.test(configuredLogo || '') ? defLogo : configuredLogo || defLogo
+        // 公司品牌使用统一随包资源，避免旧后台配置覆盖新 Logo。
+        compLogo.value = defLogo
         compTitle.value = /jeecg/i.test(info.appTitle || '') ? 'SHKJ' : info.appTitle || 'SHKJ'
       } else {
         compLogo.value = defLogo

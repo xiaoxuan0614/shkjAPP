@@ -246,9 +246,6 @@ importers:
       eslint-plugin-vue:
         specifier: ^9.32.0
         version: 9.32.0(eslint@8.57.1(supports-color@8.1.1))(supports-color@8.1.1)
-      mockjs:
-        specifier: ^1.1.0
-        version: 1.1.0
       openapi-ts-request:
         specifier: ^1.1.2
         version: 1.12.8(@types/node@20.19.43)(@vue/compiler-sfc@3.5.13)(chokidar@3.6.0)(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.7.2)
@@ -309,9 +306,6 @@ importers:
       vite:
         specifier: 5.2.8
         version: 5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0)
-      vite-plugin-mock:
-        specifier: ^3.0.2
-        version: 3.0.2(esbuild@0.21.5)(mockjs@1.1.0)(supports-color@8.1.1)(vite@5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0))
       vite-plugin-restart:
         specifier: ^0.4.2
         version: 0.4.2(vite@5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0))
@@ -7270,14 +7264,6 @@ packages:
 
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
-
-  vite-plugin-mock@3.0.2:
-    resolution: {integrity: sha512-bD//HvkTygGmk+LsIAdf0jGNlCv4iWv0kZlH9UEgWT6QYoUwfjQAE4SKxHRw2tfLgVhbPQVv/+X3YlNWvueGUA==}
-    engines: {node: '>=16.0.0'}
-    peerDependencies:
-      esbuild: '>=0.17'
-      mockjs: '>=1.1.0'
-      vite: '>=4.0.0'
 
   vite-plugin-restart@0.4.2:
     resolution: {integrity: sha512-9aWN2ScJ8hbT7aC8SDeZnsbWapnslz1vhNq6Vgf2GU9WdN4NExlrWhtnu7pmtOUG3Guj8y6lPcUZ+ls7SVP33w==}
@@ -16311,21 +16297,6 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
       vfile-message: 4.0.2
-
-  vite-plugin-mock@3.0.2(esbuild@0.21.5)(mockjs@1.1.0)(supports-color@8.1.1)(vite@5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0)):
-    dependencies:
-      bundle-require: 4.2.1(esbuild@0.21.5)
-      chokidar: 3.6.0
-      connect: 3.7.0(supports-color@8.1.1)
-      debug: 4.3.7(supports-color@8.1.1)
-      esbuild: 0.21.5
-      fast-glob: 3.3.2
-      mockjs: 1.1.0
-      path-to-regexp: 6.3.0
-      picocolors: 1.1.1
-      vite: 5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0)
-    transitivePeerDependencies:
-      - supports-color
 
   vite-plugin-restart@0.4.2(vite@5.2.8(@types/node@20.19.43)(sass@1.77.6)(terser@5.50.0)):
     dependencies:

@@ -1,7 +1,7 @@
 <!-- 分组卡片：标题 + 右侧文字 + 内容插槽 -->
 <template>
   <view class="section-card">
-    <view class="section-card__header">
+    <view class="section-card__header" @click="$emit('headerClick')">
       <view class="section-card__title">
         <view class="dot"></view>
         <text>{{ title }}</text>
@@ -20,7 +20,7 @@ defineProps<{
   title: string
   extra?: string
 }>()
-defineEmits<{ extraClick: [] }>()
+defineEmits<{ extraClick: []; headerClick: [] }>()
 </script>
 
 <style lang="scss" scoped>

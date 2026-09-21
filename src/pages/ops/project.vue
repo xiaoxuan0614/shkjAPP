@@ -2,11 +2,12 @@
 {
   style: {
     navigationBarTitleText: '项目管理',
+    navigationStyle: 'custom',
   },
 }
 </route>
 <template>
-  <PageLayout :navbarShow="false">
+  <PageLayout navTitle="项目管理" navLeftText="返回" navBackgroundColor="#176ac7" type="popup" @navBack="goBack">
     <view class="filters">
       <view class="search-row">
         <input v-model="keyword" class="search-input" placeholder="主项目或分期名称" confirm-type="search" @confirm="search" />
@@ -67,6 +68,11 @@ import { http } from '@/utils/http'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
 
 const list = ref<any[]>([])
+const goBack = () => {
+  const fallback = () => uni.switchTab({ url: '/pages/home/index' })
+  if (getCurrentPages().length > 1) uni.navigateBack({ delta: 1, fail: fallback })
+  else fallback()
+}
 const projectStatusOptions = ref<{ value: string; label: string; color: string }[]>([])
 const keyword = ref(''), appliedKeyword = ref(''), statusFilter = ref('')
 const loading = ref(false), loadError = ref(false), hasMore = ref(true), scrollTop = ref(0)

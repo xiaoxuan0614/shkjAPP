@@ -23,8 +23,6 @@ interface ImportMetaEnv {
   readonly VITE_UPLOAD_BASEURL: string
   /** 是否清除console */
   readonly VITE_DELETE_CONSOLE: string
-  /** 是否开启mock */
-  readonly VITE_USE_MOCK: 'true' | 'false'
   // 更多环境变量...
 }
 

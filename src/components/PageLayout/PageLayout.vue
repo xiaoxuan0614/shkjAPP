@@ -3,7 +3,7 @@
     <view
       v-if="navbarShow"
       :class="{ pageNav: true, transparent: navBgTransparent, fixed: navFixed }"
-      :style="{ height: `${statusBarHeight + navHeight}px` }"
+      :style="{ height: `${statusBarHeight + navHeight}px`, ...(navBackgroundColor ? { background: navBackgroundColor } : {}) }"
     >
       <view class="statusBar" :style="{ height: `${statusBarHeight}px` }"></view>
       <wd-navbar
@@ -96,6 +96,10 @@ const props = defineProps({
   navBgTransparent: {
     type: Boolean,
     default: false,
+  },
+  navBackgroundColor: {
+    type: String,
+    default: '',
   },
   navFixed: {
     type: Boolean,
@@ -196,6 +200,7 @@ console.log('props:', props)
   width: 100vw;
   height: 100vh;
   .pageNav {
+    flex-shrink: 0;
     background-image: linear-gradient(45deg, #0081ff, #1cbbb4);
     &.transparent {
       background-image: none;

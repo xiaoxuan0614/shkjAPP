@@ -126,8 +126,6 @@ export const projectApi = {
   backfillSignOutImplementLog: (data: Record<string, any>) =>
     http.post('/project/implementLog/backfillSignOut', data),
   addDelay: (data: Record<string, any>) => http.post('/project/delay/add', data),
-  submitAcceptance: (periodId: string) =>
-    http.post('/project/period/status', { periodId, status: 'PENDING_ACCEPT' }),
 }
 
 export const stockApi = {
@@ -138,6 +136,11 @@ export const stockApi = {
   applies: (params: Record<string, any> = {}) =>
     http.get('/stock/apply/list', { pageNo: 1, pageSize: 1000, ...params }),
   applyDetail: (id: string) => http.get('/stock/apply/queryById', { id }),
+  cancelApply: (id: string) => http({ url: '/stock/apply/cancel', method: 'POST', query: { id } }),
+  inboundRecords: (applyId: string, pageNo = 1) =>
+    http.get('/stock/ioRecord/list', { sourceType: 'apply', sourceId: applyId, ioType: 'IN', pageNo, pageSize: 20 }),
+  applyApprovals: (applyId: string, pageNo = 1) =>
+    http.get('/stock/apply/approvals', { applyId, pageNo, pageSize: 100 }),
   applyItems: (applyId: string) =>
     http.get('/stock/apply/items', { applyId, pageNo: 1, pageSize: 1000 }),
   execute: (data: StockApplyExecuteRequest) => http.post('/stock/apply/execute', data),

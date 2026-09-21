@@ -20,11 +20,12 @@
     <template v-else-if="detail.id">
       <scroll-view class="page" :scroll-y="true">
         <SectionCard title="申请信息">
-          <view class="row">
-            <text class="label">申请单号</text>
-            <text class="val">{{ detail.applyNo }}</text>
+          <view class="application-info">
+          <view class="row row--full row--project">
+            <text class="label">项目名称</text>
+            <text class="val">{{ detail.projectLabel }}</text>
           </view>
-          <view class="row">
+          <view class="row" :class="{ 'row--full': detail.type !== 'out' }">
             <text class="label">申请类型</text>
             <text class="val">{{ detail.typeText }}</text>
           </view>
@@ -32,25 +33,26 @@
             <text class="label">领料类型</text>
             <text class="val">{{ getMaterialUsageTypeText(detail.usageType) }}</text>
           </view>
-          <view v-if="detail.orderNo" class="row">
-            <text class="label">关联单号</text>
-            <text class="val">{{ detail.orderNo }}</text>
-          </view>
           <view class="row">
-            <text class="label">项目名称</text>
-            <text class="val">{{ detail.projectLabel }}</text>
+            <text class="label">申请人</text>
+            <text class="val">{{ detail.applyUserName || '未提供' }}</text>
           </view>
-          <view class="row">
-            <text class="label">使用时间</text>
-            <text class="val">{{ detail.useTime || '—' }}</text>
+          <view v-if="detail.type === 'out'" class="row">
+            <text class="label">审批人</text>
+            <text class="val">{{ detail.approvalNames }}</text>
           </view>
-          <view class="row">
+          <view class="row row--full">
             <text class="label">申请时间</text>
             <text class="val">{{ detail.applyTime || '—' }}</text>
           </view>
-          <view class="row">
+          <view v-if="detail.type === 'out'" class="row row--full">
+            <text class="label">使用时间</text>
+            <text class="val">{{ detail.useTime || '—' }}</text>
+          </view>
+          <view class="row row--full row--remark">
             <text class="label">备注</text>
             <text class="val">{{ detail.remark || '—' }}</text>
+          </view>
           </view>
         </SectionCard>
 
@@ -198,31 +200,71 @@
                 >
                   {{ executeHint(material) }}
                 </text>
+                <view class="execute-remark">
+                  <text class="execute-label">执行备注</text>
+                  <input v-model="material.executeRemark" class="execute-remark__input" :disabled="!material.executable || !material.checked || submitting" :maxlength="500" placeholder="选填，可填写快递单号" :aria-label="(material.name || '当前物料') + '执行备注，可填写快递单号'" />
+                </view>
               </view>
             </view>
           </template>
         </SectionCard>
 
         <SectionCard v-else title="物料明细">
-          <view class="stat-head">
-            <text>物料</text>
-            <text>申请</text>
-            <text>出库</text>
-            <text>使用</text>
-            <text>应还</text>
-            <text>还料</text>
-          </view>
-          <view v-for="material in detail.items" :key="material.id" class="stat-row">
-            <view class="stat-name">
-              <view>{{ material.name }}</view>
-              <view class="stat-spec">{{ material.spec }}</view>
+          <view v-if="inboundReadonlyReason" class="empty-state">{{ inboundReadonlyReason }}</view>
+          <view v-if="loadError" class="inline-error" @click="load">{{ loadError }}，点击重新加载</view>
+          <view v-else-if="!detail.items.length" class="empty-state">暂无物料明细</view>
+          <view v-for="material in detail.items" :key="material.id" class="material-item">
+            <view class="material-title-line">
+              <text class="material-name">{{ material.name || '未命名物料' }}</text>
+              <text v-if="material.materialCode" class="material-code">{{ material.materialCode }}</text>
             </view>
-            <text class="stat-num">{{ material.applyQty }}</text>
-            <text class="stat-num">{{ material.outQty }}</text>
-            <text class="stat-num">{{ material.usedQty }}</text>
-            <text class="stat-num">{{ material.returnableQty }}</text>
-            <text class="stat-num stat-num--key">{{ material.returnQty }}</text>
+            <text class="material-spec">{{ materialSpec(material) }}</text>
+            <view class="quantity-grid quantity-grid--inbound">
+              <view class="quantity-cell">
+                <text class="quantity-label">申请数量</text>
+                <text class="quantity-value">{{ formatQty(material.applyQty) }}</text>
+                <text class="quantity-unit">{{ material.unitName }}</text>
+              </view>
+              <view class="quantity-cell">
+                <text class="quantity-label">已入库</text>
+                <text class="quantity-value">{{ formatQty(material.returnQty) }}</text>
+                <text class="quantity-unit">{{ material.unitName }}</text>
+              </view>
+              <view class="quantity-cell">
+                <text class="quantity-label">待入库</text>
+                <text class="quantity-value quantity-value--key">{{ formatQty(material.pendingQty) }}</text>
+                <text class="quantity-unit">{{ material.unitName }}</text>
+              </view>
+            </view>
+            <view v-if="isExecutableInboundHead(detail) && material.pendingQty > 0 && permission.hasPermission('mtl:goods:io')" class="execute-panel">
+              <view class="execute-row">
+                <text class="execute-label">本次入库</text>
+                <input v-model="material.executeQty" class="quantity-input" type="digit" :disabled="submitting" :aria-label="material.name + '本次入库数量'" />
+                <text>{{ material.unitName }}</text>
+              </view>
+              <text class="execute-hint">最多 {{ formatQty(material.pendingQty) }} {{ material.unitName }}，填 0 则本次不处理</text>
+              <template v-if="isProjectReturn">
+                <picker :range="dispositionOptions" range-key="label" :value="dispositionOptions.findIndex(option => option.value === material.dispositionType)" :disabled="submitting" @change="material.dispositionType = dispositionOptions[Number($event.detail.value)].value">
+                  <view class="execute-row">还料处置：{{ dispositionOptions.find(option => option.value === material.dispositionType)?.label }} <wd-icon name="arrow-down" size="14px" /></view>
+                </picker>
+                <input v-if="material.dispositionType !== 'RESTOCK'" v-model="material.dispositionRemark" class="execute-remark__input" :disabled="submitting" maxlength="500" placeholder="请填写报废或遗失原因（必填）" />
+              </template>
+              <input v-model="material.executeRemark" class="execute-remark__input" :disabled="submitting" maxlength="500" placeholder="执行备注（选填）" />
+            </view>
           </view>
+        </SectionCard>
+        <SectionCard v-if="detail.type === 'in'" title="执行入库记录">
+          <view v-if="recordError" class="inline-error" @click="loadInboundRecords(true)">{{ recordError }}，点击重试</view>
+          <view v-else-if="!inboundRecords.length && !recordLoading" class="empty-state">暂无执行入库记录</view>
+          <view v-for="record in inboundRecords" :key="record.id" class="material-item">
+            <view class="material-title-line">
+              <text class="material-name">{{ record.materialName || detail.items.find(item => String(item.materialId) === String(record.materialId))?.name || '未命名物料' }}</text>
+              <text class="record-quantity">{{ formatQty(record.unitQty) }} {{ record.unitName }}</text>
+            </view>
+            <text class="material-spec">入库时间：{{ record.createTime || '—' }}</text>
+            <text v-if="record.remark" class="material-spec">备注：{{ record.remark }}</text>
+          </view>
+          <button v-if="recordHasMore || recordLoading" class="record-more" :disabled="recordLoading" @click="loadInboundRecords(false)">{{ recordLoading ? '正在加载…' : '加载更多记录' }}</button>
         </SectionCard>
       </scroll-view>
 
@@ -240,13 +282,18 @@
         </button>
       </view>
 
-      <view v-else-if="!fromStockTodo && canExecuteInbound" class="bottom">
+      <view v-else-if="detail.type === 'in' && (canExecuteInbound || submitting)" class="bottom">
         <button
           class="submit-button submit-button--full"
           :disabled="submitting"
           @click="executeInbound"
         >
-          {{ submitting ? '正在入库…' : '确认入库' }}
+          {{ submitting ? '正在处理…' : '执行入库' }}
+        </button>
+      </view>
+      <view v-else-if="canWithdraw || withdrawing" class="bottom">
+        <button class="submit-button submit-button--full" :disabled="withdrawing" @click="withdrawApply">
+          {{ withdrawing ? '正在撤回…' : '撤回申请' }}
         </button>
       </view>
     </template>
@@ -261,6 +308,8 @@ import { stockApi, unwrapRecords, formatStockProjectName } from '@/service/shkj'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
 import { usePermissionStore } from '@/store/permission'
+import { useUserStore } from '@/store/user'
+import { ensureCurrentAuthorization } from '@/service/permission'
 
 const toast = useToast()
 const message = useMessage()
@@ -271,6 +320,66 @@ const loadError = ref('')
 const submitting = ref(false)
 const fromStockTodo = ref(false)
 const permission = usePermissionStore()
+const userStore = useUserStore()
+const withdrawing = ref(false)
+const isOwnPendingApply = (head: any) => {
+  if (String(head.status) !== '2') return false
+  const user: any = userStore.userInfo
+  const userId = user.userid || user.id || user.userId
+  if (userId && head.applyUserId) return String(head.applyUserId) === String(userId)
+  // 与 PC 一致：旧单缺少申请人 ID 时才回退姓名判断；最终由后端鉴权。
+  const name = user.realname || user.username
+  return !!name && !!head.applyUserName && head.applyUserName === name
+}
+const canWithdraw = computed(() => !loading.value && !loadError.value && !submitting.value &&
+  !withdrawing.value && !!detail.value.id && isOwnPendingApply(detail.value))
+const withdrawApply = async () => {
+  if (!canWithdraw.value) return
+  try { await message.confirm('确认撤回该申请吗？撤回后将退出审批流程。') }
+  catch { return }
+  if (!canWithdraw.value) return
+  withdrawing.value = true
+  try {
+    const response: any = await stockApi.applyDetail(id.value)
+    const latest = response?.result ?? response
+    if (response?.success === false || String(latest?.id) !== id.value || !isOwnPendingApply(latest)) {
+      toast.warning('申请状态已变化或不属于当前账号，请查看最新详情')
+      await load()
+      return
+    }
+    const result: any = await stockApi.cancelApply(id.value)
+    if (result?.success === false) throw new Error(result.message || '撤回失败')
+    toast.success('已撤回申请')
+    await load()
+  } catch (error: any) { toast.error(error?.message || '撤回失败，请重试') }
+  finally { withdrawing.value = false }
+}
+const inboundRecords = ref<any[]>([])
+const recordLoading = ref(false)
+const recordError = ref('')
+const recordPage = ref(0)
+const recordHasMore = ref(false)
+const loadInboundRecords = async (reset = false) => {
+  if (recordLoading.value) return
+  recordLoading.value = true
+  recordError.value = ''
+  if (reset) { inboundRecords.value = []; recordPage.value = 0 }
+  try {
+    const pageNo = recordPage.value + 1
+    const response: any = await stockApi.inboundRecords(id.value, pageNo)
+    if (response?.success === false) throw new Error('加载失败')
+    const result = response?.result ?? response
+    if (!Array.isArray(result) && !Array.isArray(result?.records)) throw new Error('响应异常')
+    const rows = unwrapRecords(response)
+    // 即使服务端过滤失效，也不展示其他申请或出库流水。
+    const matching = rows.filter((row: any) => String(row.sourceId) === id.value && String(row.ioType).toUpperCase() === 'IN')
+    const seen = new Set(inboundRecords.value.map(row => String(row.id)))
+    inboundRecords.value.push(...matching.filter((row: any) => !seen.has(String(row.id))))
+    recordPage.value = pageNo
+    recordHasMore.value = result?.total != null ? pageNo * 20 < Number(result.total) : rows.length === 20
+  } catch { recordError.value = '执行入库记录加载失败' }
+  finally { recordLoading.value = false }
+}
 const isExecutableOutboundHead = (head: any) =>
   String(head.applyType).toUpperCase() === 'OUT' &&
   String(head.status) === '1' &&
@@ -288,6 +397,16 @@ const isExecutableInboundHead = (head: any) =>
   ['PENDING', 'PARTIAL_EXECUTED'].includes(String(head.executeStatus).toUpperCase())
 const canExecuteInbound = computed(() => !loading.value && !loadError.value && !submitting.value &&
   permission.hasPermission('mtl:goods:io') && isExecutableInboundHead(detail.value))
+const inboundReadonlyReason = computed(() => {
+  if (loading.value) return '正在更新申请状态'
+  if (String(detail.value.status) === '2') return '等待审批，请审批人在待办中办理；通过后由库管执行入库'
+  if (!permission.hasPermission('mtl:goods:io')) return '当前账号无出入库操作权限，仅可查看详情'
+  if (String(detail.value.status) !== '1') return '申请尚未审批通过，暂不可入库'
+  if (!isExecutableInboundHead(detail.value)) return '当前申请已完成或执行状态不可操作'
+  return ''
+})
+const dispositionOptions = [{ label: '合格回库', value: 'RESTOCK' }, { label: '报废', value: 'SCRAP' }, { label: '遗失', value: 'LOST' }]
+const isProjectReturn = computed(() => detail.value.applyType === 'IN' && detail.value.bizType === 'RETURN' && detail.value.usageType === 'PROJECT')
 
 const toQty = (value: unknown) => {
   const result = Number(value)
@@ -338,6 +457,7 @@ const normalizeOutboundItem = (item: any, headStatus: unknown) => {
     stockInsufficient: stockKnown && stockQty < pendingQty,
     checked: executable,
     executeQty: maxExecuteQty,
+    executeRemark: '',
   }
 }
 
@@ -351,6 +471,24 @@ const allSelected = computed(
 )
 const someSelected = computed(() => selectedItems.value.length > 0)
 
+const loadApprovalNames = async (applyId: string) => {
+  const names = new Set<string>()
+  let hasRecords = false
+  for (let pageNo = 1; ; pageNo++) {
+    const response: any = await stockApi.applyApprovals(applyId, pageNo)
+    const result = response?.result ?? response
+    if (!Array.isArray(result) && !Array.isArray(result?.records)) throw new Error('审批记录响应异常')
+    const rows = unwrapRecords(response)
+    hasRecords ||= rows.length > 0
+    rows.forEach((row: any) => {
+      const name = String(row.approvalUserName || '').trim()
+      if (name) names.add(name)
+    })
+    if (!rows.length || (result?.total != null ? pageNo * 100 >= Number(result.total) : rows.length < 100)) break
+  }
+  return [...names].join('、') || (hasRecords ? '审批人未提供' : '暂无审批记录')
+}
+
 const load = async () => {
   if (loading.value) return
   if (!id.value) {
@@ -361,9 +499,11 @@ const load = async () => {
   loading.value = true
   loadError.value = ''
   try {
-    const [headRes, itemRes]: any = await Promise.all([
+    await ensureCurrentAuthorization(userStore.userInfo)
+    const [headRes, itemRes, approvalNames]: any = await Promise.all([
       stockApi.applyDetail(id.value),
       stockApi.applyItems(id.value),
+      loadApprovalNames(id.value).catch(() => '审批记录加载失败，请重新进入详情重试'),
     ])
     const head = headRes?.result || headRes || {}
     if (!head.id || String(head.id) !== id.value) throw new Error('申请单不存在或返回不匹配')
@@ -374,16 +514,25 @@ const load = async () => {
     const executed = String(head.executeStatus || '').toUpperCase()
     const items = unwrapRecords(itemRes).map((item: any) => {
       if (applyType === 'OUT') return normalizeOutboundItem(item, head.status)
+      const approvalPassed = String(item.status ?? head.status) === '1'
+      const approvedQty = approvalPassed ? toQty(item.approvedQty ?? item.applyQty ?? item.unitQty) : 0
+      const executedQty = toQty(item.executedQty)
+      const pendingQty = roundQty(Math.max(approvedQty - executedQty, 0))
       return {
         ...item,
         id: item.id || item.itemId,
         name: item.materialName || '',
-        spec: item.model || '',
+        brand: item.brand || '',
+        spec: item.model || item.specification || item.spec || '',
+        unitName: item.unitName || item.unit || '',
         applyQty: toQty(item.applyQty ?? item.unitQty),
-        outQty: 0,
-        usedQty: toQty(item.usedQty),
-        returnableQty: toQty(item.returnableQty),
-        returnQty: toQty(item.executedQty ?? item.returnQty),
+        returnQty: executedQty,
+        approvedQty,
+        pendingQty,
+        executeQty: pendingQty,
+        executeRemark: '',
+        dispositionType: 'RESTOCK',
+        dispositionRemark: '',
       }
     })
 
@@ -391,7 +540,7 @@ const load = async () => {
       ...head,
       type: applyType === 'IN' ? 'in' : 'out',
       typeText: applyType === 'IN' ? '还料申请' : '领料申请',
-      orderNo: head.projectNo || head.orderNo || '',
+      approvalNames,
       projectLabel: formatStockProjectName(head),
       useTime: head.useDate || head.useTime || '',
       applyTime: head.createTime || head.applyTime || '',
@@ -400,6 +549,9 @@ const load = async () => {
         ? 'done'
         : 'pending',
       items,
+    }
+    if (applyType === 'IN') {
+      void loadInboundRecords(true)
     }
   } catch (error) {
     loadError.value = '申请详情加载失败'
@@ -500,6 +652,7 @@ const executeOutbound = () => {
   const items = selectedItems.value.map((item: any) => ({
     itemId: item.id,
     executeQty: roundQty(Number(item.executeQty)),
+    ...(String(item.executeRemark || '').trim() ? { remark: String(item.executeRemark).trim() } : {}),
   }))
   message
     .confirm({
@@ -533,22 +686,50 @@ const executeOutbound = () => {
 
 const executeInbound = () => {
   if (!canExecuteInbound.value) return
+  const candidates = detail.value.items.filter((item: any) => item.pendingQty > 0)
+  const invalid = candidates.find((item: any) => !Number.isFinite(Number(item.executeQty)) || Number(item.executeQty) < 0 || Number(item.executeQty) > item.pendingQty)
+  if (invalid) { toast.warning(`${invalid.name}本次入库数量须在 0 至 ${formatQty(invalid.pendingQty)} 之间`); return }
+  const selected = candidates.filter((item: any) => Number(item.executeQty) > 0)
+  if (!selected.length) { toast.warning('请填写至少一种物料的本次入库数量'); return }
+  if (isProjectReturn.value && selected.some((item: any) => !dispositionOptions.some(option => option.value === item.dispositionType) || (item.dispositionType !== 'RESTOCK' && !item.dispositionRemark.trim()))) {
+    toast.warning('报废或遗失必须填写原因'); return
+  }
+  const items = selected.map((item: any) => ({
+    itemId: item.id,
+    executeQty: Number(item.executeQty),
+    ...(item.executeRemark.trim() ? { remark: item.executeRemark.trim() } : {}),
+    ...(isProjectReturn.value ? { dispositionType: item.dispositionType,
+      ...(item.dispositionType !== 'RESTOCK' ? { dispositionRemark: item.dispositionRemark.trim() } : {}) } : {}),
+  }))
   message
-    .confirm('确认执行入库吗？')
+    .confirm(`确认处理本次 ${items.length} 种物料吗？`)
     .then(async () => {
       if (!canExecuteInbound.value) return
       submitting.value = true
       try {
+        await ensureCurrentAuthorization(userStore.userInfo, true)
         const response: any = await stockApi.applyDetail(id.value)
         const latest = response?.result || response || {}
-        if (String(latest.id) !== id.value || !permission.hasPermission('mtl:goods:io') || !isExecutableInboundHead(latest)) {
+        if (response?.success === false || String(latest.id) !== id.value || !permission.hasPermission('mtl:goods:io') || !isExecutableInboundHead(latest)) {
           toast.warning('申请状态已变化或无执行权限，请查看最新详情')
           await load()
           return
         }
-        await stockApi.execute({ applyId: id.value })
+        const itemResponse: any = await stockApi.applyItems(id.value)
+        if (itemResponse?.success === false) throw new Error('最新物料明细加载失败')
+        const latestItems = unwrapRecords(itemResponse)
+        for (const item of items) {
+          const current = latestItems.find((row: any) => String(row.id || row.itemId) === String(item.itemId))
+          if (!current || String(current.status ?? latest.status) !== '1' || item.executeQty > roundQty(Math.max(toQty(current.approvedQty ?? current.applyQty ?? current.unitQty) - toQty(current.executedQty), 0))) {
+            throw new Error('物料可入库数量已变化，请重新加载后操作')
+          }
+        }
+        const result: any = await stockApi.execute({ applyId: id.value, items })
+        if (result?.success === false) throw new Error(result.message || '执行入库失败')
         toast.success('操作成功')
         await load()
+      } catch (error: any) {
+        toast.error(error?.message || '执行入库失败，请重试')
       } finally {
         submitting.value = false
       }
@@ -599,12 +780,25 @@ onLoad((query) => {
   }
 }
 
+.application-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 16px;
+  padding-top: 8px;
+}
 .row {
   display: flex;
-  margin-top: 10px;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+
+  &--full { grid-column: 1 / -1; }
+  &--project { padding-bottom: 16px; border-bottom: 1px solid #edf0f3; }
+  &--project .val { font-weight: 600; }
+  &--remark { padding-top: 16px; border-top: 1px solid #edf0f3; }
+  &--remark .val { white-space: pre-wrap; }
 
   .label {
-    width: 84px;
     flex: none;
     color: #667085;
     font-size: 13px;
@@ -613,9 +807,10 @@ onLoad((query) => {
   .val {
     flex: 1;
     min-width: 0;
-    color: #333;
-    font-size: 13px;
-    word-break: break-all;
+    color: #27364a;
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -797,25 +992,32 @@ onLoad((query) => {
 
 .quantity-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
-  margin: 12px 0 0 44px;
+  margin: 12px 0 0;
   overflow: hidden;
   border: 1px solid #edf0f3;
   border-radius: 10px;
   background: #edf0f3;
 }
 
+.quantity-grid--inbound { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.material-code { max-width: 45%; font-size: 12px; color: #667085; overflow-wrap: anywhere; text-align: right; }
+.record-quantity { flex-shrink: 0; font-size: 14px; color: #1d2939; font-weight: 600; }
+.record-more { margin-top: 12px; color: #2563eb; background: transparent; font-size: 14px; }
+
 .quantity-cell {
   min-width: 0;
-  padding: 10px 12px;
+  padding: 10px 6px;
+  text-align: center;
+  overflow-wrap: anywhere;
   background: #f8fafc;
 }
 
 .quantity-label {
   display: block;
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
 }
 
@@ -839,7 +1041,7 @@ onLoad((query) => {
 }
 
 .execute-panel {
-  margin: 12px 0 0 44px;
+  margin: 12px 0 0;
   padding: 12px;
   border-radius: 10px;
   background: #f7f9fc;
@@ -863,7 +1065,13 @@ onLoad((query) => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
+
+.execute-remark { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e4e7ec; }
+.execute-remark__input { width: 100%; min-height: 44px; box-sizing: border-box; margin-top: 8px; padding: 8px 10px; border: 1px solid #d7dce3; border-radius: 8px; background: #fff; color: #27364a; font-size: 16px; }
+.execute-remark__input[disabled] { background: #f2f4f7; color: #667085; }
 
 .quantity-button,
 .fill-button {
@@ -1025,6 +1233,7 @@ onLoad((query) => {
 }
 
 @media (max-width: 360px) {
+  .quantity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quantity-grid,
   .execute-panel {
     margin-left: 0;

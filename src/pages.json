@@ -24,14 +24,14 @@
     "spacing": "3px",
     "list": [
       {
-        "iconPath": "static/tabbar/tabbar-home-2.png",
-        "selectedIconPath": "static/tabbar/tabbar-home.png",
+        "iconPath": "/static/tabbar/tabbar-home-2.png",
+        "selectedIconPath": "/static/tabbar/tabbar-home.png",
         "pagePath": "pages/home/index",
         "text": "首页"
       },
       {
-        "iconPath": "static/tabbar/tabbar-user-2.png",
-        "selectedIconPath": "static/tabbar/tabbar-user.png",
+        "iconPath": "/static/tabbar/tabbar-user-2.png",
+        "selectedIconPath": "/static/tabbar/tabbar-user.png",
         "pagePath": "pages/customer/mine",
         "text": "我的"
       }
@@ -215,14 +215,16 @@
       "path": "pages/ops/project",
       "type": "page",
       "style": {
-        "navigationBarTitleText": "项目管理"
+        "navigationBarTitleText": "项目管理",
+        "navigationStyle": "custom"
       }
     },
     {
       "path": "pages/ops/projectDetail",
       "type": "page",
       "style": {
-        "navigationBarTitleText": "项目详情"
+        "navigationBarTitleText": "项目详情",
+        "navigationStyle": "custom"
       }
     },
     {

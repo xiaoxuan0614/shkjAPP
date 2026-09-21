@@ -92,23 +92,33 @@
             <wd-icon name="warning" size="16px" />
             <text>菜单权限暂未同步，功能页仍由后端接口鉴权。点击重试。</text>
           </view>
-          <view v-if="todoLoading" class="empty">正在加载待办…</view>
-          <view v-else-if="!todoList.length" class="empty">暂无待办事项</view>
+          <view v-if="todoLoading && !todoList.length" class="empty">正在加载待办…</view>
+          <view v-else-if="!todoList.length && !todoError" class="empty">暂无待办事项</view>
+          <view v-if="todoList.length">
           <view
-            v-for="item in todoList"
+            v-for="item in visibleTodos"
             :key="item.id"
             class="todo"
             @click="openTodo(item)"
           >
-            <view class="todo__tag" :class="{ urgent: item.urgent }">{{
-              item.urgent ? "急" : "待"
-            }}</view>
+            <view class="todo__tag" :class="['todo__tag--' + todoTag(item).tone, { urgent: item.urgent }]">{{ item.urgent ? '急' : todoTag(item).label }}</view>
             <view class="todo__body">
               <view class="todo__title">{{ item.displayTitle }}</view>
               <view class="todo__summary">{{ item.summary }}</view>
             </view>
-            <text class="todo__time">{{ formatShortDate(item.time) }}</text>
+            <view class="todo__meta">
+              <text class="todo__time">{{ formatShortDate(item.time) || '时间未提供' }}</text>
+              <text class="todo__applicant">申请人：{{ item.applyUserName?.trim() || item.realName?.trim() || item.createBy?.trim() || '—' }}</text>
+            </view>
           </view>
+          <button v-if="showAllTodos && todoHasMore && !todoError" class="todo-more" :disabled="todoLoading" @click="loadTodos(false)">{{ todoLoading ? '正在加载…' : '加载更多待办' }}</button>
+          <button v-if="todoTotal > 4 || todoList.length > 4" class="todo-more" @click="showAllTodos = !showAllTodos">
+            <text>{{ showAllTodos ? '收起待办' : '查看全部' }}</text>
+            <text v-if="!showAllTodos" class="todo-more__count">共 {{ todoTotal }} 项</text>
+            <wd-icon :name="showAllTodos ? 'arrow-up' : 'arrow-down'" size="14px" />
+          </button>
+          </view>
+          <view v-if="todoError" class="empty" @click="loadTodos(!todoList.length)">{{ todoError }}，点击重试</view>
         </SectionCard>
       </view>
 
@@ -140,15 +150,26 @@
         </view>
       </SectionCard>
 
-      <view class="footer">— 首汇科技 · 运维工作台 —</view>
+      <view class="footer">— 首汇科技 · 工作台 —</view>
     </scroll-view>
 
     <ContractApprovalPopup
       ref="contractApprovalPopup"
       @processed="refreshAfterContractApproval"
     />
-    <PlanApprovalPopup ref="planApprovalPopup" @processed="refreshAfterContractApproval" />
-    <DelayApprovalPopup ref="delayApprovalPopup" @processed="refreshAfterContractApproval" />
+    <PlanApprovalPopup
+      ref="planApprovalPopup"
+      @processed="refreshAfterContractApproval"
+    />
+    <DelayApprovalPopup
+      ref="delayApprovalPopup"
+      @processed="refreshAfterContractApproval"
+    />
+    <MaterialApprovalPopup ref="materialApprovalPopup" @processed="refreshAfterContractApproval" />
+    <ProjectAcceptancePopup
+      ref="reworkAcceptancePopup"
+      @changed="refreshAfterContractApproval"
+    />
 
     <wd-popup
       v-model="showInvitation"
@@ -231,6 +252,10 @@ import SectionCard from "@/components/SectionCard/SectionCard.vue";
 import ContractApprovalPopup from "./components/ContractApprovalPopup.vue";
 import PlanApprovalPopup from "./components/PlanApprovalPopup.vue";
 import DelayApprovalPopup from "./components/DelayApprovalPopup.vue";
+import MaterialApprovalPopup from "./components/MaterialApprovalPopup.vue";
+import { isMaterialApprovalTodo } from '@/service/materialApproval';
+import ProjectAcceptancePopup from "../ops/components/ProjectAcceptancePopup.vue";
+import { acceptanceApi, type AcceptanceType } from '@/service/projectAcceptance';
 import { projectApi, normalizeProject, unwrapRecords } from "@/service/shkj";
 import { http } from "@/utils/http";
 import {
@@ -269,11 +294,30 @@ const toast = useToast();
 const userStore = useUserStore();
 const permissionStore = usePermissionStore();
 const todoList = ref<any[]>([]);
+const showAllTodos = ref(false);
+const visibleTodos = computed(() => showAllTodos.value ? todoList.value : todoList.value.slice(0, 4));
+const todoTag = (item: TodoRecord) => {
+  const type = String(item.todoType || item.actionKey || '').toUpperCase();
+  if (type.includes('INVITATION')) return { label: '邀', tone: 'purple' };
+  if (type.includes('CONTRACT')) return { label: '合', tone: 'blue' };
+  if (type.includes('PLAN') || type === 'PROJECT_PERIOD_APPROVAL') return { label: '计', tone: 'cyan' };
+  if (type.includes('STOCK_OUT_EXECUTE')) return { label: '出', tone: 'green' };
+  if (type.includes('MATERIAL') || type.includes('STOCK')) return { label: '料', tone: 'orange' };
+  if (type.includes('DELAY')) return { label: '延', tone: 'amber' };
+  if (type.includes('REWORK')) return { label: '返', tone: 'rose' };
+  if (type.includes('ACCEPT')) return { label: '验', tone: 'green' };
+  return { label: '待', tone: 'blue' };
+};
 const todoTotal = ref(0);
 const todoLoading = ref(false);
+const todoPage = ref(0), todoHasMore = ref(true), todoError = ref('');
+let todoRequest = 0;
 const contractApprovalPopup = ref<InstanceType<typeof ContractApprovalPopup>>();
 const planApprovalPopup = ref<InstanceType<typeof PlanApprovalPopup>>();
 const delayApprovalPopup = ref<InstanceType<typeof DelayApprovalPopup>>();
+const materialApprovalPopup = ref<InstanceType<typeof MaterialApprovalPopup>>();
+const reworkAcceptancePopup =
+  ref<InstanceType<typeof ProjectAcceptancePopup>>();
 const showInvitation = ref(false);
 const invitationLoading = ref(false);
 const invitationSubmitting = ref(false);
@@ -433,13 +477,18 @@ const loadProjects = async () => {
   try {
     const [response, dictionary]: any[] = await Promise.all([
       projectApi.list(),
-      http.get('/sys/dict/getDictItems/project_period_status').catch(() => null),
+      http
+        .get("/sys/dict/getDictItems/project_period_status")
+        .catch(() => null),
     ]);
     if (request !== projectRequest) return;
     projectStatusLabels.value = Object.fromEntries(
       unwrapRecords(dictionary)
         .filter((item: any) => item.value != null && (item.text || item.label))
-        .map((item: any) => [String(item.value).trim(), item.text || item.label]),
+        .map((item: any) => [
+          String(item.value).trim(),
+          item.text || item.label,
+        ]),
     );
     recentProjects.value = unwrapRecords(response)
       .map(normalizeProject)
@@ -451,27 +500,35 @@ const loadProjects = async () => {
   }
 };
 
-const loadTodos = async () => {
+const loadTodos = async (reset = true) => {
+  if (!reset && (todoLoading.value || !todoHasMore.value)) return;
+  const request = reset ? ++todoRequest : todoRequest;
+  if (reset) { todoList.value = []; todoPage.value = 0; todoHasMore.value = true; }
+  const pageNo = todoPage.value + 1;
   todoLoading.value = true;
+  todoError.value = '';
   try {
     const [pageResponse] = await Promise.all([
-      todoApi.page(),
+      todoApi.page({ pageNo, pageSize: 20 }),
       loadTodoTypeDictionary(),
     ]);
     const page = unwrapTodoPage(pageResponse);
-    todoList.value = page.records.map((item: TodoRecord) => ({
+    if (request !== todoRequest) return;
+    const existing = new Set(todoList.value.map(item => item.id));
+    todoList.value.push(...page.records.filter(item => !existing.has(item.id)).map((item: TodoRecord) => ({
       ...item,
       displayTitle: todoTypeText(item.todoType),
       actionParams: parseTodoActionParams(item.actionParams),
       time: item.dueTime || item.createTime,
       urgent: item.urgent === true,
-    }));
+    })));
     todoTotal.value = page.total;
+    todoPage.value = pageNo;
+    todoHasMore.value = page.records.length > 0 && pageNo * 20 < page.total;
   } catch {
-    todoList.value = [];
-    todoTotal.value = 0;
+    if (request === todoRequest) todoError.value = '待办加载失败';
   } finally {
-    todoLoading.value = false;
+    if (request === todoRequest) todoLoading.value = false;
   }
 };
 
@@ -575,20 +632,71 @@ const respondInvitation = async (inviteStatus: "0" | "1") => {
   }
 };
 
+const acceptanceTodoLoading = ref(false);
+async function openAcceptanceTodo(item: TodoRecord & { actionParams?: Record<string, any> }, failed: boolean) {
+  if (acceptanceTodoLoading.value) return;
+  const params = item.actionParams || {};
+  const periodId = String(params.periodId || item.bizSubId || '');
+  if (!periodId) return toast.warning('验收待办缺少项目分期 ID');
+  if (!failed) {
+    await reworkAcceptancePopup.value?.open(periodId, '', { status: 'ACCEPTING', periodStatus: 'ACCEPTING' });
+    return;
+  }
+  const acceptanceId = String(params.acceptanceId || params.sourceAcceptanceId || item.bizId || '');
+  if (!acceptanceId) return toast.warning('验收待办缺少验收记录 ID');
+  acceptanceTodoLoading.value = true;
+  uni.showLoading({ title: '加载验收详情', mask: true });
+  try {
+    const response: any = await acceptanceApi.detail(acceptanceId);
+    const record = response?.result;
+    if (!record?.id || String(record.periodId) !== periodId) throw new Error('验收记录不存在或不属于当前分期');
+    uni.hideLoading();
+    const canRecheck = record.result === 'FAILED' && ['INTERNAL','CUSTOMER'].includes(record.acceptType) && permissionStore.hasPermission('project:acceptance:submit');
+    const choice = await new Promise<boolean>((resolve) => uni.showModal({
+      title: '验收驳回提醒',
+      content: `项目：${item.summary || item.title || '—'}\n验收类型：${record.acceptType === 'INTERNAL' ? '内部验收' : '外部验收'}\n验收负责人：${record.acceptLeaderName || '—'}\n验收日期：${record.acceptEndDate || record.acceptDate || '—'}\n驳回原因：${record.remark || '—'}`,
+      showCancel: canRecheck, cancelText: '确认', confirmText: canRecheck ? '申请复验' : '确认',
+      success: (result) => resolve(canRecheck && Boolean(result.confirm)), fail: () => resolve(false),
+    }));
+    if (choice) await reworkAcceptancePopup.value?.open(periodId, '', { status: 'ACCEPTING', periodStatus: 'ACCEPTING' }, false,
+      { type: record.acceptType as AcceptanceType, acceptanceId: String(record.id) });
+  } catch (error: any) { toast.warning(error?.message || '验收详情加载失败，请重试'); }
+  finally { uni.hideLoading(); acceptanceTodoLoading.value = false; }
+}
+
 const openTodo = (
   item: TodoRecord & { actionParams?: Record<string, any> },
 ) => {
-  if ([item.todoType, item.actionKey].includes('PROJECT_DELAY_APPROVAL')) {
+  const acceptanceKeys = [item.todoType, item.actionKey];
+  if (acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE', 'PROJECT_ACCEPTANCE_PENDING', 'PROJECT_ACCEPTANCE_HANDLE'].includes(String(key)))) {
+    void openAcceptanceTodo(item, acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE'].includes(String(key))));
+    return;
+  }
+  if (isMaterialApprovalTodo(item)) {
+    materialApprovalPopup.value?.open(item);
+    return;
+  }
+  if ([item.todoType, item.actionKey].includes("PROJECT_REWORK_APPROVAL")) {
+    const periodId = String(item.actionParams?.periodId || "");
+    const reworkId = String(item.actionParams?.reworkId || item.bizId || "");
+    if (!periodId || !reworkId)
+      return toast.warning("返工待办缺少分期或返工单信息，请刷新核实");
+    reworkAcceptancePopup.value?.open(periodId, reworkId);
+    return;
+  }
+  if ([item.todoType, item.actionKey].includes("PROJECT_DELAY_APPROVAL")) {
     delayApprovalPopup.value?.open(item);
     return;
   }
   if (isStockOutExecuteTodo(item)) {
     const applyId = resolveStockTodoApplyId(item);
     if (!applyId) {
-      toast.warning('当前出库待办缺少申请单 ID，请刷新待办或联系管理员');
+      toast.warning("当前出库待办缺少申请单 ID，请刷新待办或联系管理员");
       return;
     }
-    openPath(`/pages/stock/materialDetail?id=${encodeURIComponent(applyId)}&from=stockOutTodo`);
+    openPath(
+      `/pages/stock/materialDetail?id=${encodeURIComponent(applyId)}&from=stockOutTodo`,
+    );
     return;
   }
   if (
@@ -611,8 +719,7 @@ const openTodo = (
     return;
   }
 
-  if (isPlanApprovalTodo(item))
-    planApprovalPopup.value?.open(item);
+  if (isPlanApprovalTodo(item)) planApprovalPopup.value?.open(item);
   else toast.info("请在 PC 端办理该类型待办");
 };
 
@@ -631,8 +738,13 @@ const refreshAuthorization = async () => {
 const formatShortDate = (value?: string) =>
   value ? dayjs(value).format("MM-DD HH:mm") : "";
 const projectStatusText = (item: any) => {
-  const status = String(item.rawStatus ?? '').trim();
-  return projectStatusLabels.value[status] || item.status_dictText || status || '未知';
+  const status = String(item.rawStatus ?? "").trim();
+  return (
+    projectStatusLabels.value[status] ||
+    item.status_dictText ||
+    status ||
+    "未知"
+  );
 };
 
 onShow(() => {
@@ -819,6 +931,8 @@ onShow(() => {
   text-align: center;
 }
 .todo {
+  box-sizing: border-box;
+  min-height: 80px;
   display: flex;
   align-items: center;
   padding: 11px 0;
@@ -829,19 +943,28 @@ onShow(() => {
 }
 .todo__tag {
   display: flex;
-  width: 21px;
-  height: 21px;
+  width: 30px;
+  height: 30px;
   flex: none;
   align-items: center;
   justify-content: center;
   margin-right: 10px;
   border-radius: 6px;
-  background: #e6a23c;
-  color: #fff;
-  font-size: 11px;
+  background: #eaf2ff;
+  color: #245eaa;
+  font-size: 13px;
+  font-weight: 600;
 }
+.todo__tag--purple { background: #f1eaff; color: #7545a5; }
+.todo__tag--blue { background: #eaf2ff; color: #245eaa; }
+.todo__tag--cyan { background: #e4f4f7; color: #166579; }
+.todo__tag--green { background: #e8f5ee; color: #237046; }
+.todo__tag--orange { background: #fff0e5; color: #a04912; }
+.todo__tag--amber { background: #fff4d8; color: #886013; }
+.todo__tag--rose { background: #fcebef; color: #a43c5c; }
 .todo__tag.urgent {
-  background: #e85b5b;
+  background: #b93838;
+  color: #fff;
 }
 .todo__body {
   min-width: 0;
@@ -857,16 +980,21 @@ onShow(() => {
 .todo__summary {
   overflow: hidden;
   margin-top: 3px;
-  color: #8a95a3;
+  color: #657285;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .todo__time {
-  margin-left: 10px;
-  color: #a5adb8;
-  font-size: 11px;
+  color: #657285;
+  font-size: 12px;
 }
+.todo__meta { flex: 0 0 112px; min-width: 0; margin-left: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.todo__applicant { max-width: 100%; color: #526176; font-size: 12px; overflow-wrap: anywhere; text-align: right; line-height: 1.5; }
+.todo-more { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; margin: 8px 0 0; padding: 0 12px; background: #f3f7fc; color: #245eaa; font-size: 14px; line-height: 44px; border-radius: 8px; }
+.todo-more::after { border: 0; }
+.todo-more__count { color: #657285; font-size: 12px; }
+@media (max-width: 360px) { .todo { flex-wrap: wrap; } .todo__meta { flex-basis: calc(100% - 40px); margin: 6px 0 0 40px; align-items: flex-start; gap: 4px; } .todo__applicant { text-align: left; } }
 .invitation-popup {
   box-sizing: border-box;
   display: flex;

@@ -21,7 +21,6 @@ import AutoImport from 'unplugin-auto-import/vite'
 import ViteRestart from 'vite-plugin-restart'
 import { copyNativeRes } from './vite-plugins/copyNativeRes'
 import { pdfPreviewAssets } from './vite-plugins/pdfPreviewAssets'
-import { viteMockServe } from 'vite-plugin-mock'
 
 // https://vitejs.dev/config/
 export default ({ command, mode }) => {
@@ -48,7 +47,6 @@ export default ({ command, mode }) => {
     VITE_SHOW_SOURCEMAP,
     VITE_APP_PROXY,
     VITE_APP_PROXY_PREFIX,
-    VITE_USE_MOCK,
   } = env
   const appPort = process.env.VITE_APP_PORT || VITE_APP_PORT
   // 不向构建日志输出环境变量，避免泄露部署配置。
@@ -132,14 +130,6 @@ export default ({ command, mode }) => {
         }),
       // 只有在 app 平台时才启用 copyNativeRes 插件
       UNI_PLATFORM === 'app' && copyNativeRes(),
-      viteMockServe({
-        // 指定 mock 文件目录
-        mockPath: './mock',
-        // 忽略插件运行时生成的临时 bundle，避免下次启动时被再次当作 Mock 源文件加载
-        ignore: /\.bundled_/,
-        // 开发服务器才启用mock数据
-        enable: mode === 'development' && JSON.parse(VITE_USE_MOCK),
-      }),
       UNI_PLATFORM === 'h5' && mode === 'production' && createEnvConfigPlugin(),
     ],
     define: {
@@ -208,7 +198,7 @@ function createDynamicDefine(envVars) {
 }
 function createEnvConfigPlugin() {
   const publicKeys = [
-    'VITE_APP_PUBLIC_BASE', 'VITE_APP_PROXY', 'VITE_APP_PROXY_PREFIX', 'VITE_USE_MOCK',
+    'VITE_APP_PUBLIC_BASE', 'VITE_APP_PROXY', 'VITE_APP_PROXY_PREFIX',
     'VITE_SERVER_BASEURL', 'VITE_UPLOAD_BASEURL', 'VITE_GD_MAP_KEY__WEIXIN',
     'VITE_SERVER_BASEURL__WEIXIN_DEVELOP', 'VITE_SERVER_BASEURL__WEIXIN_TRIAL',
     'VITE_SERVER_BASEURL__WEIXIN_RELEASE', 'VITE_UPLOAD_BASEURL__WEIXIN_DEVELOP',

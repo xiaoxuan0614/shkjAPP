@@ -47,7 +47,7 @@ const httpInterceptor = {
       // TIPS: 如果需要对接多个后端服务，也可以在这里处理，拼接成所需要的地址
     }
     // 1. 请求超时
-    options.timeout = options.timeout ?? 10000 // 默认 10s，允许视频上传单独设置
+    options.timeout = options.timeout ?? 20000 // 默认 20s，允许视频上传单独设置
     // 2. （可选）添加小程序端请求头标识
     options.header = {
       platform, // 可选，与 uniapp 定义的平台一致，告诉后台来源

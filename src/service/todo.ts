@@ -19,6 +19,9 @@ export interface TodoRecord {
   periodName?: string;
   title?: string;
   summary?: string;
+  createBy?: string;
+  applyUserName?: string | null;
+  realName?: string | null;
   scope?: TodoScope;
   todoStatus?: string;
   priority?: number;
@@ -48,6 +51,11 @@ const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_MATERIAL_APPLY_APPROVAL: { text: "项目用料申请审批" },
   PROJECT_DELAY_APPROVAL: { text: "项目延期审批" },
   PROJECT_REWORK_APPROVAL: { text: "项目返工审批" },
+  PROJECT_ACCEPTANCE_FAILED: { text: "验收驳回提醒" },
+  PROJECT_ACCEPTANCE_FAILED_HANDLE: { text: "验收驳回提醒" },
+  PROJECT_ACCEPTANCE_PENDING: { text: "待验收" },
+  STOCK_IN_APPROVAL: { text: "入库申请审批" },
+  STOCK_IN_EXECUTE: { text: "入库执行待办，等待库管入库" },
   STOCK_OUT_APPROVAL: { text: "出库申请审批" },
   STOCK_OUT_EXECUTE: { text: "出库执行待办，等待库管出库" },
 };

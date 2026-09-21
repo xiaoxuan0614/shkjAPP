@@ -1,4 +1,4 @@
-// 业务字典：状态/类型映射。mock 阶段前端内置，接后端后改为 /sys/dict 拉取
+// 业务字典：状态/类型的前端映射；已接字典接口的页面以接口回显为准。
 export interface DictItem {
   value: string
   label: string

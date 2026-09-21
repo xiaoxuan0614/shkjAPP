@@ -1,4 +1,5 @@
 import { http } from '@/utils/http'
+import { useUserStore } from '@/store/user'
 import { normalizeMiniAppPath, usePermissionStore, type AuthorizedMenu } from '@/store/permission'
 
 const CURRENT_USER_MENU_URL = '/sys/permission/getUserPermissionByToken'
@@ -57,7 +58,20 @@ export const buildPermissionOwnerKey = (userInfo: IUserInfo) =>
 
 export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUserInfo) => {
   const permissionStore = usePermissionStore()
+  const userStore = useUserStore()
+  const token = userInfo.token
   try {
+    // 登录/统一权限刷新时补全角色，弹窗只读用户状态，不再查询部门。
+    try {
+      const profileResponse: any = await http.get('/sys/user/getUserInfo')
+      const profile = profileResponse?.result?.userInfo
+      if (userStore.userInfo.token !== token) return []
+      if (!profile || String(profile.id) !== String(userInfo.userid)) throw new Error('当前用户身份响应不匹配')
+      userStore.editUserInfo({ ...profile, belongDepIds: profile.belongDepIds ?? (userStore.userInfo as any).belongDepIds, roles: Array.isArray(profile.roles) ? profile.roles : [] })
+    } catch {
+      if (userStore.userInfo.token !== token) return []
+      userStore.editUserInfo({ roles: [] })
+    }
     const menuResponse: any = await http.get(CURRENT_USER_MENU_URL)
     let permissionCodes: string[] = []
     try {
@@ -66,6 +80,7 @@ export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUser
     } catch {
       // 按钮权限加载失败不应拖垮菜单；按钮接口仍由后端独立鉴权。
     }
+    if (userStore.userInfo.token !== token) return []
     permissionStore.setAuthorization(normalizeMenus(menuResponse), permissionCodes, ownerKey)
     authorizationCheckedAt = Date.now()
     return permissionStore.menus

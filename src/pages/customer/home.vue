@@ -118,7 +118,7 @@ const loadRecords = async () => {
     const res: any = await http.get('/repair/list')
     records.value = (res.result || []).slice(0, 3)
   } catch (e) {
-    /* mock 关闭时静默 */
+    /* 待接接口失败时不影响首页其他模块 */
   }
 }
 

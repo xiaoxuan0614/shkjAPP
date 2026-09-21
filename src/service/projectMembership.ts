@@ -1,7 +1,24 @@
 import { http } from '@/utils/http'
 import { unwrapRecords } from '@/service/shkj'
 
-// 系统角色不等于当前分期角色；仅接受有效且已确认邀请的成员关系。
+
+// 仅供页面身份展示；业务提交继续使用未缓存的 readProjectMembership 再校验。
+let membershipOwner = '';
+const membershipCache = new Map<string, { expires: number; value: Promise<{participant: boolean; manager: boolean}> }>();
+export function readCachedProjectMembership(periodId: string, userId: string, sessionKey: string) {
+  const owner = JSON.stringify([userId, sessionKey]);
+  if (owner !== membershipOwner) { membershipCache.clear(); membershipOwner = owner; }
+  if (!userId || !periodId || !sessionKey) return Promise.resolve({participant:false, manager:false});
+  const cached = membershipCache.get(periodId);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  const value = readProjectMembership(periodId, userId).catch(error => {
+    if (membershipOwner === owner && membershipCache.get(periodId)?.value === value) membershipCache.delete(periodId);
+    throw error;
+  });
+  membershipCache.set(periodId, {expires: Date.now() + 60_000, value});
+  return value;
+}
+
 export async function readProjectMembership(periodId: string, userId: string) {
   const access = { participant: false, manager: false }
   if (!periodId || !userId) return access
