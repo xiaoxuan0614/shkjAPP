@@ -90,7 +90,7 @@ export const projectApi = {
   detail: (periodId: string) => http.get('/project/project/projectPeriodDetail', { periodId }),
   search: (keyword: string) =>
     http.get('/project/period/searchByName', { keyword, pageNo: 1, pageSize: 20 }),
-  participatedProjects: (params: { periodStatus?: string; onlyUnfinishedProcess?: boolean } = {}) =>
+  participatedProjects: (params: { periodStatus?: string; onlyUnfinishedProcess?: boolean; username?: string; keyword?: string } = {}) =>
     http.get('/project/member/participatedProjects', params),
   contractDetail: (periodId: string) => http.get('/project/contract/queryById', { periodId }),
   confirmArrival: (periodId: string) =>

@@ -1,11 +1,11 @@
 <template>
   <view class="rework">
-    <view class="title">返工申请与审批记录</view>
+    <view class="title">{{ approvalOnly ? '返工审批' : '返工申请与审批记录' }}</view>
     <text v-if="error" class="notice">{{ error }}</text>
     <button :disabled="busy" @click="load(true)">刷新返工记录</button>
     <template v-if="!editing">
       <button
-        v-for="source in sources"
+        v-for="source in approvalOnly ? [] : sources"
         :key="source.id"
         :disabled="busy"
         @click="create(source)"
@@ -15,7 +15,8 @@
         }}验收不通过）
       </button>
       <text v-if="!rows.length && !busy && !error">暂无返工记录</text>
-      <view v-for="row in rows" :key="row.id" class="record">
+      <text v-else-if="approvalOnly && !rows.some(canApprove) && !busy && !error">已加载记录中暂无待审批返工申请</text>
+      <view v-for="row in approvalOnly ? rows.filter(canApprove) : rows" :key="row.id" class="record">
         <text
           >{{ row.reworkNo || "返工申请" }} ·
           {{ approvalText(row.approvalStatus) }}</text
@@ -31,13 +32,13 @@
             row.approvalReason || "—"
           }}</text
         >
-        <button :disabled="busy" @click="view(row.id)">查看 / 办理</button>
+        <button :disabled="busy" @click="view(row.id)">{{ approvalOnly ? '办理审批' : '查看 / 办理' }}</button>
       </view>
       <button v-if="rows.length < total" :disabled="busy" @click="load(false)">
         加载更多
       </button>
       <view v-if="selected.id" class="record">
-        <view class="title">{{ "返工详情" }}</view
+        <view class="title">{{ approvalOnly ? '返工审批方案' : '返工详情' }}</view
         ><text
           >预计再次验收日期：{{ selected.expectedAcceptanceDate || "—" }}</text
         >
@@ -47,7 +48,7 @@
           }}</text
         >
         <view v-for="(process, index) in plan.process" :key="index"
-          ><text>{{ process.processName }}</text
+          ><text>{{ reworkProcessName(process.processName, selected.reworkRound) }}</text
           ><text>现场负责人：{{ process.siteLeaderName || "—" }}</text>
           <text
             >计划：{{ process.plannedStartTime || "—" }} 至
@@ -66,6 +67,7 @@
           }}
           × {{ item.plannedQty }}</text
         >
+        <template v-if="!approvalOnly">
         <view class="title">提交和审批历史</view>
         <text v-if="!history.length">暂无历史明细</text>
         <view v-for="(entry, index) in history" :key="index" class="record"
@@ -73,15 +75,16 @@
             >{{ historyLabel(String(key)) }}：{{ value ?? "—" }}</text
           ></view
         >
+        </template>
         <button
-          v-if="canEdit(selected)"
+          v-if="!approvalOnly && canEdit(selected)"
           :disabled="busy"
           @click="edit(selected)"
         >
           修改 / 提交申请
         </button>
         <button
-          v-if="canWithdraw(selected)"
+          v-if="!approvalOnly && canWithdraw(selected)"
           :disabled="busy"
           @click="act('withdraw')"
         >
@@ -96,6 +99,7 @@
           <button :disabled="busy" @click="act('AGREE')">通过返工申请</button
           ><button :disabled="busy" @click="act('REJECT')">驳回返工申请</button>
         </template>
+        <template v-if="!approvalOnly">
         <button
           v-for="process in selected.processes ||
           (selected.processId ? [{ id: selected.processId }] : [])"
@@ -103,11 +107,12 @@
           :disabled="busy"
           @click="logs(process.id)"
         >
-          查看{{ process.processName || "本轮" }}实施日志
+          查看{{ reworkProcessName(process.processName, selected.reworkRound) }}实施日志
         </button>
         <text v-if="String(selected.approvalStatus) === '1'"
           >审批通过后使用项目实施入口签到、写日志并签退；一次签退不代表整个返工完成。</text
         >
+        </template>
       </view>
     </template>
     <view v-else class="form">
@@ -308,6 +313,7 @@ import { useUserStore } from "@/store/user";
 import { usePermissionStore } from "@/store/permission";
 import { http } from "@/utils/http";
 import { reworkApi, reworkName, reworkPlan } from "@/service/projectRework";
+import { reworkProcessName } from "@/utils/reworkProcessName";
 import { assertAcceptanceApplication } from "@/service/projectAcceptance";
 const props = defineProps<{
   periodId: string;
@@ -315,6 +321,7 @@ const props = defineProps<{
   failedSources: any[];
   initialReworkId?: string;
   initialSource?: any;
+  approvalOnly?: boolean;
 }>();
 const emit = defineEmits<{ changed: []; busy: [value: boolean] }>();
 const toast = useToast(),

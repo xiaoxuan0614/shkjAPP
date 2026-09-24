@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { usePermissionStore } from './permission'
 import { normalizeIdentity } from '@/utils/loginIdentity'
+import { clearDictionaryCache, dictionaryOwner } from '@/utils/dictionaryCache'
 
 const initState = {
   token: '',
@@ -30,9 +31,11 @@ export const useUserStore = defineStore(
       if(val?.loginTenantId){
         val.tenantId = val.loginTenantId;
       }
+      if (dictionaryOwner(userInfo.value) !== dictionaryOwner(val)) clearDictionaryCache()
       userInfo.value = val
     }
     const clearUserInfo = () => {
+      clearDictionaryCache()
       userInfo.value = { ...initState }
       usePermissionStore().reset()
     }
@@ -40,9 +43,11 @@ export const useUserStore = defineStore(
       return userInfo.value
     }
     const editUserInfo = (options) => {
+      if (dictionaryOwner(userInfo.value) !== dictionaryOwner({ ...userInfo.value, ...options })) clearDictionaryCache()
       userInfo.value = { ...userInfo.value, ...options }
     }
     const setTenant = (tenantId) => {
+      if (userInfo.value.tenantId !== tenantId) clearDictionaryCache()
       userInfo.value.tenantId = tenantId;
     }
     const getTenant = () => {
@@ -50,6 +55,7 @@ export const useUserStore = defineStore(
     }
     // 一般没有reset需求，不需要的可以删除
     const reset = () => {
+      clearDictionaryCache()
       userInfo.value = { ...initState }
       usePermissionStore().reset()
     }

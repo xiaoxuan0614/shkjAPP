@@ -13,7 +13,7 @@
 </route>
 
 <template>
-  <PageLayout navTitle="编辑资料" backRouteName="userDetail">
+  <PageLayout navTitle="编辑资料" type="popup" @navBack="returnToPreviousPage">
     <wd-form custom-class="pt3" ref="form" :model="model">
       <wd-cell-group border>
         <wd-input
@@ -81,8 +81,7 @@
 
 <script lang="ts" setup>
 import { http } from '@/utils/http'
-import { useToast, useMessage, useNotify, dayjs } from 'wot-design-uni'
-import { useRouter } from '@/plugin/uni-mini-router'
+import { useToast } from 'wot-design-uni'
 import { useUserStore } from '@/store/user'
 import avatar from './components/avatar.vue'
 import { getFileAccessHttpUrl } from '@/common/uitls'
@@ -94,7 +93,6 @@ defineOptions({
   },
 })
 const toast = useToast()
-const router = useRouter()
 const userStore = useUserStore()
 const columns = [
   { label: '男', value: 1 },
@@ -146,6 +144,14 @@ const rules = {
 }
 const form = ref()
 
+function returnToPreviousPage() {
+  if (getCurrentPages().length > 1) {
+    uni.navigateBack()
+    return
+  }
+  uni.switchTab({ url: '/pages/customer/mine' })
+}
+
 function handleSubmit() {
   form.value
     .validate()
@@ -167,7 +173,7 @@ function handleSubmit() {
               toast.success('修改成功~')
               setTimeout(() => {
                 userStore.editUserInfo({ ...data })
-                router.replaceAll({ name: 'people' })
+                returnToPreviousPage()
               }, 1e3)
             } else {
               toast.warning(res.message)

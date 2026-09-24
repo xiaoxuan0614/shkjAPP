@@ -46,6 +46,10 @@
       :scroll-into-view="scrollTarget"
       scroll-with-animation
     >
+      <SectionCard v-if="canViewOpsPreview" title="运维页面预览" extra="打开" @extra-click="showOpsPreview = true">
+        <wd-button plain block @click="showOpsPreview = true">查看墨刀运维页面 · 仅演示</wd-button>
+      </SectionCard>
+
       <SectionCard v-if="visibleOfficeEntries.length" title="日常办公">
         <view class="grid grid--three">
           <view
@@ -240,11 +244,14 @@
         </view>
       </view>
     </wd-popup>
+    <OpsPreview v-if="canViewOpsPreview && showOpsPreview" @close="showOpsPreview = false" />
   </PageLayout>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import OpsPreview from "../ops/components/preview/OpsPreview.vue";
+const showOpsPreview = ref(false);
 import { onShow } from "@dcloudio/uni-app";
 import dayjs from "dayjs";
 import { useToast } from "wot-design-uni";
@@ -292,6 +299,13 @@ type WorkbenchPresentation = Pick<WorkEntry, "icon" | "tone"> & {
 
 const toast = useToast();
 const userStore = useUserStore();
+// Temporary UI preview: only the exact admin account, still development-only.
+const canViewOpsPreview = computed(() =>
+  import.meta.env.DEV && userStore.isLogined && userStore.userInfo.username === 'admin',
+);
+watch(canViewOpsPreview, (allowed) => {
+  if (!allowed) showOpsPreview.value = false;
+}, { flush: 'sync' });
 const permissionStore = usePermissionStore();
 const todoList = ref<any[]>([]);
 const showAllTodos = ref(false);

@@ -9,6 +9,7 @@ import {
 } from "@/utils/acceptanceWorkflow";
 export type AcceptanceType = "INTERNAL" | "CUSTOMER";
 export const acceptanceApi = {
+  latestStatus: (periodId: string) => http.get('/project/acceptance/latestStatus', { periodId }),
   detail: (id: string) => http.get('/project/acceptance/queryById', { id }),
   list: (periodId: string, acceptType: AcceptanceType, pageNo: number) =>
     http.get("/project/acceptance/list", {

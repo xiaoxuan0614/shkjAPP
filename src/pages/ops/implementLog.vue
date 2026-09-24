@@ -451,7 +451,7 @@
                 <text>
                   {{ material.spec || "暂无规格" }} · 计划量：{{
                     material.planQty
-                  }}{{ material.unit }} · 可用量：{{ material.availableQty
+                  }}{{ material.unit }} · 可用量：{{ Number.isFinite(material.availableQty) ? material.availableQty : '待核实'
                   }}{{ material.unit }}
                 </text>
               </view>
@@ -814,7 +814,7 @@
           <view>
             <view class="material-popup__title">选择本次使用的物料</view>
             <view class="material-popup__hint"
-              >仅展示当前项目已有出库数量的物料，可不选择</view
+              >仅展示当前项目施工可用量大于 0 的物料，可不选择</view
             >
           </view>
           <text
@@ -928,6 +928,7 @@ import PhotoWatermarkCanvas from "./components/PhotoWatermarkCanvas.vue";
 import VideoCover from "./components/VideoCover.vue";
 import { getFileAccessHttpUrl } from "@/common/uitls";
 import { logMediaUrl } from "@/utils/logMedia";
+import { readPhotoLocation, type PhotoLocation } from "@/utils/photoLocation";
 import { http } from "@/utils/http";
 import { useUserStore } from "@/store/user";
 import { normalizeProject, projectApi, unwrapRecords } from "@/service/shkj";
@@ -1202,8 +1203,11 @@ const isSiteLeader = computed(
 );
 const filteredIssuedMaterials = computed(() => {
   const keyword = materialKeyword.value.toLowerCase();
-  if (!keyword) return issuedMaterials.value;
-  return issuedMaterials.value.filter(
+  const selectable = issuedMaterials.value.filter((item: any) =>
+    item.materialPlanId && Number.isFinite(item.availableQty) && item.availableQty > 0,
+  );
+  if (!keyword) return selectable;
+  return selectable.filter(
     (item: any) =>
       String(item.materialCode || "")
         .toLowerCase()
@@ -1539,6 +1543,7 @@ const setOtherParticipants = (value: boolean) => {
   if (!value) form.value.personIds = [];
 };
 const togglePerson = (id: string) => {
+  if (String(id) === currentUserId.value) return;
   if (!isSiteLeader.value)
     return toast.warning("仅当前工序现场负责人可选择参与人员");
   const index = form.value.personIds.indexOf(id);
@@ -1595,19 +1600,10 @@ const removeOutsource = (key: number) => {
     (item: any) => item.key !== key,
   );
 };
-const photoWatermarkLocation = () =>
-  location.value.matchedSiteName ||
-  location.value.name ||
-  location.value.address ||
-  form.value.location.trim() ||
-  "定位信息不可用";
-
-const addPhotoWatermark = async (filePath: string) => {
+const addPhotoWatermark = async (filePath: string, position: PhotoLocation) => {
   if (!photoWatermarkCanvas.value) throw new Error("照片水印组件尚未就绪");
   return photoWatermarkCanvas.value.applyWatermark(filePath, {
-    locationText: photoWatermarkLocation(),
-    latitude: location.value.latitude,
-    longitude: location.value.longitude,
+    ...position,
     timestamp: dayjs().format("YYYY-MM-DD HH:mm:ss"),
   });
 };
@@ -1694,15 +1690,18 @@ const chooseExceptionPhotos = (target: "signIn" | "signOut") => {
       uni.showLoading({ title: "正在处理并上传…", mask: true });
       let failedCount = 0;
       try {
+        const position = await readPhotoLocation();
         for (const filePath of result.tempFilePaths) {
           try {
-            const watermarkedPath = await addPhotoWatermark(filePath);
+            const watermarkedPath = await addPhotoWatermark(filePath, position);
             targetPhotos.value.push(await uploadPhoto(watermarkedPath));
           } catch (error) {
             failedCount++;
             console.warn("[implementLog] 照片处理或上传失败", error);
           }
         }
+      } catch (error: any) {
+        toast.error(error?.message || "照片定位失败，请重新添加");
       } finally {
         uni.hideLoading();
         mediaProcessing.value = false;
@@ -1723,10 +1722,11 @@ const chooseLogPhotos = (sourceType: ("camera" | "album")[]) => {
       uni.showLoading({ title: "正在处理并上传…", mask: true });
       let failedCount = 0;
       try {
+        const position = await readPhotoLocation();
         for (const filePath of result.tempFilePaths) {
           if (logPhotoCount.value >= 6) break;
           try {
-            const watermarkedPath = await addPhotoWatermark(filePath);
+            const watermarkedPath = await addPhotoWatermark(filePath, position);
             const resourcePath = await uploadPhoto(watermarkedPath);
             logMedia.value.push({ path: resourcePath, type: "image" });
           } catch (error) {
@@ -1734,6 +1734,8 @@ const chooseLogPhotos = (sourceType: ("camera" | "album")[]) => {
             console.warn("[implementLog] 照片处理或上传失败", error);
           }
         }
+      } catch (error: any) {
+        toast.error(error?.message || "照片定位失败，请重新添加");
       } finally {
         uni.hideLoading();
         mediaProcessing.value = false;
@@ -2019,8 +2021,8 @@ const restoreDraft = (draft: any) => {
     ...createEmptyForm(),
     location: draft.implementLocationName || draft.location || "",
     content: draft.workContent || draft.content || "",
-    hasOtherParticipants: participantIds.length > 0,
-    personIds: participantIds,
+    hasOtherParticipants: participantIds.some((id) => id !== currentUserId.value),
+    personIds: participantIds.filter((id) => id !== currentUserId.value),
     needsOutsource: outsourcingList.length > 0,
     outsourcingList,
     plate: normalizeVehiclePlate(draft.vehicleNo),
@@ -2045,12 +2047,20 @@ const restoreDraft = (draft: any) => {
   });
   selectedMaterials.value = (draft.materials || [])
     .map((item: any) => ({
-      source: issuedMap.get(
-        String(item.materialPlanId || item.materialId || item.id),
-      ),
+      source: issuedMap.get(String(item.materialPlanId || "")) ||
+        issuedMap.get(String(item.materialId || "")) || {
+          id: String(item.materialId || item.materialPlanId || item.id),
+          materialPlanId: String(item.materialPlanId || ""),
+          materialCode: item.materialCode || "",
+          name: item.materialName || item.name || "物料名称未返回",
+          spec: item.model || item.spec || "",
+          unit: item.baseUnitName || item.unitName || item.unit || "",
+          planQty: item.plannedQty ?? item.planQty ?? 0,
+          outQty: item.outboundQty ?? 0,
+          availableQty: Number.NaN,
+        },
       qty: item.usedQty ?? item.qty,
     }))
-    .filter((item: any) => item.source)
     .map((item: any) => ({ ...item.source, qty: item.qty }));
 };
 const loadProjectMaterials = async (projectId: string) => {
@@ -2107,12 +2117,7 @@ const loadProjectMaterials = async (projectId: string) => {
       });
     });
     issuedMaterials.value = accountRows
-      .filter(
-        (item: any) =>
-          item.materialId &&
-          Number.isFinite(Number(item.remainingReturnQty)) &&
-          Number(item.remainingReturnQty) > 0,
-      )
+      .filter((item: any) => item.materialId)
       .map((item: any) => {
         const plan = planMetaMap.get(String(item.materialId));
         return {
@@ -2125,18 +2130,16 @@ const loadProjectMaterials = async (projectId: string) => {
           spec: item.model || "",
           unit: item.baseUnitName || "",
           outQty: Number(item.outboundQty || 0),
-          availableQty: Number(item.remainingReturnQty),
+          availableQty: item.availableUseQty == null || item.availableUseQty === ""
+            ? Number.NaN : Number(item.availableUseQty),
           consumedQty: Number(item.consumedQty || 0),
           planQty: Number(item.plannedQty ?? plan?.planQty ?? 0),
         };
-      })
-      .filter((item: any) => item.materialPlanId);
-    const selectedQty = new Map(
-      selectedMaterials.value.map((item: any) => [item.id, item.qty]),
-    );
-    selectedMaterials.value = issuedMaterials.value
-      .filter((item: any) => selectedQty.has(item.id))
-      .map((item: any) => ({ ...item, qty: selectedQty.get(item.id) }));
+      });
+    selectedMaterials.value = selectedMaterials.value.map((item: any) => {
+      const current = issuedMaterials.value.find((row: any) => row.id === item.id);
+      return current ? { ...item, ...current, qty: item.qty } : { ...item, availableQty: Number.NaN };
+    });
   } catch (error) {
     if (requestId !== materialRequestId) return;
     issuedMaterials.value = [];
@@ -2202,7 +2205,6 @@ const loadMembers = async () => {
   membersError.value = false;
   try {
     const response = await projectApi.members(project.value.id);
-    const currentUserId = String(userStore.userInfo.userid || "");
     const uniqueMembers = new Map<string, { id: string; name: string }>();
     unwrapRecords(response)
       .filter(
@@ -2212,10 +2214,11 @@ const loadMembers = async () => {
       .forEach((item: any) => {
         const id = String(item.userId || item.memberId || item.id || "");
         const name = item.userName || item.memberName || item.realname;
-        if (id && name && id !== currentUserId)
+        if (id && name && id !== currentUserId.value)
           uniqueMembers.set(id, { id, name });
       });
     persons.value = [...uniqueMembers.values()];
+    form.value.personIds = form.value.personIds.filter((id) => id !== currentUserId.value);
     membersLoaded.value = true;
   } catch (error) {
     persons.value = [];
@@ -2336,6 +2339,7 @@ const load = async () => {
 
 const logPayload = () => ({
   ...form.value,
+  personIds: form.value.personIds.filter((id) => id !== currentUserId.value),
   photos: logMedia.value.map((item) => item.path),
   persons: persons.value.filter((item) =>
     form.value.personIds.includes(item.id),
@@ -2453,7 +2457,7 @@ const validateMaterialUsage = () => {
   }
   return true;
 };
-const validateRecord = () => {
+const validateRecord = (checkMaterials = true) => {
   if (!validateVehiclePlate()) return false;
   if (!form.value.location.trim()) {
     toast.warning("请填写具体实施位置");
@@ -2494,7 +2498,7 @@ const validateRecord = () => {
       return false;
     }
   }
-  return validateMaterialUsage();
+  return !checkMaterials || validateMaterialUsage();
 };
 const saveDraft = async (silent: boolean) => {
   if (!session.value.periodId || !session.value.processId || submitting.value)
@@ -2508,7 +2512,6 @@ const saveDraft = async (silent: boolean) => {
     return false;
   }
   if (!validateVehiclePlate()) return false;
-  if (!silent && !validateMaterialUsage()) return false;
   submitting.value = true;
   try {
     await assertCurrentProcess(
@@ -2734,10 +2737,7 @@ const primaryAction = async () => {
   if (mainStep.value === 0) return checkIn();
   if (mainStep.value === 1 && logStep.value === 0) return logStep.value++;
   if (mainStep.value === 1 && logStep.value === 1) {
-    if (validateRecord()) {
-      const saved = await saveDraft(true);
-      if (saved) logStep.value++;
-    }
+    if (validateRecord(false)) logStep.value++;
     return;
   }
   if (mainStep.value === 1) return submitLog();
@@ -3294,8 +3294,10 @@ onLoad((query) => {
   align-items: center;
 }
 .material-copy {
+  min-width: 0;
   font-size: 14px;
   color: #222;
+  overflow-wrap: anywhere;
   flex: 1;
 }
 .material-copy text {
@@ -3306,16 +3308,19 @@ onLoad((query) => {
 }
 .quantity {
   display: flex;
+  flex-shrink: 0;
   margin-left: 12px;
   font-size: 12px;
   color: #666;
   align-items: center;
 }
 .quantity input {
-  width: 48px;
-  padding: 5px 6px;
+  box-sizing: border-box;
+  width: 80px;
+  height: 44px;
+  padding: 8px;
   margin-right: 5px;
-  font-size: 14px;
+  font-size: 16px;
   text-align: center;
   border: 1px solid #ccc;
   border-radius: 6px;

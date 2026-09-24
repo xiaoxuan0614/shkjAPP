@@ -1,0 +1,255 @@
+// Match SectionCard, the home workbench and existing material forms.
+$blue: #2f86ff;
+$ink: #333;
+$muted: #667085;
+.panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  color: $ink;
+  line-height: 1.5;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: $ink;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: '';
+  flex: 0 0 8px;
+  height: 16px;
+  border-radius: 4px;
+  background: $blue;
+}
+.muted {
+  color: $muted;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kv {
+  display: flex;
+  gap: 16px;
+  padding: 7px 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.kv > text:first-child {
+  color: $muted;
+  flex: 0 0 76px;
+}
+.kv > text:last-child {
+  color: $ink;
+  overflow-wrap: anywhere;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  padding: 3px 8px;
+  background: #eaf4ff;
+  color: #176ac7;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.badge--warn {
+  color: #886013;
+  background: #fff4d8;
+}
+.badge--success {
+  color: #237046;
+  background: #e8f5ee;
+}
+.badge--danger {
+  color: #ae3540;
+  background: #fff0f1;
+}
+.badge--muted {
+  color: #596477;
+  background: #eef0f4;
+}
+.btn {
+  margin: 0;
+  padding: 0 16px;
+  min-height: 44px;
+  line-height: 44px;
+  font-size: 14px;
+  border-radius: 22px;
+  background: #fff;
+  color: #666;
+  border: 1px solid #ddd;
+  font-weight: 500;
+}
+.btn::after {
+  border: none;
+}
+.btn--primary {
+  background: $blue;
+  color: #fff;
+  border-color: $blue;
+}
+.btn--danger {
+  color: #b3313d;
+  border-color: #edc6cc;
+}
+.btn--text {
+  border-color: transparent;
+  background: transparent;
+  color: $blue;
+  padding: 0 8px;
+}
+.btn[disabled] {
+  color: #778293;
+  background: #eef1f5;
+  border-color: #e3e7ef;
+}
+.btn:focus-visible {
+  outline: 2px solid $blue;
+  outline-offset: 3px;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.actions .btn {
+  flex: 1;
+}
+.field {
+  margin-bottom: 18px;
+}
+.field:last-child {
+  margin-bottom: 0;
+}
+.field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: $ink;
+}
+.required {
+  color: #b3313d;
+  margin-left: 3px;
+}
+.input {
+  height: 44px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid #e1e4e8;
+  background: #f7f8fa;
+  border-radius: 10px;
+  color: $ink;
+  font-size: 14px;
+}
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 105px;
+  height: 105px;
+  padding: 12px;
+  border: 1px solid #e1e4e8;
+  background: #f7f8fa;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: $ink;
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.choice {
+  flex: 1 0 auto;
+  min-height: 42px;
+  line-height: 42px;
+  padding: 0 12px;
+  margin: 0;
+  font-size: 14px;
+  color: #526079;
+  background: #f3f5f8;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.choice::after {
+  border: none;
+}
+.choice.on {
+  border-color: #2f86ff;
+  background: #eaf4ff;
+  color: #176ac7;
+}
+.empty {
+  text-align: center;
+  padding: 54px 20px;
+  color: $muted;
+  line-height: 1.8;
+}
+.error {
+  color: #ae3540;
+  background: #fff0f1;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.notice {
+  background: #edf5ff;
+  color: #356d9f;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.divider {
+  border-top: 1px solid #eef0f5;
+  margin: 14px 0;
+}
+.photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.photo {
+  width: 76px;
+  height: 76px;
+  border-radius: 8px;
+}
+@media (max-width: 359px) {
+  .panel {
+    padding: 14px;
+  }
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .kv {
+    gap: 8px;
+  }
+}

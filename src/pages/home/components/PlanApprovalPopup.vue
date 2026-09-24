@@ -34,6 +34,9 @@
           <text class="plan-review__subtitle"
             >项目经理：{{ managerName || "—" }} </text
           >
+          <text v-if="!contextLoading && !contextFailed" class="plan-review__subtitle">审批状态：{{ statusText }}</text>
+          <text v-if="latestApproval?.approvalReason" class="plan-review__subtitle">审批意见：{{ latestApproval.approvalReason }}</text>
+          <text v-if="approvalHistory.length" class="plan-review__subtitle">审批记录：{{ approvalHistory.length }} 轮</text>
           <button
             v-if="contextFailed"
             class="plan-review__link"
@@ -219,12 +222,12 @@
           <textarea
             v-model="rejectReason"
             :disabled="submitting"
-            maxlength="500"
+            maxlength="2000"
             placeholder="请填写驳回原因"
             aria-label="驳回原因"
           />
           <text class="plan-review__subtitle"
-            >当前审批接口暂不保存驳回原因，请另行告知项目经理。</text
+            >驳回原因将记录到本轮审批。</text
           >
         </view>
         <text v-if="!readonly && !canAudit && !contextLoading" class="plan-review__notice">{{
@@ -251,7 +254,7 @@
   <wd-popup v-model="confirmVisible" position="center" :root-portal="true" :z-index="2300" :close-on-click-modal="false" custom-style="width: min(88vw, 360px); border-radius: 12px;">
     <view class="plan-review__confirmation">
       <text class="plan-review__name">{{ confirmApprove ? '通过计划审批' : '驳回计划' }}</text>
-      <text class="plan-review__subtitle">{{ confirmApprove ? '确认通过？项目将进入实施中。' : '确认退回筹备中？当前接口不会保存所填原因，请另行告知项目经理。' }}</text>
+      <text class="plan-review__subtitle">{{ confirmApprove ? '确认通过？项目将进入筹备中。' : '确认驳回？项目将回到未开始，驳回原因会保存。' }}</text>
       <view class="plan-review__actions">
         <wd-button plain block @click="finishConfirmation(false)">取消</wd-button>
         <wd-button block :type="confirmApprove ? 'primary' : 'error'" @click="finishConfirmation(true)">{{ confirmApprove ? '确认通过' : '确认驳回' }}</wd-button>
@@ -265,8 +268,9 @@ import { computed, nextTick, reactive, ref } from "vue";
 import dayjs from "dayjs";
 import { http } from "@/utils/http";
 import { usePermissionStore } from "@/store/permission";
-import { planApprovalApi, planList, planResult } from "@/service/planApproval";
-import { resolvePlanApprovalPeriodId, type TodoRecord } from "@/service/todo";
+import { planApprovalApi, planList, planResult, resolvePeriodApproval, type PeriodApprovalRecord } from "@/service/planApproval";
+import { parseTodoActionParams, resolvePlanApprovalPeriodId, type TodoRecord } from "@/service/todo";
+import { useUserStore } from "@/store/user";
 import type { ContractFile } from "@/utils/contractFile";
 import ContractFilePreview from "./ContractFilePreview.vue";
 
@@ -308,8 +312,11 @@ const sections = reactive<Section[]>(
   })),
 );
 const permission = usePermissionStore();
+const userStore = useUserStore();
 const visible = ref(false);
 const periodId = ref("");
+const todoApprovalId = ref("");
+const approvalHistory = ref<PeriodApprovalRecord[]>([]);
 const projectLabel = ref("");
 const project = ref<any>({});
 const managerName = ref("");
@@ -327,19 +334,19 @@ const scrollTarget = ref("");
 const filePreview = ref<InstanceType<typeof ContractFilePreview>>();
 const emit = defineEmits<{ processed: [] }>();
 let sequence = 0;
-const pending = computed(
-  () =>
-    project.value.status === "PENDING_APPROVAL" &&
-    String(project.value.approvalStatus ?? "2") === "2",
-);
+const approvalState = computed(() => resolvePeriodApproval(project.value, approvalHistory.value));
+const pending = computed(() => approvalState.value.waiting);
+const latestApproval = computed(() => [...approvalHistory.value].sort((a, b) => Number(b.roundNo) - Number(a.roundNo))[0]);
 const props = defineProps<{ readonly?: boolean }>();
 const canAudit = computed(
   () =>
     !props.readonly && !contextLoading.value &&
     !contextFailed.value &&
     pending.value &&
-    permission.loaded &&
-    permission.hasPermission("project:plan:audit"),
+    !!todoApprovalId.value &&
+    String(approvalState.value.current?.id) === todoApprovalId.value &&
+    ((permission.loaded && permission.hasPermission("project:period:approve")) ||
+      userStore.identity.roleCodes.includes("admin")),
 );
 const statusText = computed(() =>
   pending.value
@@ -351,13 +358,14 @@ const statusText = computed(() =>
           "状态待确认",
       ),
 );
-const readonlyReason = computed(() =>
-  contextFailed.value
-    ? "项目信息加载失败，请重试后审批"
-    : !pending.value
-      ? "当前计划不在待审批状态，仅可查看"
-      : "当前账号未取得计划审批权限，仅可查看",
-);
+const readonlyReason = computed(() => {
+  if (contextFailed.value) return "审批状态加载失败，请重试后审批";
+  if (approvalState.value.legacy) return "当前计划为旧审批记录，请项目经理重新提交审批";
+  if (!todoApprovalId.value) return "待办缺少审批轮次 ID，仅可查看";
+  if (approvalState.value.current?.id !== todoApprovalId.value) return "此待办不是当前审批轮次，仅可查看";
+  if (!pending.value) return "当前计划不在待审批状态，仅可查看";
+  return "当前账号未取得计划审批权限，仅可查看";
+});
 const text = (value: any) =>
   value == null || value === "" ? "—" : String(value);
 const fields = (values: any[][]): string[][] =>
@@ -381,10 +389,20 @@ async function loadContext() {
   contextLoading.value = true;
   contextFailed.value = false;
   try {
-    const value = await planApprovalApi.context(periodId.value);
-    if (current === sequence) project.value = value;
+    const id = periodId.value;
+    const [detail, period, history] = await Promise.all([
+      planApprovalApi.context(id), planApprovalApi.state(id), planApprovalApi.history(id),
+    ]);
+    if (current === sequence) {
+      project.value = { ...detail, ...period, status: String(period.status || '').toUpperCase() };
+      approvalHistory.value = history;
+    }
   } catch {
-    if (current === sequence) contextFailed.value = true;
+    if (current === sequence) {
+      project.value = {};
+      approvalHistory.value = [];
+      contextFailed.value = true;
+    }
   } finally {
     if (current === sequence) contextLoading.value = false;
   }
@@ -668,10 +686,16 @@ function finishConfirmation(value: boolean) {
 }
 async function decide(approve: boolean) {
   if (!canAudit.value || submitting.value) return;
+  const expectedPeriodId = periodId.value;
+  const expectedApprovalId = todoApprovalId.value;
+  const expectedToken = userStore.userInfo.token;
+  const expectedUserId = userStore.identity.userId;
   const error = approve
     ? validation()
     : !rejectReason.value.trim()
       ? "请填写驳回原因"
+      : rejectReason.value.trim().length > 2000
+        ? "驳回原因最多 2000 字"
       : "";
   if (error) return message(error);
   submitting.value = true;
@@ -683,20 +707,25 @@ async function decide(approve: boolean) {
     });
     if (!confirmed) return;
     await loadContext();
-    if (!canAudit.value) return message("项目状态或权限已变化，请刷新后查看");
-    await planApprovalApi.decide(periodId.value, approve);
+    if (periodId.value !== expectedPeriodId ||
+      todoApprovalId.value !== expectedApprovalId ||
+      userStore.userInfo.token !== expectedToken ||
+      userStore.identity.userId !== expectedUserId ||
+      !canAudit.value) return message("审批轮次、项目状态或权限已变化，请刷新后查看");
+    await planApprovalApi.decide(expectedPeriodId, expectedApprovalId, approve, rejectReason.value.trim());
     visible.value = false;
     sequence++;
     emit("processed");
     message(
       approve
-        ? "审批通过，项目已进入实施中"
-        : "已退回筹备中，原因请另行告知项目经理",
+        ? "审批通过，项目已进入筹备中"
+        : "审批已驳回，项目回到未开始",
     );
-  } catch {
-    /* 请求层已提示错误，保留展开状态和原因以便重试。 */
+  } catch (error: any) {
+    message(error?.message || "审批结果未确认，请刷新后查看，请勿重复提交");
   } finally {
     submitting.value = false;
+    if (visible.value) void loadContext();
   }
 }
 function close() {
@@ -710,6 +739,8 @@ function open(item: TodoRecord) {
   if (!id) return message("当前待办缺少项目分期信息");
   sequence++;
   periodId.value = id;
+  todoApprovalId.value = String(parseTodoActionParams(item.actionParams).approvalId || '');
+  approvalHistory.value = [];
   projectLabel.value = String(item.summary || "");
   project.value = {};
   managerName.value = "";

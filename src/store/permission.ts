@@ -10,7 +10,11 @@ export interface AuthorizedMenu {
   sortNo?: number
 }
 
-const COMMON_AUTHENTICATED_PAGES = new Set([HOME_PAGE, '/pages/customer/mine'])
+const COMMON_AUTHENTICATED_PAGES = new Set([
+  HOME_PAGE,
+  '/pages/customer/mine',
+  '/pages-user/userEdit/userEdit',
+])
 
 const PAGE_PARENT_ACCESS: Record<string, string[]> = {
   '/pages/customer/repair': ['/pages/customer/home'],

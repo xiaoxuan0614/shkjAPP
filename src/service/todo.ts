@@ -1,4 +1,5 @@
 import { http } from "@/utils/http";
+import { dictionaryCacheGeneration } from "@/utils/dictionaryCache";
 
 export type TodoScope = "ASSIGNED" | "CLAIMABLE";
 
@@ -61,8 +62,7 @@ const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
 };
 
 let todoTypeMap: Record<string, TodoTypeMeta> = {};
-let todoTypeDictLoaded = false;
-let pendingTodoTypeDict: Promise<void> | null = null;
+let todoTypeGeneration = -1;
 
 export interface ProjectInvitationRecord {
   id?: string;
@@ -86,14 +86,11 @@ export const todoApi = {
 };
 
 export const loadTodoTypeDictionary = async () => {
-  if (todoTypeDictLoaded) return;
-  if (pendingTodoTypeDict) return pendingTodoTypeDict;
-
-  pendingTodoTypeDict = (async () => {
+  const request = http.get(`/sys/dict/getDictItems/${TODO_TYPE_DICT_CODE}`);
+  const generation = dictionaryCacheGeneration();
     try {
-      const response: any = await http.get(
-        `/sys/dict/getDictItems/${TODO_TYPE_DICT_CODE}`,
-      );
+      const response: any = await request;
+      if (generation !== dictionaryCacheGeneration()) return;
       const rows = Array.isArray(response?.result)
         ? response.result
         : Array.isArray(response)
@@ -107,21 +104,16 @@ export const loadTodoTypeDictionary = async () => {
         }),
       );
       todoTypeMap = configured;
-      todoTypeDictLoaded = true;
+      todoTypeGeneration = generation;
     } catch {
-      todoTypeMap = {};
-    } finally {
-      pendingTodoTypeDict = null;
+      if (generation === dictionaryCacheGeneration()) todoTypeMap = {};
     }
-  })();
-
-  return pendingTodoTypeDict;
 };
 
 export const todoTypeText = (type: unknown) => {
   const value = String(type ?? "").trim();
   return (
-    todoTypeMap[value]?.text ||
+    (todoTypeGeneration === dictionaryCacheGeneration() ? todoTypeMap[value]?.text : undefined) ||
     TODO_TYPE_FALLBACKS[value]?.text ||
     value ||
     "业务待办"

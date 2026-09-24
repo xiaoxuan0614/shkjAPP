@@ -5,5 +5,7 @@ export const authApi = {
   phoneLogin: (mobile: string, captcha: string) =>
     http.post('/sys/phoneLogin', { mobile, captcha }),
   sendLoginSms: (mobile: string) => http.post('/sys/sms', { mobile, smsmode: '0' }),
+  updatePassword: (params: Record<string, any>) =>
+    http({ url: '/sys/user/updatePassword', query: params, method: 'PUT' }),
   logout: () => http.get('/sys/logout'),
 }

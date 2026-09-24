@@ -1,18 +1,22 @@
 <template>
+  <wd-root-portal><wd-toast selector="project-acceptance" :z-index="1100" /></wd-root-portal>
   <wd-popup
     v-model="visible"
     position="bottom"
+    :z-index="999"
     :root-portal="true"
     :close-on-click-modal="false"
-    :safe-area-inset-bottom="true"
+    :safe-area-inset-bottom="false"
     custom-style="border-radius:16px 16px 0 0;overflow:hidden;"
   >
     <view class="acceptance">
       <view class="acceptance__head"
-        ><text>验收</text
+        ><button v-if="editingType" :disabled="busy" @click="editingType = null">返回</button
+        ><text>{{ editingType ? `${editingType === 'INTERNAL' ? '内部' : '外部'}验收填写` : '验收结果' }}</text
         ><button :disabled="busy" @click="close">关闭</button></view
       >
       <scroll-view scroll-y :scroll-into-view="focusedSection" class="acceptance__body">
+        <view class="acceptance__body-content">
         <view v-if="identityError"><text>{{ identityError }}</text><button @click="loadIdentity">重试身份查询</button></view>
         <text v-if="loading">正在加载验收记录…</text>
         <view v-else-if="error"
@@ -29,45 +33,49 @@
             :key="type"
             class="acceptance__section"
           >
+            <view v-if="!editingType" class="acceptance__section-head">
             <view class="acceptance__title">{{
               type === "INTERNAL" ? "内部验收" : "外部验收"
             }}</view>
-            <text v-if="!forms[type].id">当前施工轮次暂无验收记录</text>
-            <view v-else-if="!canEdit(type)" class="acceptance__field">
-              <text>状态：{{ statusText(forms[type]) }}</text>
-              <text
-                >验收负责人：{{
-                  forms[type].acceptLeaderName ||
-                  "—"
-                }}</text
-              >
-              <text v-if="type === 'CUSTOMER'">客户验收负责人：{{ forms[type].acceptUnitLeader || "—" }}</text>
-              <text v-if="type === 'CUSTOMER'">客户验收负责人角色：{{ customerRoleLabel(forms[type].acceptUnitName) }}</text>
-              <text>验收日期：{{ forms[type].acceptEndDate || "—" }}</text>
-              <text v-if="forms[type].remark"
-                >验收说明：{{ forms[type].remark }}</text
-              >
+            <text class="acceptance__status" :class="`acceptance__status--${summaryFor(type)?.status || 'NONE'}`">{{ statusText(forms[type]) }}</text>
             </view>
-            <template v-else>
-              <view v-if="type === 'CUSTOMER'" class="acceptance__field">
-                <text>客户验收负责人角色</text>
-                <picker :range="customerRoleOptions" range-key="label" :disabled="busy" @change="forms[type].acceptUnitName = customerRoleOptions[Number($event.detail.value)].value">
-                  <view class="acceptance__input">{{ customerRoleLabel(forms[type].acceptUnitName) }}</view>
-                </picker>
+            <view v-if="lastRejected(type)" class="acceptance__rejection">
+              <text>最近一次驳回</text>
+              <text>验收负责人：{{ lastRejected(type).acceptLeaderName || '—' }}</text>
+              <text>验收日期：{{ String(lastRejected(type).acceptEndDate || '—').slice(0, 10) }}</text>
+              <text>驳回原因：{{ lastRejected(type).remark || '—' }}</text>
+            </view>
+            <text v-if="!forms[type].id" class="acceptance__empty">当前施工轮次暂无验收记录</text>
+            <template v-else-if="editingType !== type || !canEdit(type)">
+              <view v-if="savedRecord(type).acceptStatus === 'COMPLETED' && ['PASSED', 'FAILED'].includes(savedRecord(type).result)" class="acceptance__summary">
+                <view><text>验收结果</text><text>{{ savedRecord(type).result ? resultText(savedRecord(type).result) : '待提交' }}</text></view>
+                <view><text>验收负责人</text><text>{{ savedRecord(type).acceptLeaderName || '—' }}</text></view>
+                <view><text>验收日期</text><text>{{ String(savedRecord(type).acceptEndDate || '—').slice(0, 10) }}</text></view>
+                <view v-if="type === 'CUSTOMER'"><text>客户验收负责人</text><text>{{ savedRecord(type).acceptUnitLeader || '—' }}</text></view>
+                <view v-if="type === 'CUSTOMER'"><text>负责人角色</text><text>{{ customerRoleLabel(savedRecord(type).acceptUnitName) }}</text></view>
+                <view v-if="savedRecord(type).remark"><text>验收说明</text><text>{{ savedRecord(type).remark }}</text></view>
+                <view v-for="path in files(savedRecord(type).acceptanceFormFileId)" :key="path"><text>验收文件</text><text>{{ fileName(path) }}</text></view>
               </view>
+              <button v-if="canEdit(type)" class="acceptance__start" :disabled="busy" @click="startEditing(type)">提交{{ type === 'INTERNAL' ? '内部' : '外部' }}验收结果</button>
+            </template>
+            <template v-else>
               <view class="acceptance__field"
                 ><text>验收日期</text
-                ><picker
-                  mode="date"
-                  :value="forms[type].acceptDate"
+                ><wd-datetime-picker
+                  type="date"
+                  title="选择验收日期"
+                  :model-value="acceptDateValue(type)"
+                  :root-portal="true"
+                  :z-index="1001"
+                  :safe-area-inset-bottom="true"
                   :disabled="!canEdit(type) || busy"
-                  @change="forms[type].acceptDate = $event.detail.value"
-                  ><view class="acceptance__input"
+                  @confirm="confirmAcceptDate(type, $event)"
+                  ><view class="acceptance__input acceptance__date-trigger"
                     >{{
                       forms[type].acceptDate ||
                       (canEdit(type) ? "请选择验收日期" : "—")
                     }}
-                    <wd-icon name="arrow-down" size="14px" /></view></picker
+                    <wd-icon name="arrow-down" size="14px" /></view></wd-datetime-picker
               ></view>
               <view class="acceptance__field"
                 ><text>验收负责人</text
@@ -91,20 +99,42 @@
                   class="acceptance__input"
                   placeholder="选填"
               /></view>
+              <view v-if="type === 'CUSTOMER'" class="acceptance__field">
+                <text>客户验收负责人角色</text>
+                <wd-picker
+                  :columns="customerRoleOptions"
+                  label-key="label"
+                  value-key="value"
+                  :model-value="String(forms[type].acceptUnitName || '')"
+                  title="客户验收负责人角色"
+                  :root-portal="true"
+                  :z-index="1001"
+                  :disabled="busy || customerRolesLoading || customerRolesError || customerRoleOptions.length <= 1"
+                  @confirm="selectCustomerRole"
+                >
+                  <view class="acceptance__input acceptance__date-trigger">
+                    <text>{{ customerRolesLoading ? '正在加载角色…' : forms[type].acceptUnitName ? customerRoleLabel(forms[type].acceptUnitName) : '请选择客户验收负责人角色' }}</text>
+                    <wd-icon name="arrow-down" size="14px" />
+                  </view>
+                </wd-picker>
+                <button v-if="customerRolesError" :disabled="busy || customerRolesLoading" @click="loadCustomerRoles">角色加载失败，点击重试</button>
+                <text v-else-if="!customerRolesLoading && customerRoleOptions.length <= 1">暂无可选角色，请联系管理员配置</text>
+              </view>
               <view class="acceptance__field"
                 ><text>验收结果</text
-                ><picker
-                  :range="resultOptions"
-                  range-key="label"
-                  :value="forms[type].result === 'FAILED' ? 1 : 0"
+                ><wd-picker
+                  :columns="resultOptions"
+                  label-key="label"
+                  value-key="value"
+                  :model-value="forms[type].result || ''"
+                  title="选择验收结果"
+                  :root-portal="true"
+                  :z-index="1001"
                   :disabled="!canEdit(type) || busy"
-                  @change="
-                    forms[type].result =
-                      resultOptions[Number($event.detail.value)].value
-                  "
-                  ><view class="acceptance__input"
+                  @confirm="confirmAcceptanceResult(type, $event)"
+                  ><view class="acceptance__input acceptance__date-trigger"
                     >{{ resultText(forms[type].result) }}
-                    <wd-icon name="arrow-down" size="14px" /></view></picker
+                    <wd-icon name="arrow-down" size="14px" /></view></wd-picker
               ></view>
               <view
                 v-for="field in fileFields(type)"
@@ -117,9 +147,7 @@
                   :key="path"
                   class="acceptance__file"
                 >
-                  <button @click="preview(path)">
-                    {{ fileName(path) }} · 预览
-                  </button>
+                  <text>{{ fileName(path) }}</text>
                   <button
                     v-if="canEdit(type)"
                     :disabled="busy"
@@ -158,162 +186,57 @@
                   placeholder="请输入说明"
                 />
               </view>
-              <button
-                v-if="canEdit(type)"
-                type="primary"
-                :loading="submitting"
-                :disabled="busy"
-                @click="submit(type)"
-              >
-                提交{{ type === "INTERNAL" ? "内部" : "外部" }}验收结果
-              </button>
             </template>
           </view>
           <text
-            v-if="visibleTypes.some((type) => canEdit(type))"
+            v-if="editingType && canEdit(editingType)"
             class="acceptance__muted"
             >每类验收附件合计最多 3 个（含验收单），每次上传 1
             个；支持图片、Word、PDF、Excel。附件随验收结果统一提交，关闭前未提交的内容不保存。</text
           >
         </template>
+        </view>
       </scroll-view>
-      <view v-if="!loading" class="acceptance__footer">
-        <button :disabled="busy" @click="openHistory">查看详情</button>
-        <button v-if="canApplyNormal" :disabled="busy" @click="openApplication('NORMAL')">申请验收</button>
-        <button v-if="canApplyRecheck" :disabled="busy" @click="openApplication('WITHOUT_RECTIFICATION')">申请验收（免整改复验）</button>
-        <button v-if="canApplyRework" :disabled="busy" @click="openReworkApplication">申请返工</button>
+      <view v-if="editingType" class="acceptance__footer acceptance__footer--edit">
+        <button type="primary" :loading="submitting" :disabled="busy || !canEdit(editingType)" @click="submit(editingType)">提交验收结果</button>
+      </view>
+      <view v-else-if="!editingType && !loading && (canApplyNormal || canApplyRecheck || permission.hasPermission('project:rework:approve'))" class="acceptance__footer">
+        <button v-if="canApplyNormal" :disabled="busy" @click="openApplication('NORMAL')">{{ normalApplicationLabel }}</button>
+        <button v-if="canApplyRecheck" :disabled="busy" @click="openApplication('WITHOUT_RECTIFICATION')">申请复审</button>
+        <button v-if="permission.hasPermission('project:rework:approve')" :disabled="busy" @click="approvalOpen = true">返工审批</button>
       </view>
     </view>
   </wd-popup>
-  <wd-popup v-model="applicationOpen" position="bottom" :root-portal="true" :z-index="180" :close-on-click-modal="false" :safe-area-inset-bottom="true">
-    <view class="acceptance__section" style="padding:20px">
-      <view class="acceptance__title">{{ applicationMode === 'NORMAL' ? '申请验收' : '申请验收（免整改复验）' }}</view>
-      <checkbox-group @change="applicationTypes = $event.detail.value">
-        <label v-for="type in types" :key="type" class="acceptance__field">
-          <checkbox :value="type" :checked="applicationTypes.includes(type)" :disabled="busy || !selectableTypes.includes(type)" />
-          {{ type === 'INTERNAL' ? '内部验收' : '外部验收' }}（{{ statusText(forms[type]) }}）
+  <wd-popup v-model="applicationOpen" position="bottom" :root-portal="true" :z-index="1000" :close-on-click-modal="false" :safe-area-inset-bottom="false" custom-style="border-radius:16px 16px 0 0;overflow:hidden;">
+    <view class="acceptance acceptance-application">
+      <view class="acceptance__head"><text>{{ applicationMode === 'NORMAL' ? normalApplicationLabel : '申请复审' }}</text><button :disabled="busy" @click="applicationOpen = false">取消</button></view>
+      <view class="acceptance-application__body">
+      <view class="acceptance-application__label">复审类型<text>可多选</text></view>
+      <checkbox-group class="acceptance-application__types" @change="applicationTypes = $event.detail.value">
+        <label v-for="type in types" :key="type" class="acceptance-application__option" :class="{ 'is-disabled': !selectableTypes.includes(type) }">
+          <checkbox color="#176ac7" :value="type" :checked="applicationTypes.includes(type)" :disabled="busy || !selectableTypes.includes(type)" />
+          <view><text>{{ type === 'INTERNAL' ? '内部验收' : '外部验收' }}</text><text class="acceptance-application__status">{{ statusText(forms[type]) }}</text></view>
         </label>
       </checkbox-group>
-      <label for="acceptance-application-reason">申请原因（必填）</label>
-      <textarea id="acceptance-application-reason" v-model="applicationReason" class="acceptance__textarea" :disabled="busy" :maxlength="400" :placeholder="applicationMode === 'NORMAL' ? '请填写申请原因（最多400字）' : '请填写免整改复验原因（最多400字）'" />
-      <view class="acceptance__footer">
-        <button :disabled="busy" @click="applicationOpen = false">取消</button>
-        <button :disabled="busy" :loading="submitting" @click="submitApplication">提交申请</button>
+      <label class="acceptance-application__label" for="acceptance-application-reason">申请原因<text>必填</text></label>
+      <textarea id="acceptance-application-reason" v-model="applicationReason" class="acceptance__textarea" :disabled="busy" :maxlength="400" placeholder-style="color:#667085" :placeholder="applicationMode === 'NORMAL' ? '请说明本次申请复审的原因' : '请说明无需整改、申请复审的原因'" />
+      <text class="acceptance-application__count">{{ applicationReason.length }}/400</text>
+      </view>
+      <view class="acceptance__footer acceptance__footer--edit">
+        <button type="primary" :disabled="busy" :loading="submitting" @click="submitApplication">提交复审申请</button>
       </view>
     </view>
   </wd-popup>
-  <wd-popup v-model="reworkApplicationOpen" position="bottom" :root-portal="true" :z-index="170" :close-on-click-modal="false" :safe-area-inset-bottom="true">
+  <wd-popup v-model="approvalOpen" position="bottom" :root-portal="true" :z-index="1000" :close-on-click-modal="false" :safe-area-inset-bottom="false">
     <view class="acceptance">
-      <view class="acceptance__head"><text>申请返工</text><button :disabled="reworkBusy" @click="reworkApplicationOpen = false">关闭</button></view>
+      <view class="acceptance__head"><text>返工审批</text><button :disabled="reworkBusy" @click="approvalOpen = false">关闭</button></view>
       <scroll-view scroll-y class="acceptance__body">
-        <ProjectReworkPanel v-if="reworkApplicationOpen" :period-id="periodId" :project="project" :failed-sources="[reworkSource]" :initial-source="reworkSource" @busy="reworkBusy = $event" @changed="emit('changed')" />
-      </scroll-view>
-    </view>
-  </wd-popup>
-  <wd-popup
-    v-model="historyOpen"
-    position="right"
-    :root-portal="true"
-    :z-index="150"
-    :close-on-click-modal="false"
-    :safe-area-inset-bottom="true"
-    custom-style="width:94vw;height:100%;overflow:hidden;"
-  >
-    <view class="acceptance" style="height: 100%">
-      <view class="acceptance__head"
-        ><text>验收详情</text
-        ><button :disabled="reworkBusy" @click="historyOpen = false">
-          关闭
-        </button></view
-      >
-      <view class="acceptance__head">
-        <button
-          :disabled="reworkBusy"
-          :type="historyTab === 'acceptance' ? 'primary' : 'default'"
-          @click="historyTab = 'acceptance'"
-        >
-          历史验收记录
-        </button>
-        <button
-          :disabled="reworkBusy"
-          :type="historyTab === 'rework' ? 'primary' : 'default'"
-          @click="historyTab = 'rework'"
-        >
-          返工申请审批记录
-        </button>
-      </view>
-      <scroll-view scroll-y class="acceptance__body">
-        <template v-if="historyTab === 'acceptance'">
-          <text v-if="historyLoading">正在加载记录…</text>
-          <view v-else-if="historyError"
-            ><text>{{ historyError }}</text
-            ><button @click="loadHistoryPage(historyPage)">重试</button></view
-          >
-          <text v-else-if="!historyRows.length">本页暂无已办理验收记录</text>
-          <view
-            v-for="row in historyRows"
-            :key="row.acceptType + row.id"
-            class="acceptance__section"
-          >
-            <view class="acceptance__title"
-              >{{ row.acceptType === "INTERNAL" ? "内部验收" : "外部验收" }} ·
-              {{ statusText(row) }}</view
-            >
-            <view class="acceptance__field">
-              <text>轮次：{{ row.reworkId ? "返工复验" : "首次验收" }}</text>
-              <text
-                >验收负责人：{{
-                  row.acceptLeaderName || "—"
-                }}</text
-              >
-              <text v-if="row.acceptType === 'CUSTOMER'">客户验收负责人：{{ row.acceptUnitLeader || "—" }}</text>
-              <text v-if="row.acceptType === 'CUSTOMER'">客户验收负责人角色：{{ customerRoleLabel(row.acceptUnitName) }}</text>
-              <text>日期：{{ row.acceptEndDate || "—" }}</text>
-              <text>说明：{{ row.remark || "—" }}</text>
-            </view>
-            <button
-              v-for="path in files(
-                [row.acceptanceFormFileId, row.completionReportFileId]
-                  .filter(Boolean)
-                  .join(','),
-              )"
-              :key="path"
-              @click="preview(path)"
-            >
-              {{ fileName(path) }}
-            </button>
-          </view>
-        </template>
-        <view v-if="historyTab === 'acceptance'" class="acceptance__head">
-          <button
-            :disabled="historyLoading || historyPage <= 1"
-            @click="loadHistoryPage(historyPage - 1)"
-          >
-            上一页
-          </button>
-          <text>第 {{ historyPage }} 页</text>
-          <button
-            :disabled="historyLoading || historyPage * 10 >= historyTotal"
-            @click="loadHistoryPage(historyPage + 1)"
-          >
-            下一页
-          </button>
-        </view>
-        <view v-show="historyTab === 'rework'">
-          <ProjectReworkPanel
-            v-if="historyOpen && reworkVisited"
-            :key="periodId"
-            :period-id="periodId"
-            :project="project"
-            :failed-sources="[]"
-            @busy="reworkBusy = $event"
-            @changed="emit('changed')"
-          />
+        <view class="acceptance__body-content">
+        <ProjectReworkPanel v-if="approvalOpen" approval-only :period-id="periodId" :project="project" :failed-sources="[]" @busy="reworkBusy = $event" @changed="emit('changed')" />
         </view>
       </scroll-view>
     </view>
   </wd-popup>
-  <ContractFilePreview ref="filePreview" />
 </template>
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
@@ -324,16 +247,13 @@ import { usePermissionStore } from "@/store/permission";
 import { http } from "@/utils/http";
 import {
   acceptanceApi,
-  currentAcceptance,
-  readAcceptanceRecords,
   type AcceptanceType,
 } from "@/service/projectAcceptance";
-import { isAcceptanceHistory } from "@/utils/acceptanceWorkflow";
 import { readCachedProjectMembership } from "@/service/projectMembership";
+import { readInternalAcceptanceAccess } from "@/service/internalAcceptanceAccess";
 import ProjectReworkPanel from "./ProjectReworkPanel.vue";
-import ContractFilePreview from "../../home/components/ContractFilePreview.vue";
 const emit = defineEmits<{ changed: [] }>();
-const toast = useToast(),
+const toast = useToast('project-acceptance'),
   user = useUserStore(),
   permission = usePermissionStore();
 const visible = ref(false),
@@ -365,99 +285,72 @@ const userName = computed(() =>
       "",
   ),
 );
-const historyOpen = ref(false),
-  historyTab = ref("acceptance"),
-  reworkBusy = ref(false);
-const reworkVisited = ref(false);
-watch(historyTab, (tab) => {
-  if (tab === "rework") reworkVisited.value = true;
-});
-const historyRows = ref<any[]>([]);
-const historyPage = ref(1),
-  historyTotal = ref(0),
-  historyLoading = ref(false),
-  historyError = ref("");
-const historyCache = new Map<number, { records: any[]; total: number }>();
-let historySequence = 0;
-async function loadHistoryPage(page = 1) {
-  const sequence = ++historySequence;
-  const id = periodId.value;
-  historyLoading.value = true;
-  historyError.value = "";
-  try {
-    let result = historyCache.get(page);
-    if (!result) {
-      const response: any = await http.get("/project/acceptance/list", {
-        periodId: id,
-        pageNo: page,
-        pageSize: 10,
-      });
-      if (sequence !== historySequence || id !== periodId.value) return;
-      result = {
-        records: (response.result?.records || []).filter(isAcceptanceHistory),
-        total: Number(response.result?.total || 0),
-      };
-      historyCache.set(page, result);
-    }
-    historyRows.value = result.records;
-    historyTotal.value = result.total;
-    historyPage.value = page;
-  } catch (error: any) {
-    if (sequence === historySequence)
-      historyError.value = error?.message || "历史验收加载失败";
-  } finally {
-    if (sequence === historySequence) historyLoading.value = false;
-  }
-}
-function openHistory() {
-  reworkVisited.value = false;
-  historyTab.value = "acceptance";
-  historyOpen.value = true;
-  void loadHistoryPage(historyPage.value);
-}
-const round = () => String(project.value.currentReworkId || "");
+const approvalOpen = ref(false), reworkBusy = ref(false);
+const latestStatus = ref<any>({});
+const summaryFor = (type: AcceptanceType) => latestStatus.value[type === "INTERNAL" ? "internal" : "customer"];
 const identityReady = ref(false), manager = ref(false), identityError = ref('');
-const operationsMember = computed(() => Boolean(userId.value && user.identity.canHandleInternal));
+const operationsMember = ref(false);
 let identitySequence = 0;
 async function loadIdentity() {
   const sequence = ++identitySequence, id = periodId.value, uid = userId.value;
   identityReady.value = false;
   manager.value = false;
+  operationsMember.value = false;
   identityError.value = '';
   if (!id || !uid) return;
-  if (!['project:accept', 'project:acceptance:submit', 'project:rework:apply'].some((code) => permission.hasPermission(code))) {
+  if (!['project:internalAccept', 'project:accept', 'project:acceptance:submit', 'project:rework:apply'].some((code) => permission.hasPermission(code))) {
     identityReady.value = true;
     return;
   }
-  const [membership] = await Promise.allSettled([
+  const [membership, internalAccess] = await Promise.allSettled([
     readCachedProjectMembership(id, uid, JSON.stringify([user.userInfo.token, user.userInfo.tenantId])),
+    permission.hasPermission('project:internalAccept')
+      ? readInternalAcceptanceAccess(user.identity)
+      : Promise.resolve(false),
   ]);
   if (sequence !== identitySequence || id !== periodId.value || uid !== userId.value || !visible.value) return;
   manager.value = membership.status === 'fulfilled' && membership.value.manager;
+  operationsMember.value = internalAccess.status === 'fulfilled' && internalAccess.value;
   identityReady.value = true;
-  if (membership.status === 'rejected') identityError.value = '项目经理身份查询失败，外部验收暂不可编辑，请重试';
+  identityError.value = [
+    internalAccess.status === 'rejected' ? '内部验收主管资格查询失败，请重试' : '',
+    membership.status === 'rejected' ? '项目经理身份查询失败，外部验收暂不可编辑，请重试' : '',
+  ].filter(Boolean).join('；');
 }
-watch(userId, () => {
+watch(() => JSON.stringify([userId.value, user.userInfo.token, user.userInfo.tenantId, user.identity.roleCodes, user.identity.responsibleDepartmentIds]), () => {
   identityReady.value = false;
+  operationsMember.value = false;
   if (visible.value) void loadIdentity();
 }, { flush: 'sync' });
 const canOperate = (type: AcceptanceType) =>
-  (type === "INTERNAL" || identityReady.value) && (type === "INTERNAL"
+  identityReady.value && (type === "INTERNAL"
     ? operationsMember.value && permission.hasPermission("project:internalAccept")
     : manager.value && permission.hasPermission("project:accept"));
-const visibleTypes = computed(() => types);
+const editingType = ref<AcceptanceType | null>(null);
+const hasEditingSession = ref(false);
+const visibleTypes = computed(() => editingType.value ? [editingType.value] : types);
+const savedRecord = (type: AcceptanceType) => summaryFor(type)?.acceptance || {};
+function startEditing(type: AcceptanceType) {
+  if (busy.value || !canEdit(type)) return;
+  if (!forms.value[type].acceptDate) {
+    forms.value[type].acceptDate = dayjs().format('YYYY-MM-DD');
+  }
+  editingType.value = type;
+  hasEditingSession.value = true;
+  focusedSection.value = `acceptance-${type}`;
+}
 const focusedSection = ref('');
 const applicationOpen = ref(false), applicationReason = ref('');
 const applicationMode = ref<'NORMAL' | 'WITHOUT_RECTIFICATION'>('NORMAL');
 const applicationTypes = ref<AcceptanceType[]>([]);
-const reworkApplicationOpen = ref(false), reworkSource = ref<any>({});
-const failedTypes = computed(() => types.filter((type) => forms.value[type].id && forms.value[type].acceptStatus === 'COMPLETED' && forms.value[type].result === 'FAILED'));
-const projectStatus = () => project.value.periodStatus ?? project.value.status;
-const normalTypes = computed(() => types.filter((type) => !forms.value[type].id || forms.value[type].acceptStatus === 'NOT_STARTED'));
-const canApplyNormal = computed(() => identityReady.value && manager.value && permission.hasPermission('project:acceptance:submit') && ['IMPLEMENTING','DEBUGGING','PENDING_ACCEPT','ACCEPTING'].includes(projectStatus()) && normalTypes.value.length > 0);
-const canApplyRecheck = computed(() => identityReady.value && manager.value && permission.hasPermission('project:acceptance:submit') && projectStatus() === 'ACCEPTING' && failedTypes.value.length > 0);
+const lastRejected = (type: AcceptanceType) => summaryFor(type)?.status === 'PASSED' ? null : summaryFor(type)?.lastRejectedAcceptance;
+const failedTypes = computed(() => types.filter(type => latestStatus.value.canSubmitReacceptance === true && summaryFor(type)?.status === 'FAILED'));
+const normalTypes = computed(() => types.filter(type =>
+  latestStatus.value.canSubmitReacceptance === true && summaryFor(type)?.status === 'PENDING_REACCEPTANCE'));
+const canApplyNormal = computed(() => !loading.value && !error.value && normalTypes.value.length > 0);
+const canApplyRecheck = computed(() => !loading.value && !error.value && failedTypes.value.length > 0);
+const normalApplicationLabel = computed(() => normalTypes.value.some(type => summaryFor(type)?.status === 'PENDING_REACCEPTANCE') ? '申请复审' : '申请验收');
 const selectableTypes = computed(() => applicationMode.value === 'NORMAL' ? normalTypes.value : failedTypes.value);
-const canApplyRework = computed(() => manager.value && permission.hasPermission('project:rework:apply') && projectStatus() === 'ACCEPTING' && failedTypes.value.length > 0);
 function openApplication(mode: 'NORMAL' | 'WITHOUT_RECTIFICATION' = 'NORMAL') {
   if (busy.value || error.value || !(mode === 'NORMAL' ? canApplyNormal.value : canApplyRecheck.value)) return;
   applicationMode.value = mode;
@@ -485,17 +378,12 @@ async function submitApplication() {
       succeeded.push(type);
       applicationTypes.value = applicationTypes.value.filter((item) => item !== type);
     }
-    project.value = {...project.value, status: 'ACCEPTING', periodStatus: 'ACCEPTING'};
+    await load(selected.length === 1 ? selected[0] : undefined);
     applicationOpen.value = false;
     focusedSection.value = succeeded.includes('CUSTOMER') ? 'acceptance-CUSTOMER' : '';
     toast.success(succeeded.includes('CUSTOMER') ? '申请成功，请填写外部验收内容' : '申请成功，等待运维负责人验收');
   } catch (error: any) { toast.error(error?.message || '申请失败，输入已保留'); }
-  finally { submitting.value = false; if (succeeded.length) { historyCache.clear(); emit('changed'); } }
-}
-function openReworkApplication() {
-  if (!canApplyRework.value || busy.value) return;
-  reworkSource.value = failedTypes.value.map((type) => ({...forms.value[type], acceptType: type})).sort((a,b) => String(b.createTime || '').localeCompare(String(a.createTime || '')))[0];
-  reworkApplicationOpen.value = true;
+  finally { submitting.value = false; if (succeeded.length) { emit('changed'); } }
 }
 const canEdit = (type: AcceptanceType) =>
   !error.value &&
@@ -506,25 +394,58 @@ const resultOptions = [
   { label: "通过", value: "PASSED" },
   { label: "不通过", value: "FAILED" },
 ];
-// 暂定客户职能字段，不代表系统授权；等待后端持久化和回显。
-const customerRoleOptions = [
-  {label:'未选择', value:''},
-  {label:'项目负责人', value:'PROJECT_LEADER'},
-  {label:'技术负责人', value:'TECHNICAL_LEADER'},
-  {label:'采购负责人', value:'PURCHASE_LEADER'},
-  {label:'其他', value:'OTHER'},
-];
-const customerRoleLabel = (value: unknown) => customerRoleOptions.find((item) => item.value === value)?.label || String(value || '未选择');
+function confirmAcceptanceResult(type: AcceptanceType, event: { value: string | number }) {
+  if (busy.value || !canEdit(type)) return;
+  if (resultOptions.some((item) => item.value === event.value)) forms.value[type].result = event.value;
+}
+const acceptDateValue = (type: AcceptanceType) => {
+  const value = forms.value[type].acceptDate;
+  const date = value ? dayjs(value) : null;
+  return date?.isValid() ? date.valueOf() : '';
+};
+function confirmAcceptDate(type: AcceptanceType, event: { value: number | string }) {
+  if (busy.value || !canEdit(type) || event.value === '') return;
+  const date = dayjs(event.value);
+  if (date.isValid()) forms.value[type].acceptDate = date.format('YYYY-MM-DD');
+}
+const customerRoleOptions = ref<{ label: string; value: string }[]>([{ label: '未选择', value: '' }]);
+let customerRolesLoaded = false;
+const customerRolesLoading = ref(false);
+const customerRolesError = ref(false);
+function selectCustomerRole(event: any) {
+  if (busy.value || !canEdit('CUSTOMER')) return;
+  const option = customerRoleOptions.value.find((item) => item.value === String(event.value));
+  if (option) forms.value.CUSTOMER.acceptUnitName = option.value;
+}
+async function loadCustomerRoles() {
+  if (customerRolesLoaded || customerRolesLoading.value) return;
+  customerRolesLoading.value = true;
+  customerRolesError.value = false;
+  try {
+    const response: any = await http.get('/sys/dict/getDictItems/client_role');
+    const rows = Array.isArray(response) ? response : response?.result;
+    if (!Array.isArray(rows)) throw new Error('字典响应异常');
+    customerRoleOptions.value = [{ label: '未选择', value: '' }, ...rows.map((item: any) => ({ label: String(item.text ?? item.label ?? item.value), value: String(item.value) }))];
+    customerRolesLoaded = true;
+  } catch {
+    customerRolesError.value = true;
+    toast.warning('客户验收角色字典加载失败，请重新打开重试');
+  } finally {
+    customerRolesLoading.value = false;
+  }
+}
+const customerRoleLabel = (value: unknown) => customerRoleOptions.value.find((item) => item.value === String(value ?? ''))?.label || String(value || '未选择');
 const resultText = (value: string) =>
   value === "PASSED" ? "通过" : value === "FAILED" ? "不通过" : "请选择结果";
 const statusText = (row: any) =>
-  row.acceptStatus === "COMPLETED"
+  (row === forms.value.INTERNAL ? latestStatus.value.internal?.statusText : row === forms.value.CUSTOMER ? latestStatus.value.customer?.statusText : "") ||
+  (row.acceptStatus === "COMPLETED"
     ? resultText(row.result)
     : row.acceptStatus === "IN_PROGRESS"
       ? "验收中"
       : row.acceptStatus === "CANCELLED"
         ? "已取消"
-        : "未开始";
+        : "未开始");
 const files = (value: string) => [
   ...new Set(
     String(value || "")
@@ -546,35 +467,22 @@ const fileFields = (type: AcceptanceType) =>
       forms.value[type].result === "PASSED" ||
       (!canEdit(type) && files(forms.value[type][field.key]).length),
   );
-const filePreview = ref<InstanceType<typeof ContractFilePreview>>();
-const preview = (path: string) =>
-  filePreview.value?.open({ path, name: fileName(path) });
 let version = 0;
 async function load(onlyType?: AcceptanceType) {
+  void loadCustomerRoles();
   const request = ++version;
   loading.value = true;
   error.value = "";
   try {
-    const [internal, customer] = await Promise.all([
-      onlyType === "CUSTOMER"
-        ? records.value.INTERNAL
-        : readAcceptanceRecords(periodId.value, "INTERNAL"),
-      onlyType === "INTERNAL"
-        ? records.value.CUSTOMER
-        : readAcceptanceRecords(periodId.value, "CUSTOMER"),
-    ]);
+    latestStatus.value = {};
+    const response: any = await acceptanceApi.latestStatus(periodId.value);
     if (request !== version) return;
-    if (
-      !Object.prototype.hasOwnProperty.call(project.value, "currentReworkId")
-    ) {
-      const latest = [...internal, ...customer].sort((a, b) =>
-        String(b.createTime || "").localeCompare(String(a.createTime || "")),
-      )[0];
-      project.value.currentReworkId = latest?.reworkId || "";
-    }
-    records.value = { INTERNAL: internal, CUSTOMER: customer };
-    for (const type of types.filter((type) => !onlyType || type === onlyType)) {
-      const row = currentAcceptance(records.value[type], round()) || {};
+    const result = response?.result;
+    if (!result?.internal || !result?.customer) throw new Error('验收状态响应不完整，请重试');
+    latestStatus.value = result;
+    for (const type of types.filter(type => !onlyType || type === onlyType)) {
+      const row = summaryFor(type)?.acceptance || {};
+      records.value[type] = row.id ? [row] : [];
       forms.value[type] = {
         ...row,
         acceptDate: String(row.acceptEndDate || row.acceptDate || "").slice(
@@ -594,16 +502,12 @@ async function load(onlyType?: AcceptanceType) {
 async function open(id: string, _reworkId = "", context: any = {}, apply = false, recheck?: { type: AcceptanceType; acceptanceId: string }) {
   if (busy.value) return;
   applicationOpen.value = false;
-  reworkApplicationOpen.value = false;
+  editingType.value = null;
+  hasEditingSession.value = false;
   focusedSection.value = '';
-  historySequence++;
-  historyCache.clear();
-  historyRows.value = [];
-  historyPage.value = 1;
-  historyTotal.value = 0;
   periodId.value = id;
-  historyOpen.value = false;
-  reworkVisited.value = false;
+  approvalOpen.value = false;
+
   visible.value = true;
   project.value = {
     ...context,
@@ -624,7 +528,7 @@ async function open(id: string, _reworkId = "", context: any = {}, apply = false
 }
 async function close() {
   if (busy.value) return;
-  const result = await new Promise<boolean>((resolve) =>
+  const result = !hasEditingSession.value || await new Promise<boolean>((resolve) =>
     uni.showModal({
       title: "关闭验收",
       content: "未提交的内容不会保存，确定关闭？",
@@ -635,7 +539,7 @@ async function close() {
   if (result) {
     identitySequence++;
     identityReady.value = false;
-    historyOpen.value = false;
+    approvalOpen.value = false;
     visible.value = false;
     version++;
   }
@@ -749,8 +653,10 @@ async function submit(type: AcceptanceType) {
       throw new Error(response.message || "验收提交失败");
     completed = true;
     row.acceptStatus = "COMPLETED";
-    historyCache.clear();
+
     await load(type);
+    editingType.value = null;
+    hasEditingSession.value = false;
     toast.success("验收已提交");
     emit("changed");
   } catch (e: any) {
@@ -766,8 +672,13 @@ defineExpose({ open });
 </script>
 <style scoped>
 .acceptance {
-  height: 86vh;
-  height: 86dvh;
+  height: 78vh;
+  height: 78dvh;
+  max-height: 640px;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
+  width: 100%;
   max-width: 720px;
   margin: auto;
   display: flex;
@@ -791,6 +702,9 @@ defineExpose({ open });
   font-weight: 600;
 }
 .acceptance__footer {
+  flex: 0 0 auto;
+  position: relative;
+  background: #fff;
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -813,9 +727,10 @@ defineExpose({ open });
   height: 0;
   flex: 1;
   min-height: 0;
-  padding: 0 14px 20px;
+  overflow: hidden;
   box-sizing: border-box;
 }
+.acceptance__body-content { padding: 0 16px 20px; }
 .acceptance__section {
   margin: 0;
   padding: 20px 0;
@@ -826,6 +741,28 @@ defineExpose({ open });
   font-weight: 600;
   margin-bottom: 16px;
 }
+.acceptance__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.acceptance__section-head .acceptance__title { margin: 0; }
+.acceptance__status { font-size: 13px; color: #667085; text-align: right; }
+.acceptance__status--PASSED { color: #197347; }
+.acceptance__status--FAILED { color: #b42318; }
+.acceptance__summary { display: flex; flex-direction: column; gap: 12px; }
+.acceptance__summary > view { display: flex; align-items: baseline; gap: 16px; }
+.acceptance__summary > view > text:first-child { flex: 0 0 100px; color: #667085; }
+.acceptance__summary > view > text:last-child { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.acceptance__rejection { display: flex; flex-direction: column; gap: 4px; margin-bottom: 20px; padding: 12px; background: #fff5f4; color: #912018; font-size: 13px; overflow-wrap: anywhere; }
+.acceptance__empty { display: block; color: #667085; padding-bottom: 4px; }
+.acceptance .acceptance__start { width: 100%; margin: 20px 0 0; border: 1px solid #b7d2ef; background: #f3f8ff; color: #176ac7; font-weight: 500; }
+.acceptance__footer--edit { flex-shrink: 0; }
+.acceptance__footer--edit button { width: 100%; background: #176ac7; color: #fff; }
+.acceptance button:focus-visible { outline: 2px solid #176ac7; outline-offset: 2px; }
+.acceptance button[disabled] { opacity: .55; }
 .acceptance__field {
   display: flex;
   flex-direction: column;
@@ -838,6 +775,7 @@ defineExpose({ open });
   font-size: 13px;
   line-height: 20px;
 }
+.acceptance__field > text.acceptance__input { color: #333; font-size: 14px; }
 .acceptance__input {
   min-height: 44px;
   padding: 10px 12px;
@@ -849,7 +787,8 @@ defineExpose({ open });
   line-height: 22px;
   font-family: inherit;
 }
-.acceptance__field picker .acceptance__input {
+.acceptance__field picker .acceptance__input,
+.acceptance__date-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -902,6 +841,8 @@ defineExpose({ open });
   align-items: center;
   gap: 8px;
 }
+.acceptance__file > text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.acceptance__file > button { flex-shrink: 0; margin: 0; }
 .acceptance__file button:first-child {
   flex: 1;
   min-width: 0;
@@ -916,4 +857,17 @@ defineExpose({ open });
   font-size: 14px;
   border-bottom: 1px solid #e3e8ee;
 }
+.acceptance-application { height: auto; max-height: min(640px, 78vh); max-height: min(640px, 78dvh); }
+.acceptance-application__body { padding: 20px 16px 16px; overflow-y: auto; min-height: 0; }
+.acceptance-application__label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; font-size: 14px; font-weight: 500; }
+.acceptance-application__label > text { font-size: 12px; font-weight: 400; color: #667085; }
+.acceptance-application__types { display: flex; gap: 16px; margin-bottom: 24px; }
+.acceptance-application__option { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; min-height: 48px; }
+.acceptance-application__option checkbox { flex-shrink: 0; }
+.acceptance-application__option > view { min-width: 0; }
+.acceptance-application__option text { display: block; overflow-wrap: anywhere; }
+.acceptance-application__status { color: #667085; font-size: 12px; margin-top: 2px; }
+.acceptance-application__option.is-disabled { color: #667085; }
+.acceptance-application .acceptance__textarea { height: 120px; }
+.acceptance-application__count { display: block; text-align: right; color: #667085; font-size: 12px; margin-top: 8px; }
 </style>

@@ -145,8 +145,7 @@
             @click="selectProject(project)"
           >
             <view class="project-mat__body">
-              <text class="project-mat__name">{{ project.projectName || '未命名项目' }}</text>
-              <text class="project-mat__period">{{ project.name || '未命名分期' }}</text>
+              <text class="project-mat__name">{{ projectOptionText(project) }}</text>
             </view>
             <view class="project-mat__check">
               <wd-icon
@@ -198,7 +197,8 @@
           </text>
           <text
             class="material-picker-toolbar__select-all"
-            :class="{ disabled: !filteredMaterialList.length }"
+            :class="{ disabled: !selectableMaterials.length }"
+            :aria-disabled="!selectableMaterials.length"
             @click="toggleSelectAllMaterials"
           >
             {{ allLoadedMaterialsSelected ? '取消全选' : '全选' }}
@@ -214,8 +214,9 @@
             v-for="m in filteredMaterialList"
             :key="m.id"
             class="mat"
-            :class="{ on: isSelected(m) }"
-            @click="toggleMaterial(m)"
+            :class="{ on: isSelected(m), 'mat--disabled': isMaterialDisabled(m) }"
+            :aria-disabled="isMaterialDisabled(m)"
+            @click="!isMaterialDisabled(m) && toggleMaterial(m)"
           >
             <view class="mat__body">
               <view class="mat__title">
@@ -228,7 +229,8 @@
               </view>
               <view v-else class="mat__spec">库存 {{ m.stock }}{{ m.unit }}</view>
             </view>
-            <view class="mat__check">
+            <text v-if="isMaterialDisabled(m)" class="mat__unavailable">暂无可申请量</text>
+            <view v-else class="mat__check">
               <wd-icon v-if="isSelected(m)" name="check" size="16px" />
             </view>
           </view>
@@ -309,6 +311,8 @@ const projectKeyword = ref('')
 const showProject = ref(false)
 const projectsLoading = ref(false)
 const projectsError = ref(false)
+let projectRequestVersion = 0
+let projectSearchTimer: ReturnType<typeof setTimeout> | undefined
 const useTime = ref(dayjs().format('YYYY-MM-DD'))
 const remark = ref('')
 const materialList = ref<any[]>([])
@@ -342,18 +346,8 @@ const projectMaterialPeriodStatus = [
 ].join(',')
 
 const materialCode = (material: any) => material.materialCode || material.code || ''
-const projectOptionText = (project: any) => project.name || '未命名分期'
-const filteredProjectList = computed(() => {
-  const keyword = projectKeyword.value.trim().toLowerCase()
-  if (!keyword) return participatedProjects.value
-  return participatedProjects.value.filter((project) =>
-    [project.projectName, project.name].some((value) =>
-      String(value || '')
-        .toLowerCase()
-        .includes(keyword),
-    ),
-  )
-})
+const projectOptionText = (project: any) => project.projectLabel || '—'
+const filteredProjectList = computed(() => participatedProjects.value)
 const filteredMaterialList = computed(() => {
   const keyword = materialKeyword.value.trim().toLowerCase()
   if (!keyword) return materialList.value
@@ -365,8 +359,8 @@ const filteredMaterialList = computed(() => {
 })
 const allLoadedMaterialsSelected = computed(
   () =>
-    filteredMaterialList.value.length > 0 &&
-    filteredMaterialList.value.every((material) =>
+    selectableMaterials.value.length > 0 &&
+    selectableMaterials.value.every((material) =>
       pickerSelectedMaterials.value.some((selected) => String(selected.id) === String(material.id)),
     ),
 )
@@ -375,6 +369,8 @@ const getAvailableApplyQty = (material: any) => {
   const value = Number(material.availableApplyQty)
   return Number.isFinite(value) && value > 0 ? value : 0
 }
+const isMaterialDisabled = (material: any) => isProjectUsage.value && getAvailableApplyQty(material) <= 0
+const selectableMaterials = computed(() => filteredMaterialList.value.filter((material) => !isMaterialDisabled(material)))
 
 const normalizeAvailableMaterial = (account: any) => ({
   ...normalizeMaterial({
@@ -433,7 +429,6 @@ const loadProjectMaterials = async (reset = false) => {
     const availableMaterials = rawAccounts
       .filter((item: any) => item.materialId)
       .map(normalizeAvailableMaterial)
-      .filter((item: any) => getAvailableApplyQty(item) > 0)
     const merged = reset ? availableMaterials : [...materialList.value, ...availableMaterials]
     materialList.value = Array.from(
       new Map(merged.map((item: any) => [String(item.id), item])).values(),
@@ -489,13 +484,25 @@ const loadMoreProjectMaterials = () => {
 }
 
 const loadParticipatedProjects = async () => {
-  if (projectsLoading.value) return
+  const request = ++projectRequestVersion
+  const username = String(userStore.userInfo.username || '').trim()
+  const keyword = projectKeyword.value.trim()
+  participatedProjects.value = []
+  if (!username) {
+    projectsError.value = true
+    projectsLoading.value = false
+    toast.warning('登录账号信息缺失，请重新登录')
+    return
+  }
   projectsLoading.value = true
   projectsError.value = false
   try {
     const res: any = await projectApi.participatedProjects({
       periodStatus: projectMaterialPeriodStatus,
+      username,
+      ...(keyword ? { keyword } : {}),
     })
+    if (request !== projectRequestVersion || username !== String(userStore.userInfo.username || '').trim()) return
     const uniqueProjects = new Map<string, any>()
     unwrapRecords(res)
       .map((item: any) => normalizeProject({ ...item, status: item.periodStatus }))
@@ -505,10 +512,11 @@ const loadParticipatedProjects = async () => {
       })
     participatedProjects.value = Array.from(uniqueProjects.values())
   } catch (e) {
+    if (request !== projectRequestVersion) return
     participatedProjects.value = []
     projectsError.value = true
   } finally {
-    projectsLoading.value = false
+    if (request === projectRequestVersion) projectsLoading.value = false
   }
 }
 
@@ -539,8 +547,8 @@ const changeUsageType = (event: any) => {
 const openProjectPicker = async () => {
   if (submitting.value || projectSelecting.value) return
   if (reworkId.value && requestedReworkId.value) return toast.warning('返工领料已锁定当前分期')
-  if (!participatedProjects.value.length && !projectsLoading.value) await loadParticipatedProjects()
   showProject.value = true
+  await loadParticipatedProjects()
 }
 
 const selectProject = async (project: any) => {
@@ -585,9 +593,7 @@ const toggleMaterial = (m: any) => {
 }
 
 const toggleSelectAllMaterials = () => {
-  const loadedMaterials = filteredMaterialList.value.filter(
-    (material) => !isProjectUsage.value || getAvailableApplyQty(material) > 0,
-  )
+  const loadedMaterials = selectableMaterials.value
   if (!loadedMaterials.length) return
 
   const loadedIds = new Set(loadedMaterials.map((material) => String(material.id)))
@@ -616,6 +622,7 @@ const cancelMaterialPicker = () => {
 }
 
 const confirmMaterialPicker = () => {
+  if (pickerSelectedMaterials.value.some(isMaterialDisabled)) return toast.warning('部分物料暂无可申请量，请取消选择后重试')
   selectedMaterials.value = pickerSelectedMaterials.value.map((item) => ({ ...item }))
   showMaterial.value = false
   pickerSelectedMaterials.value = []
@@ -726,6 +733,15 @@ const openMaterialPicker = async () => {
   else if (!materialList.value.length) await loadAllMaterials()
 }
 
+watch(projectKeyword, () => {
+  if (projectSearchTimer) clearTimeout(projectSearchTimer)
+  projectRequestVersion++
+  participatedProjects.value = []
+  projectsError.value = false
+  projectsLoading.value = true
+  projectSearchTimer = setTimeout(() => { void loadParticipatedProjects() }, 320)
+})
+
 watch(materialKeyword, () => {
   if (!showMaterial.value || !isProjectUsage.value) return
   if (materialSearchTimer) clearTimeout(materialSearchTimer)
@@ -733,6 +749,8 @@ watch(materialKeyword, () => {
 })
 
 onBeforeUnmount(() => {
+  projectRequestVersion++
+  if (projectSearchTimer) clearTimeout(projectSearchTimer)
   if (materialSearchTimer) clearTimeout(materialSearchTimer)
 })
 </script>
@@ -1081,6 +1099,17 @@ onBeforeUnmount(() => {
   border: 1px solid #eee;
   border-radius: 10px;
   margin-bottom: 10px;
+
+  &--disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+  }
+
+  &__unavailable {
+    margin-left: 8px;
+    font-size: 12px;
+    color: #767676;
+  }
 
   &.on {
     border-color: #2f86ff;

@@ -65,9 +65,11 @@ import { onShow } from '@dcloudio/uni-app'
 import { computed, nextTick, ref } from 'vue'
 import { normalizeProject, projectApi, unwrapRecords } from '@/service/shkj'
 import { http } from '@/utils/http'
+import { useUserStore } from '@/store/user'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
 
 const list = ref<any[]>([])
+const userStore = useUserStore()
 const goBack = () => {
   const fallback = () => uni.switchTab({ url: '/pages/home/index' })
   if (getCurrentPages().length > 1) uni.navigateBack({ delta: 1, fail: fallback })
@@ -96,8 +98,14 @@ const load = async (reset = true) => {
     void nextTick(() => { scrollTop.value = 0 })
   }
   const request = generation, nextPage = page + 1
+  const username = String(userStore.userInfo.username || '').trim()
+  if (!username) {
+    list.value = []; loading.value = false; loadError.value = true
+    uni.showToast({ title: '登录账号信息缺失，请重新登录', icon: 'none' })
+    return
+  }
   const query = appliedKeyword.value
-  const params = { pageNo: nextPage, pageSize, ...(statusFilter.value ? { status: statusFilter.value } : {}) }
+  const params = { username, pageNo: nextPage, pageSize, ...(statusFilter.value ? { status: statusFilter.value } : {}) }
   loading.value = true; loadError.value = false
   try {
     // 名称字段为 AND 条件，分别查询后按分期去重，实现主项目或分期名称匹配。
@@ -105,7 +113,7 @@ const load = async (reset = true) => {
       mainMore ? projectApi.list({ ...params, ...(query ? { projectName: query } : {}) }) : null,
       query && periodMore ? projectApi.list({ ...params, periodName: query }) : null,
     ])
-    if (request !== generation) return
+    if (request !== generation || username !== String(userStore.userInfo.username || '').trim()) return
     const more = (result: any) => result != null && (result.result?.total != null
       ? nextPage * pageSize < Number(result.result.total) : unwrapRecords(result).length === pageSize)
     mainMore = more(mainResult); periodMore = more(periodResult)

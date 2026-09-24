@@ -214,15 +214,15 @@
         v-if="
           [
             'INTERNAL_ACCEPTING',
-            'ACCEPTING',
+            'ACCEPTING', 'REACCEPTING', 'FAILED',
             'REWORKING',
             'WARRANTY',
             'COMPLETED',
             'CLOSED',
           ].includes(detail.rawStatus)
         "
-        title="验收记录"
-        extra="查看详情"
+        title="验收结果"
+        extra="查看验收结果"
         @extraClick="openAcceptance"
       >
         <view class="row">
@@ -609,7 +609,7 @@ const implementationStatuses = [
   "IMPLEMENT_COMPLETED",
   "PENDING_ACCEPT",
   "INTERNAL_ACCEPTING",
-  "ACCEPTING",
+  "ACCEPTING", "REACCEPTING", "FAILED",
   "REWORKING",
   "WARRANTY",
   "COMPLETED",
@@ -825,16 +825,6 @@ const arrivalMaterialName = computed(() => {
 });
 
 const acceptanceSubmitting = ref(false);
-const submitAcceptance = async () => {
-  if (acceptanceSubmitting.value || !id.value) return;
-  if (!canStartAcceptance.value) return toast.warning("暂无提交验收权限");
-  acceptanceSubmitting.value = true;
-  try {
-    await acceptancePopup.value?.open(id.value, "", detail.value, true);
-  } finally {
-    acceptanceSubmitting.value = false;
-  }
-};
 const ops = computed(() => {
   const list: { text: string; type: string; action: () => void }[] = [];
   const s = detail.value.status;
@@ -853,15 +843,15 @@ const ops = computed(() => {
   if (detail.value.rawStatus === "PENDING_ACCEPT") {
     if (canStartAcceptance.value)
       list.push({
-        text: acceptanceSubmitting.value ? "提交中…" : "提交验收",
+        text: "验收",
         type: "primary",
-        action: submitAcceptance,
+        action: openAcceptance,
       });
   }
   if (
     [
       "INTERNAL_ACCEPTING",
-      "ACCEPTING",
+      "ACCEPTING", "REACCEPTING", "FAILED",
       "REWORKING",
       "WARRANTY",
       "COMPLETED",
@@ -878,7 +868,7 @@ const ops = computed(() => {
       "IMPLEMENT_COMPLETED",
       "PENDING_ACCEPT",
       "INTERNAL_ACCEPTING",
-      "ACCEPTING",
+      "ACCEPTING", "REACCEPTING", "FAILED",
       "REWORKING",
     ].includes(detail.value.rawStatus)
   ) {
@@ -1195,7 +1185,7 @@ const load = async () => {
       startDate: projectStartDate,
       endDate: projectEndDate,
     };
-    if (["INTERNAL_ACCEPTING", "ACCEPTING", "REWORKING", "WARRANTY", "COMPLETED", "CLOSED"].includes(basic.rawStatus)) {
+    if (["INTERNAL_ACCEPTING", "ACCEPTING", "REACCEPTING", "FAILED", "REWORKING", "WARRANTY", "COMPLETED", "CLOSED"].includes(basic.rawStatus)) {
       acceptanceSummary.value = { INTERNAL: "加载中…", CUSTOMER: "加载中…" };
       void loadAcceptanceSummary(periodId, String(detail.value.currentReworkId || ""), request);
     }

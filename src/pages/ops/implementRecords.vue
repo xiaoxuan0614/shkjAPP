@@ -22,8 +22,10 @@
           <template v-else>
             <text v-if="!records.length" class="state">该工序暂无实施记录</text>
             <view v-for="record in records" :key="record.id" class="implementation-entry">
-              <text class="record-title">{{ dateText(record.logDate || record.signInTime) }} 实施日志</text>
-              <text class="record-meta">{{ labelById(record.processId) }}</text>
+              <view class="record-header">
+                <text class="record-title">{{ dateText(record.logDate || record.signInTime) }} 实施日志</text>
+                <text class="record-meta">{{ labelById(record.processId) }}</text>
+              </view>
               <text class="record-content">{{ record.workContent || '暂未填写实施内容' }}</text>
               <view class="record-footer">
                 <text>{{ record.submitterName || '未返回提交人' }} · {{ record.signOutTime ? '已签退' : '未签退' }}</text>
@@ -116,9 +118,10 @@ onLoad((query) => {
 .process-nav button.active { color: #176ac7; background: #fff; font-weight: 600; }
 .record-list { flex: 1; min-width: 0; height: 100%; background: #fff; }
 .implementation-entry { padding: 14px 12px; border-bottom: 1px solid #e3e8ee; }
-.record-title { display: block; font-size: 16px; font-weight: 600; }
-.record-meta { display: block; color: #536176; font-size: 14px; margin: 8px 0; }
-.record-content { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; }
+.record-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.record-title { display: block; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; font-weight: 600; }
+.record-meta { display: block; flex-shrink: 0; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; color: #536176; font-size: 14px; }
+.record-content { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; max-height: 3.2em; }
 .record-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-top: 8px; gap: 4px; font-size: 13px; color: #536176; }
 .pagination { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; padding: 12px 6px; font-size: 13px; }
 .pagination button { margin: 0; padding: 0 6px; min-height: 44px; font-size: 13px; line-height: 44px; }

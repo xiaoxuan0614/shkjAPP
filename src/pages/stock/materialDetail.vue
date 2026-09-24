@@ -89,7 +89,7 @@
             </view>
 
             <view
-              v-for="material in detail.items"
+              v-for="material in pagedMaterials"
               :key="material.id"
               class="material-item"
               :class="{ 'material-item--selected': material.checked }"
@@ -213,7 +213,7 @@
           <view v-if="inboundReadonlyReason" class="empty-state">{{ inboundReadonlyReason }}</view>
           <view v-if="loadError" class="inline-error" @click="load">{{ loadError }}，点击重新加载</view>
           <view v-else-if="!detail.items.length" class="empty-state">暂无物料明细</view>
-          <view v-for="material in detail.items" :key="material.id" class="material-item">
+          <view v-for="material in pagedMaterials" :key="material.id" class="material-item">
             <view class="material-title-line">
               <text class="material-name">{{ material.name || '未命名物料' }}</text>
               <text v-if="material.materialCode" class="material-code">{{ material.materialCode }}</text>
@@ -253,6 +253,14 @@
             </view>
           </view>
         </SectionCard>
+        <view v-if="materialPageCount > 1" class="material-pagination">
+          <view class="material-pagination__controls">
+            <button :disabled="materialPage <= 1 || submitting" @click="materialPage--">上一页</button>
+            <text>{{ materialPage }} / {{ materialPageCount }} · 共 {{ detail.items.length }} 项</text>
+            <button :disabled="materialPage >= materialPageCount || submitting" @click="materialPage++">下一页</button>
+          </view>
+          <text class="material-pagination__hint">每页10项，翻页保留填写内容；执行范围包含所有页</text>
+        </view>
         <SectionCard v-if="detail.type === 'in'" title="执行入库记录">
           <view v-if="recordError" class="inline-error" @click="loadInboundRecords(true)">{{ recordError }}，点击重试</view>
           <view v-else-if="!inboundRecords.length && !recordLoading" class="empty-state">暂无执行入库记录</view>
@@ -314,6 +322,13 @@ import { ensureCurrentAuthorization } from '@/service/permission'
 const toast = useToast()
 const message = useMessage()
 const detail = ref<any>({})
+const materialPage = ref(1)
+const materialPageSize = 10
+const materialPageCount = computed(() => Math.max(1, Math.ceil((detail.value.items?.length || 0) / materialPageSize)))
+// slice保留原行引用，跨页数量、备注、处置方式和选择状态不会丢失。
+const pagedMaterials = computed(() => (detail.value.items || []).slice(
+  (materialPage.value - 1) * materialPageSize, materialPage.value * materialPageSize,
+))
 const id = ref('')
 const loading = ref(false)
 const loadError = ref('')
@@ -497,6 +512,7 @@ const load = async () => {
   }
 
   loading.value = true
+  materialPage.value = 1
   loadError.value = ''
   try {
     await ensureCurrentAuthorization(userStore.userInfo)
@@ -745,6 +761,29 @@ onLoad((query) => {
 </script>
 
 <style lang="scss" scoped>
+.material-pagination {
+  margin: 0 12px 16px;
+  color: #555;
+  font-size: 13px;
+}
+.material-pagination__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.material-pagination__controls button {
+  margin: 0;
+  padding: 0 12px;
+  min-height: 44px;
+  line-height: 44px;
+  font-size: 14px;
+  color: #176ac7;
+  background: #fff;
+}
+.material-pagination__controls button[disabled] { color: #767676; background: #f4f6f8; }
+.material-pagination__hint { display: block; margin-top: 8px; line-height: 1.5; }
 .page {
   min-height: 0;
   padding-bottom: 12px;

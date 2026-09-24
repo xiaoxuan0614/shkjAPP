@@ -17,10 +17,9 @@
         </view>
         <view v-if="leaderError" class="state"><text>工序负责人信息加载失败，参与人员和用料记录暂不显示</text><button @click="loadLeader">重新加载负责人信息</button></view>
         <SectionCard v-if="isSiteLeader" title="参与人员">
-          <text class="subheading">内部人员</text>
+          <text class="subheading">内部参与人员</text>
           <text v-if="namesLoading" class="hint">正在加载人员名称…</text>
           <text v-else class="body-text">{{ participantNames.length ? participantNames.join('、') : '暂无其他内部参与人员' }}</text>
-          <text v-if="participantNames.length" class="hint">当前日志未提供逐人签到、签退及评价明细</text>
           <text class="subheading">外协人员</text>
           <view v-for="(item, index) in log.outsources || []" :key="index" class="entry">
             <text class="entry-title">{{ item.unitName || outsourceNames[String(item.outsourceMemberId)] || '外协单位名称未返回' }}</text>

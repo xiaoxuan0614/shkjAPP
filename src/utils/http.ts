@@ -4,6 +4,7 @@ import signMd5Utils from '@/utils/signMd5Utils'
 import { isH5 } from '@/utils/platform'
 import { getEnvBaseUrl } from '@/utils/index'
 import { buildFullPath, buildURL } from '@/utils/helpers/buildURL'
+import { cachedDictionary, dictionaryOwner, isStaticDictionaryRequest } from '@/utils/dictionaryCache'
 
 export const http = <T>(options: CustomRequestOptions) => {
   // 1. 返回 Promise 对象
@@ -96,11 +97,15 @@ export const http = <T>(options: CustomRequestOptions) => {
  * @returns
  */
 export const httpGet = <T>(url: string, query?: Record<string, any>, header?: any) => {
-  return http<T>({
+  const request = () => http<T>({
     url,
     query,
     method: 'GET',
   })
+  if (isStaticDictionaryRequest(url, query) && useUserStore().userInfo.token) {
+    return cachedDictionary(url, dictionaryOwner(useUserStore().userInfo), request)
+  }
+  return request()
 }
 
 /**
