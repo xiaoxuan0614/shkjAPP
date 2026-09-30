@@ -51,26 +51,24 @@
                 </button></view
               ></view
             >
-            <view class="section-heading">维修办理</view>
             <view class="panel entry-panel"
-              ><button
+              ><view class="section-title">维修办理</view><view class="entry-grid"><button
                 v-for="entry in entries"
                 :key="entry.screen"
                 class="entry"
+                :aria-label="`${entry.label}，${entry.description}`"
                 @click="openEntry(entry.screen)"
               >
                 <view class="entry-icon"
-                  ><wd-icon :name="entry.icon" size="22px" /></view
-                ><view class="entry-copy"
-                  ><view>{{ entry.label }}</view
-                  ><text class="muted">{{ entry.description }}</text></view
-                ><wd-icon name="arrow-right" color="#738198" /></button
-            ></view>
-            <view class="section-heading">最近维修工单</view>
+                  ><wd-icon :name="entry.icon" size="24px" /></view
+                ><text class="entry-label">{{ entry.label }}</text></button
+            ></view></view>
+            <view class="panel recent-orders">
+            <view class="section-title">最近维修工单</view>
             <view
               v-for="order in orders.slice(0, 3)"
               :key="order.id"
-              class="panel"
+              class="recent-order"
               ><view class="row"
                 ><text class="muted">{{ order.id }}</text
                 ><text class="badge" :class="tone(order.status)">{{
@@ -86,6 +84,7 @@
               >
                 查看工单<wd-icon name="arrow-right" /></button
             ></view>
+            </view>
           </template>
           <template v-else-if="screen === 'reports'">
             <input
@@ -1070,12 +1069,20 @@ function viewPhotos(current: string, urls: string[]) {
 }
 .preview-nav {
   flex-shrink: 0;
-  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  padding: env(safe-area-inset-top) 12px 0;
+  min-height: 48px;
   background: #fff;
-  display: flex;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  border-bottom: 1px solid #edf0f3;
+}
+.preview-nav > .title {
+  text-align: center;
+  font-size: 16px;
+}
+.preview-nav > .btn:last-child {
+  text-align: right;
 }
 .nav-back {
   display: flex;
@@ -1091,19 +1098,18 @@ function viewPhotos(current: string, urls: string[]) {
   padding: 12px 12px calc(22px + env(safe-area-inset-bottom));
 }
 .intro {
-  background: linear-gradient(135deg, #2f86ff 0%, #5aa8ff 100%);
-  padding: 18px 16px;
+  padding: 16px 14px;
 }
 .intro .title,
 .intro .summary strong {
-  color: #fff;
+  color: #333;
 }
 .intro .muted,
 .intro .summary button {
-  color: rgba(255, 255, 255, 0.9);
+  color: #667085;
 }
 .intro .summary button + button {
-  border-left-color: rgba(255, 255, 255, 0.25);
+  border-left-color: #edf0f3;
 }
 .feedback {
   background: #e8f5ee;
@@ -1118,7 +1124,9 @@ function viewPhotos(current: string, urls: string[]) {
 }
 .summary {
   display: flex;
-  margin-top: 20px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f3;
 }
 .summary button {
   flex: 1;
@@ -1143,33 +1151,32 @@ function viewPhotos(current: string, urls: string[]) {
   color: #2f86ff;
   font-weight: 600;
 }
-.section-heading {
-  font-weight: 600;
-  font-size: 16px;
-  margin: 24px 2px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-heading::before {
-  content: '';
-  width: 8px;
-  height: 16px;
-  border-radius: 4px;
-  background: #2f86ff;
-}
 .entry-panel {
-  padding: 0 16px;
+  padding: 14px;
+}
+.entry-panel .section-title {
+  margin-bottom: 12px;
+}
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.recent-order + .recent-order {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f3;
 }
 .entry {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 7px;
+  min-width: 0;
   background: #fff;
-  padding: 16px 0;
+  padding: 11px 4px 12px;
   margin: 0;
   border-radius: 0;
-  text-align: left;
+  text-align: center;
   line-height: 1.6;
   font-size: 15px;
   color: #333;
@@ -1177,27 +1184,43 @@ function viewPhotos(current: string, urls: string[]) {
 .entry::after {
   border: none;
 }
-.entry + .entry {
-  border-top: 1px solid #eef0f5;
+.entry:focus-visible {
+  outline: 2px solid #2f86ff;
+  outline-offset: -2px;
+  border-radius: 8px;
 }
 .entry-icon {
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #2f86ff;
   background: #eaf4ff;
 }
-.entry-copy {
-  flex: 1;
+.entry:nth-child(4n + 2) .entry-icon {
+  background: #ebf8f2;
+  color: #2e9b69;
+}
+.entry:nth-child(4n + 3) .entry-icon {
+  background: #f1edff;
+  color: #7457c5;
+}
+.entry:nth-child(4n + 4) .entry-icon {
+  background: #fff3e5;
+  color: #c47618;
+}
+.entry-label {
+  color: #4c5968;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .order-title {
   font-size: 16px;
   font-weight: 600;
-  margin: 12px 0 6px;
+  margin: 8px 0 4px;
 }
 .detail-link {
   margin-top: 8px;

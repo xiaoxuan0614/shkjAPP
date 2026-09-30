@@ -125,7 +125,7 @@
                 <text class="contract-popup__manager-hint">
                   {{
                     managerConfirmed
-                      ? '已确认，审批通过后项目将进入筹备中'
+                      ? '已确认，审批通过后由项目经理完善并提交计划'
                       : '请在人员列表中确认后再提交'
                   }}
                 </text>
@@ -418,8 +418,9 @@ const submitReject = async () => {
     visible.value = false
     toast.success('合同已驳回')
     emit('processed')
-  } catch {
-    // 保留详情与驳回原因，接口统一展示失败原因。
+  } catch (error: any) {
+    toast.warning(error?.message || '驳回结果未确认，请刷新后查看')
+    await load()
   } finally {
     submitting.value = false
   }
@@ -436,7 +437,7 @@ const submitApprove = async () => {
     return
   }
   submitting.value = true
-  let completedStep: '' | 'manager' | 'contract' = ''
+  let managerSaved = false
   try {
     await contractApprovalApi.saveManager(
       periodId.value,
@@ -446,21 +447,16 @@ const submitApprove = async () => {
       },
       buildPaymentRecords(),
     )
-    completedStep = 'manager'
+    managerSaved = true
     await contractApprovalApi.decide(periodId.value, '1')
-    completedStep = 'contract'
-    await contractApprovalApi.startPreparing(periodId.value)
     visible.value = false
-    toast.success('合同审批通过，项目已进入筹备中')
+    toast.success('合同审批通过，请由项目经理完善并提交计划')
     emit('processed')
-  } catch {
-    if (completedStep === 'manager') {
-      toast.warning('项目经理已保存，合同通过失败，请重试')
-    } else if (completedStep === 'contract') {
-      visible.value = false
-      toast.warning('合同已通过，但项目状态更新失败，请联系管理员')
-      emit('processed')
-    }
+  } catch (error: any) {
+    toast.warning(error?.message || (managerSaved
+      ? '项目经理已保存，审批结果未确认，请刷新后查看'
+      : '项目经理保存失败，请刷新后查看'))
+    await load()
   } finally {
     submitting.value = false
   }

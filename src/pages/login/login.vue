@@ -13,95 +13,48 @@
 
 <template>
   <PageLayout :navbarShow="false">
-    <view class="page-container">
-      <view class="text-center">
-        <image v-if="compLogo" :src="compLogo" mode="aspectFit" class="logo"></image>
-        <view v-else class="brand-mark">首汇科技</view>
-        <view class="title text-shadow">{{ compTitle || '首汇科技' }}</view>
-        <view class="enter-area">
-          <view v-if="loginWay == 1" class="account-login-area">
-            <view class="box account">
-              <wd-icon name="user" size="15px"></wd-icon>
-              <wd-text text="账号："></wd-text>
-              <wd-input placeholder="请输入账号" v-model.trim="userName"></wd-input>
-            </view>
-            <view class="box password">
-              <wd-icon name="lock-on" size="15px"></wd-icon>
-              <wd-text text="密码："></wd-text>
-              <input
-                class="uni-input"
-                placeholder="请输入密码"
-                :password="showPassword"
-                v-model.trim="password"
-              />
-              <wd-icon
-                v-if="showPassword"
-                name="eye-close"
-                size="18px"
-                @click="handleChangePassword"
-              ></wd-icon>
-              <wd-icon v-else name="view" size="18px" @click="handleChangePassword"></wd-icon>
-            </view>
-          </view>
-          <view v-else class="phone-login-area">
-            <view class="account-login-area">
-              <view class="box account">
-                <wd-icon name="mobile" size="15px"></wd-icon>
-                <wd-text text="手机号：" color="#000"></wd-text>
-                <wd-input placeholder="请输入手机号" v-model="phoneNo"></wd-input>
-              </view>
-              <view class="box password">
-                <wd-icon name="lock-on" size="15px"></wd-icon>
-                <wd-text text="验证码：" color="#000"></wd-text>
-                <wd-input placeholder="请输入验证码" v-model="smsCode"></wd-input>
-                <wd-button
-                  :round="false"
-                  size="small"
-                  custom-class="sendSMSBtn"
-                  plain
-                  hairline
-                  :disabled="isSendSMSEnable"
-                  @click="handleSMSSend"
-                >
-                  {{ getSendBtnText }}
-                </wd-button>
-              </view>
-            </view>
-          </view>
+    <scroll-view scroll-y class="login-page">
+      <view class="login-content">
+        <view class="login-brand">
+          <image v-if="compLogo && !logoFailed" :src="compLogo" mode="aspectFit" class="login-logo" aria-label="首汇科技 Logo" @error="logoFailed = true" />
+          <text v-else class="login-brand__fallback">首汇科技</text>
+          <text class="login-title">首汇科技</text>
         </view>
-        <view class="btn-area text-center">
-          <wd-button custom-class="login align-top" :loading="loading" @click="hanldeLogin">
-            {{ loading ? '登录...' : '登录' }}
-          </wd-button>
-          <wd-button v-if="loginWay == 2" plain hairline @click="toggleLoginWay(1)">
-            账户登录
-          </wd-button>
-          <wd-button v-else custom-class="align-top" plain hairline @click="toggleLoginWay(2)">
-            短信登录
-          </wd-button>
-        </view>
+        <form class="login-form" @submit="accountLogin">
+          <view class="login-field">
+            <wd-icon name="user" size="20px" color="#667085" />
+            <input v-model.trim="userName" class="login-input" type="text" placeholder="请输入账号" placeholder-style="color:#767676" aria-label="登录账号" autocomplete="username" :disabled="loading" confirm-type="go" @confirm="accountLogin" />
+          </view>
+          <view class="login-field">
+            <wd-icon name="lock-on" size="20px" color="#667085" />
+            <input v-model="password" class="login-input" :password="showPassword" placeholder="请输入密码" placeholder-style="color:#767676" aria-label="登录密码" autocomplete="current-password" :disabled="loading" confirm-type="go" @confirm="accountLogin" />
+            <button class="password-toggle" :aria-label="showPassword ? '显示密码' : '隐藏密码'" :disabled="loading" @click="handleChangePassword">
+              <wd-icon :name="showPassword ? 'eye-close' : 'view'" size="20px" />
+            </button>
+          </view>
+          <button class="login-submit" form-type="submit" :loading="loading" :disabled="loading">
+            {{ loading ? '正在登录…' : '登录' }}
+          </button>
+        </form>
       </view>
       <wd-notify />
-    </view>
+    </scroll-view>
   </PageLayout>
 </template>
 
 <script lang="ts" setup>
-import { useNotify, useToast } from 'wot-design-uni'
+import { useToast } from 'wot-design-uni'
 import { ref } from 'vue'
 import { useUserStore } from '@/store/user'
 import { http } from '@/utils/http'
 import {
-  ACCESS_TOKEN,
-  USER_NAME,
-  USER_INFO,
   APP_ROUTE,
   APP_CONFIG,
   HOME_CONFIG_EXPIRED_TIME,
   HOME_PAGE,
 } from '@/common/constants'
 
-import { cache, getFileAccessHttpUrl } from '@/common/uitls'
+import { cache } from '@/common/uitls'
 import { useRouter } from '@/plugin/uni-mini-router'
 import { useParamsStore } from '@/store/page-params'
 import { encryptLoginPassword } from '@/utils/cipher'
@@ -118,18 +71,11 @@ defineOptions({
 })
 const router = useRouter()
 const defLogo = `${import.meta.env.BASE_URL}static/company-logo.png`
-const shape = ref()
 const loading = ref(false)
 const userName = ref('')
 const password = ref('')
-const phoneNo = ref('')
-const smsCode = ref('')
-const showPassword = ref(false) // 是否显示明文
-const loginWay = ref(1) // 1: 账密，2：验证码
-const smsCountDown = ref(0)
-let smsCountInterval: ReturnType<typeof setInterval> | undefined
-const toggleDelay = ref(false)
-const version = ref('')
+const showPassword = ref(true) // true masks the password
+const logoFailed = ref(false)
 const compLogo = ref(defLogo)
 const compTitle = ref('首汇科技')
 const paramsStore = useParamsStore()
@@ -137,58 +83,10 @@ paramsStore.reset()
 // 是否开启本地路由配置
 const isLocalConfig = getApp().globalData.isLocalConfig
 
-const isSendSMSEnable = computed(() => {
-  return smsCountDown.value > 0 || phoneNo.value.length !== 11
-})
 const toast = useToast()
 const userStore = useUserStore()
-const toggleLoginWay = (val) => {
-  loginWay.value = val
-}
 const handleChangePassword = () => {
   showPassword.value = !showPassword.value
-}
-const handleSMSSend = () => {
-  const mobile = phoneNo.value
-  const checkPhone = /^1[3-9][0-9]{9}$/
-  if (!mobile) {
-    toast.warning('请输入手机号')
-    return false
-  }
-  if (!checkPhone.test(mobile)) {
-    toast.warning('请输入正确的手机号')
-    return false
-  }
-  if (smsCountDown.value) {
-    return
-  }
-  authApi
-    .sendLoginSms(mobile)
-    .then(() => {
-      smsCountDown.value = 60
-      startSMSTimer()
-    })
-    .catch(() => {
-      smsCountDown.value = 0
-    })
-}
-const startSMSTimer = () => {
-  smsCountInterval = setInterval(() => {
-    smsCountDown.value--
-    if (smsCountDown.value <= 0) {
-      if (smsCountInterval) clearInterval(smsCountInterval)
-    }
-  }, 1e3)
-}
-const getSendBtnText = computed(() => {
-  if (smsCountDown.value > 0) {
-    return smsCountDown.value + '秒后发送'
-  } else {
-    return '发送验证码'
-  }
-})
-const hanldeLogin = () => {
-  loginWay.value === 1 ? accountLogin() : phoneLogin()
 }
 const accountLogin = () => {
   if (loading.value) return
@@ -208,41 +106,10 @@ const accountLogin = () => {
     })
     .then((res: any) => {
       saveLoginResult(res.result)
-      appConfig()
+      return appConfig()
     })
     .catch((error: any) => {
       if (error instanceof Error) toast.warning(error.message)
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
-
-const phoneLogin = () => {
-  const checkPhone = /^1[3-9][0-9]{9}$/
-
-  if (!phoneNo.value) {
-    toast.warning('请输入手机号')
-    return
-  }
-  if (!checkPhone.test(phoneNo.value)) {
-    toast.warning('请输入正确的手机号')
-    return false
-  }
-  if (!smsCode.value) {
-    toast.warning('请输入短信验证码')
-    return
-  }
-  loading.value = true
-  authApi
-    .phoneLogin(phoneNo.value, smsCode.value)
-    .then((res: any) => {
-      saveLoginResult(res.result)
-      appConfig()
-    })
-    .catch((err) => {
-      const msg = err.message || '请求出现错误，请稍后再试'
-      toast.warning(msg)
     })
     .finally(() => {
       loading.value = false
@@ -337,88 +204,26 @@ if (isLocalConfig === false) {
 </script>
 
 <style lang="scss" scoped>
-//
-
-.page-container {
-  padding: 0 20upx;
-  padding-top: 100upx;
-  position: relative;
-  font-size: 15px;
-  color: var(--UI-FG-0);
-  .logo {
-    width: 200upx;
-    height: 150px;
-  }
-  .brand-mark {
-    display: flex;
-    width: 168upx;
-    height: 168upx;
-    margin: 0 auto 28upx;
-    font-size: 42upx;
-    font-weight: 750;
-    letter-spacing: 2upx;
-    color: #fff;
-    background: #176ac7;
-    border-radius: 28upx;
-    align-items: center;
-    justify-content: center;
-  }
-  .title {
-    font-size: 58upx;
-  }
-  .enter-area {
-    padding-top: 75px;
-    width: 87%;
-    margin: 0 auto 60upx;
-    .box {
-      display: flex;
-      align-items: center;
-      min-height: 100upx;
-      color: #000;
-      border: 1px solid #eee;
-      background-color: #fff;
-      padding: 0 20upx;
-      margin-bottom: 30upx;
-      box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
-      :deep(.wd-text) {
-        margin: 0 10upx;
-      }
-      :deep(.wd-input),
-      :deep(.uni-input) {
-        flex: 1;
-        &::after {
-          height: 0;
-        }
-      }
-      .uni-input {
-        text-align: left;
-        font-size: var(--wot-input-fs, var(--wot-cell-title-fs, 14px));
-        height: var(--wot-input-inner-height, 34px);
-        color: var(--wot-input-color, #262626);
-        .uni-input-placeholder {
-          color: var(--wot-input-placeholder-color, #bfbfbf);
-        }
-      }
-    }
-    :deep(.sendSMSBtn) {
-      margin-left: 20upx;
-    }
-    :deep(.wd-icon-view),
-    :deep(.wd-icon-eye-close) {
-      color: #555;
-    }
-  }
-  .btn-area {
-    :deep(.login) {
-      margin-right: 30px;
-    }
-    :deep(.wd-button) {
-      --wot-button-medium-height: 41px;
-      --wot-button-medium-fs: 16px;
-      --wot-button-plain-bg-color: transparent;
-      min-width: 100px;
-      box-shadow: 3px 3px 4px rgba(0, 102, 204, 0.2);
-    }
-  }
+.login-page { height: 100%; background: #fff; color: #202939; }
+.login-content { width: 100%; max-width: 440px; min-height: 100%; margin: 0 auto; box-sizing: border-box; padding: calc(76px + env(safe-area-inset-top)) 24px max(32px, env(safe-area-inset-bottom)); }
+.login-brand { display: flex; flex-direction: column; align-items: center; }
+.login-logo { display: block; width: 72px; height: 72px; }
+.login-brand__fallback { display: block; color: #087fbd; font-size: 24px; font-weight: 600; line-height: 72px; }
+.login-title { display: block; margin-top: 20px; font-size: 22px; font-weight: 500; line-height: 1.5; }
+.login-form { display: block; margin-top: 44px; }
+.login-field { display: flex; align-items: center; gap: 12px; min-height: 52px; margin-bottom: 16px; padding: 0 14px; border: 1px solid #e0e4ea; border-radius: 8px; box-sizing: border-box; background: #fff; }
+.login-field:focus-within { border-color: #2461eb; }
+.login-input { flex: 1; width: 0; min-width: 0; height: 50px; color: #202939; font-size: 16px; text-align: left; }
+.password-toggle { display: flex; align-items: center; justify-content: center; width: 44px; height: 48px; margin: 0 -10px 0 0; padding: 0; flex: none; background: transparent; color: #667085; }
+.password-toggle::after, .login-submit::after { border: 0; }
+.login-submit { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; margin-top: 28px; padding: 0 16px; border-radius: 8px; background: #2461eb; color: #fff; font-size: 16px; font-weight: 600; line-height: 1.5; }
+.login-submit:active { background: #1c4ec3; }
+.login-submit[disabled] { background: #dce6fd; color: #37527e; }
+.password-toggle:focus-visible, .login-submit:focus-visible { outline: 2px solid #2461eb; outline-offset: 3px; }
+@media (max-height: 560px) {
+  .login-content { padding-top: calc(24px + env(safe-area-inset-top)); }
+  .login-logo { width: 56px; height: 56px; }
+  .login-title { margin-top: 12px; }
+  .login-form { margin-top: 24px; }
 }
 </style>

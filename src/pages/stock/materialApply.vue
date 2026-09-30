@@ -34,7 +34,7 @@
       <view v-for="a in list" :key="a.id" class="card" @click="goDetail(a)">
         <view class="card__head">
           <text class="card__no">{{ a.applyNo }}</text>
-          <StatusBadge :value="a.status" :dict="statusDict" />
+          <StatusBadge :value="a.executeStatus" :dict="statusDict" />
         </view>
         <view class="row">
           <text class="label">关联单号</text>
@@ -66,7 +66,7 @@
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, nextTick, ref } from 'vue'
 import { http } from '@/utils/http'
-import { stockApi, unwrapRecords, formatStockProjectName } from '@/service/shkj'
+import { stockApi, unwrapRecords, formatProjectName } from '@/service/shkj'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
 import StockProjectSearch from './components/StockProjectSearch.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
@@ -115,40 +115,16 @@ const normalizeApply = (item: any) => {
     ...item,
     applyNo: item.applyNo || item.id,
     orderNo: item.projectNo || item.orderNo || '',
-    projectLabel: item.periodId || item.projectName ? '正在加载项目名称…' : '—',
+    projectLabel: formatProjectName(item),
     applyTime: item.createTime || item.applyTime || '',
-    status: executed || '未知',
+    executeStatus: executed || '未知',
   }
-}
-
-const loadProjectNames = async (rows: any[], request: number) => {
-  const groups = new Map<string, any[]>()
-  for (const row of rows) {
-    if (!row.periodId && !row.projectName) continue
-    const key = String(row.periodId || row.id)
-    groups.set(key, [...(groups.get(key) || []), row])
-  }
-  const pending = [...groups.values()]
-  // 仅补齐当前页，按分期去重并限制并发，避免每张卡片重复加载详情。
-  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
-    while (pending.length && request === requestId) {
-      const group = pending.shift()!
-      let label = '项目名称加载失败，请进入详情查看'
-      try {
-        const response: any = await stockApi.applyDetail(group[0].id)
-        label = formatStockProjectName(response?.result ?? response)
-      } catch { /* 名称请求失败不影响卡片及筛选操作 */ }
-      if (request !== requestId) return
-      const ids = new Set(group.map(row => row.id))
-      list.value.forEach(row => { if (ids.has(row.id)) row.projectLabel = label })
-    }
-  }))
 }
 
 const load = async (nextPage = 1) => {
   const reset = nextPage === 1
   if (!reset && (loading.value || finished.value)) return
-  // 同一筛选条件的追加页共用代次，避免中断前一批项目名称回显。
+  // 同一筛选条件的追加页共用代次，切换筛选时忽略旧响应。
   if (reset) {
     ++requestId
     list.value = []; page.value = 0; total.value = 0; finished.value = false
@@ -177,7 +153,6 @@ const load = async (nextPage = 1) => {
     list.value.push(...additions)
     page.value = nextPage
     finished.value = res.result.records.length === 0 || nextPage * 20 >= total.value
-    void loadProjectNames(additions, request)
   } catch (e) {
     if (request === requestId) loadError.value = true
   } finally { if (request === requestId) loading.value = false }

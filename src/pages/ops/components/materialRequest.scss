@@ -1,0 +1,31 @@
+// Matches stock/materialDetail: identity, quantity summary, then operation panel.
+.request-material {
+  padding: 16px 0;
+  border-top: 1px solid #edf0f3;
+  color: #344054;
+}
+.request-material__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.request-material__name { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.request-material__code { max-width: 42%; font-size: 14px; color: #667085; line-height: 1.5; text-align: right; overflow-wrap: anywhere; }
+.request-material__spec { display: block; margin-top: 4px; color: #667085; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.request-material__summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin-top: 12px; overflow: hidden; border: 1px solid #edf0f3; border-radius: 10px; background: #edf0f3; color: #667085; font-size: 14px; line-height: 1.5; }
+.request-material__summary > view { min-width: 0; padding: 10px 6px; background: #f8fafc; text-align: center; overflow-wrap: anywhere; }
+.request-material__summary-label { display: block; margin-bottom: 2px; font-size: 13px; }
+.request-material__value { color: #1769c2; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.request-material__unit { margin-left: 4px; color: #667085; font-size: 14px; overflow-wrap: anywhere; }
+.request-material__operation { margin-top: 12px; padding: 12px; border-radius: 10px; background: #f7f9fc; }
+.request-material__operation-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.request-material__operation-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.request-material__hint { display: block; margin-top: 8px; color: #667085; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.request-material__operation-footer .request-material__hint { margin-top: 0; }
+.request-material__label { font-size: 14px; font-weight: 600; line-height: 1.5; }
+.request-material__control { display: flex; min-width: 0; max-width: 100%; align-items: center; gap: 6px; margin-left: auto; }
+.request-material__input { flex: 1; min-width: 44px; width: 64px; height: 44px; box-sizing: border-box; padding: 0 4px; border: 1px solid #b8c0cc; border-radius: 8px; background: #fff; color: #1d2939; font-size: 16px; font-weight: 600; text-align: center; }
+.request-material__fill { display: flex; flex: none; align-items: center; justify-content: center; min-width: 44px; height: 44px; box-sizing: border-box; margin: 0; padding: 0 6px; border: 1px solid #a6c8ff; border-radius: 8px; background: #fff; color: #1769c2; font-size: 13px; }
+.request-material__step { display: flex; flex: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; margin: 0; border: 1px solid #d7dce3; border-radius: 8px; background: #fff; color: #344054; }
+.request-material__remove { min-width: 44px; min-height: 44px; margin: -6px 0; padding: 0 4px; background: transparent; color: #b42318; font-size: 14px; line-height: 44px; }
+.request-material__step::after, .request-material__remove::after, .request-material__fill::after { border: 0; }
+.request-material__input[disabled], .request-material__step[disabled], .request-material__remove[disabled], .request-material__fill[disabled] { color: #667085; background: #f2f4f7; }
+.request-material__input:focus, .request-material__step:focus-visible, .request-material__remove:focus-visible, .request-material__fill:focus-visible { outline: 2px solid #1769c2; outline-offset: 2px; }
+.request-material__reason { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e4e7ec; }
+.request-material__reason textarea { display: block; width: 100%; height: 96px; box-sizing: border-box; margin-top: 8px; padding: 10px; border: 1px solid #d7dce3; border-radius: 8px; background: #fff; color: #344054; font-size: 16px; line-height: 1.6; }

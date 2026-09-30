@@ -186,7 +186,10 @@
                 :key="index"
                 class="plan-review__entry"
               >
-                <text
+                <button v-if="entry.location" class="plan-review__location-link" @click="locationPreview?.open(entry.location)">
+                  <text>{{ entry.title }}</text><text class="plan-review__location-hint">查看地图 ›</text>
+                </button>
+                <text v-else
                   :class="
                     entry.group ? 'plan-review__group' : 'plan-review__name'
                   "
@@ -251,6 +254,7 @@
     </view>
   </wd-popup>
   <ContractFilePreview ref="filePreview" />
+  <PlanLocationPreview v-if="visible" ref="locationPreview" />
   <wd-popup v-model="confirmVisible" position="center" :root-portal="true" :z-index="2300" :close-on-click-modal="false" custom-style="width: min(88vw, 360px); border-radius: 12px;">
     <view class="plan-review__confirmation">
       <text class="plan-review__name">{{ confirmApprove ? '通过计划审批' : '驳回计划' }}</text>
@@ -273,12 +277,15 @@ import { parseTodoActionParams, resolvePlanApprovalPeriodId, type TodoRecord } f
 import { useUserStore } from "@/store/user";
 import type { ContractFile } from "@/utils/contractFile";
 import ContractFilePreview from "./ContractFilePreview.vue";
+import PlanLocationPreview from "@/pages/ops/components/PlanLocationPreview.vue";
+const locationPreview = ref<InstanceType<typeof PlanLocationPreview>>();
 
 type Entry = {
   title: string;
   group?: string;
   fields: string[][];
   file?: ContractFile;
+  location?: { locationName?: string; description?: string; longitude?: unknown; latitude?: unknown };
 };
 type Section = {
   key: string;
@@ -548,6 +555,7 @@ async function loadSection(section: Section, requestedPage = materialPage.value)
       raw = await planList("/project/location/list", id);
       entries = raw.map((row: any) => ({
         title: text(row.locationName),
+        location: { locationName: row.locationName, description: row.description, longitude: row.longitude, latitude: row.latitude },
         fields: fields([
           ["位置说明", row.description],
           ["经度", row.longitude],
@@ -770,6 +778,26 @@ defineExpose({ open });
 </script>
 
 <style scoped lang="scss">
+.plan-review__location-link {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+  color: #176ac7;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.plan-review__location-link::after { border: 0; }
+.plan-review__location-link:focus-visible { outline: 2px solid #176ac7; outline-offset: 2px; }
+.plan-review__location-hint { flex-shrink: 0; font-size: 14px; font-weight: 400; }
 .plan-review {
   display: flex;
   flex-direction: column;

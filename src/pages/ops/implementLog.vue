@@ -897,19 +897,12 @@
       :z-index="2400"
     >
       <view class="log-video-preview">
-        <video
+        <LogVideoPlayer
           v-if="videoPreviewVisible"
           :key="videoPreviewPath"
-          :src="mediaPreviewUrl(videoPreviewPath)"
-          controls
-          :autoplay="false"
-          object-fit="contain"
-          @error="videoPreviewError = true"
+          :file-path="videoPreviewPath"
+          :original-url="mediaPreviewUrl(videoPreviewPath)"
         />
-        <text v-if="videoPreviewError" class="media-hint"
-          >视频无法播放，请检查网络或视频编码；可尝试使用 H.264 编码的 MP4
-          文件。</text
-        >
         <button @click="videoPreviewVisible = false">关闭预览</button>
       </view>
     </wd-popup>
@@ -918,7 +911,7 @@
 </template>
 
 <script lang="ts" setup>
-import { onLoad } from "@dcloudio/uni-app";
+import { onHide, onLoad } from "@dcloudio/uni-app";
 import dayjs from "dayjs";
 import { computed, ref } from "vue";
 import { useToast } from "wot-design-uni";
@@ -926,6 +919,7 @@ import SectionCard from "@/components/SectionCard/SectionCard.vue";
 import LocationPanel from "./components/LocationPanel.vue";
 import PhotoWatermarkCanvas from "./components/PhotoWatermarkCanvas.vue";
 import VideoCover from "./components/VideoCover.vue";
+import LogVideoPlayer from "./components/LogVideoPlayer.vue";
 import { getFileAccessHttpUrl } from "@/common/uitls";
 import { logMediaUrl } from "@/utils/logMedia";
 import { readPhotoLocation, type PhotoLocation } from "@/utils/photoLocation";
@@ -1035,10 +1029,9 @@ const logVideoCount = computed(
 );
 const videoPreviewVisible = ref(false);
 const videoPreviewPath = ref("");
-const videoPreviewError = ref(false);
+onHide(() => { videoPreviewVisible.value = false; });
 const previewLogVideo = (path: string) => {
   videoPreviewPath.value = path;
-  videoPreviewError.value = false;
   videoPreviewVisible.value = true;
 };
 const photoWatermarkCanvas = ref<{
@@ -1108,7 +1101,7 @@ const onPlateInput = (event: any) => {
 const validateVehiclePlate = () => {
   form.value.plate = normalizeVehiclePlate(form.value.plate);
   if (isValidVehiclePlate(form.value.plate)) return true;
-  toast.warning("车牌号格式不正确，请填写正确的普通或新能源车牌号");
+  toast.warning("请填写7或8位车牌号，以省份简称和字母开头");
   return false;
 };
 const filteredProjects = computed(() => {
@@ -1657,21 +1650,40 @@ const uploadMedia = async (
   typeName: "照片" | "视频",
   file?: any,
 ) => {
-  const response: any = await http.upload("/sys/common/upload", {
-    filePath,
-    // #ifdef H5
-    file,
-    // #endif
-    name: "file",
-    timeout: typeName === "视频" ? 180000 : 60000,
-    formData: { biz: uploadBiz() },
-  });
-  const data = response?.data || {};
-  if (![0, 200].includes(Number(data.code)))
-    throw new Error(data.message || `${typeName}上传失败`);
-  const resourcePath = String(data.message || "").trim();
-  if (!resourcePath) throw new Error(`${typeName}上传后未返回资源路径`);
-  return resourcePath;
+  let uploadActive = true;
+  let lastProgress = -1;
+  try {
+    const response: any = await http.upload("/sys/common/upload", {
+      filePath,
+      // #ifdef H5
+      file,
+      // #endif
+      name: "file",
+      timeout: typeName === "视频" ? 180000 : 60000,
+      formData: { biz: uploadBiz() },
+      getTask: (task: any) => {
+        if (typeName !== "视频") return;
+        task.onProgressUpdate?.((event: { progress: number }) => {
+          if (!uploadActive || !Number.isFinite(event.progress)) return;
+          const progress = Math.max(0, Math.min(100, Math.floor(event.progress)));
+          if (progress <= lastProgress) return;
+          lastProgress = progress;
+          uni.showLoading({
+            title: progress === 100 ? "等待服务器返回…" : `视频上传 ${progress}%`,
+            mask: true,
+          });
+        });
+      },
+    });
+    const data = response?.data || {};
+    if (![0, 200].includes(Number(data.code)))
+      throw new Error(data.message || `${typeName}上传失败`);
+    const resourcePath = String(data.message || "").trim();
+    if (!resourcePath) throw new Error(`${typeName}上传后未返回资源路径`);
+    return resourcePath;
+  } finally {
+    uploadActive = false;
+  }
 };
 const uploadPhoto = (filePath: string) => uploadMedia(filePath, "照片");
 const uploadVideo = (filePath: string, file?: any) =>
@@ -1744,22 +1756,70 @@ const chooseLogPhotos = (sourceType: ("camera" | "album")[]) => {
     },
   });
 };
+// H5 chooseVideo may return duration=0 after only 300ms. Read metadata ourselves
+// and fail closed instead of allowing an unknown-length file through.
+const readLogVideoDuration = async (result: any): Promise<number> => {
+  // #ifdef H5
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    let objectUrl = "";
+    let settled = false;
+    const finish = (duration?: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.ondurationchange = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (Number.isFinite(duration) && Number(duration) > 0) resolve(Number(duration));
+      else reject(new Error("无法读取视频时长，请选择可播放的MP4视频后重试"));
+    };
+    const timer = setTimeout(() => finish(), 15000);
+    const check = () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) finish(video.duration);
+    };
+    video.preload = "metadata";
+    video.onloadedmetadata = check;
+    video.ondurationchange = check;
+    video.onerror = () => finish();
+    try {
+      if (result.tempFile instanceof Blob) objectUrl = URL.createObjectURL(result.tempFile);
+      video.src = objectUrl || result.tempFilePath;
+      video.load();
+    } catch {
+      finish();
+    }
+  });
+  // #endif
+  // #ifndef H5
+  const duration = Number(result.duration);
+  if (!Number.isFinite(duration) || duration <= 0)
+    throw new Error("无法读取视频时长，请重新选择视频");
+  return duration;
+  // #endif
+};
 const chooseLogVideo = (sourceType: ("camera" | "album")[]) => {
   if (mediaProcessing.value) return;
   if (logVideoCount.value >= 2) return toast.warning("最多上传2个视频");
   uni.chooseVideo({
     sourceType,
-    compressed: true,
+    compressed: false,
     maxDuration: 60,
     success: async (result) => {
+      if (mediaProcessing.value) return;
       if (logVideoCount.value >= 2) return toast.warning("最多上传2个视频");
-      if (Number(result.duration) > 60) {
-        toast.warning("请选择60秒以内的视频");
-        return;
-      }
       mediaProcessing.value = true;
-      uni.showLoading({ title: "正在上传视频…", mask: true });
+      uni.showLoading({ title: "正在校验视频时长…", mask: true });
       try {
+        const duration = await readLogVideoDuration(result);
+        if (duration > 60) {
+          toast.warning("每个视频最多60秒，请裁剪后重新选择");
+          return;
+        }
+        uni.showLoading({ title: "视频上传 0%", mask: true });
         const resourcePath = await uploadVideo(
           result.tempFilePath,
           (result as any).tempFile,
@@ -3223,6 +3283,8 @@ onLoad((query) => {
 }
 .log-video-preview {
   width: min(92vw, 640px);
+  max-height: 90vh;
+  overflow-y: auto;
   padding: 12px;
   box-sizing: border-box;
   background: #fff;

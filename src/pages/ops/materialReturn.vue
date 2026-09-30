@@ -21,24 +21,34 @@
 
       <SectionCard title="还料信息">
         <view v-if="!items.length" class="empty-tip">{{ materialsLoading ? '正在加载可还料物料…' : materialsError ? '物料加载失败，请重试' : selectedProject ? '暂无可还料物料' : '选择项目后查看可还料物料' }}<button v-if="materialsError" @click="loadMaterials">重新加载</button></view>
-        <view v-for="m in visibleItems" :key="m.materialId" class="return-material">
-          <view class="return-material__head"><text>{{ m.name }}</text><text>{{ m.materialCode }}</text></view>
-          <text v-if="m.spec" class="return-material__spec">{{ m.spec }}</text>
-          <view class="return-material__quantity"><text>系统应还</text><text>{{ m.shouldReturnQty }} {{ m.unitName }}</text></view>
-          <view class="return-material__quantity">
-            <text>本次还料</text>
-            <input v-model="m.returnQty" type="digit" :disabled="submitting || submitted" :aria-label="`${m.name}本次还料数量`" placeholder="请输入数量" placeholder-style="color:#767676" />
-            <text>{{ m.unitName }}</text>
+        <view v-for="m in visibleItems" :key="m.materialId" class="request-material">
+          <view class="request-material__heading"><text class="request-material__name">{{ m.name }}</text><text class="request-material__code">{{ m.materialCode || '暂无编码' }}</text></view>
+          <text class="request-material__spec">规格：{{ m.spec || '暂无规格' }}</text>
+          <view class="request-material__summary">
+            <view><text class="request-material__summary-label">应还数量</text><text class="request-material__value">{{ m.shouldReturnQty }}</text><text class="request-material__unit">{{ m.unitName }}</text></view>
+            <view><text class="request-material__summary-label">本次还料</text><text class="request-material__value">{{ m.returnQty === '' ? '—' : m.returnQty }}</text><text class="request-material__unit">{{ m.unitName }}</text></view>
           </view>
-          <view v-if="needsDifferenceReason(m)" class="return-difference">
-            <text>差异原因（必填）</text>
-            <textarea v-model="m.differenceReason" :disabled="submitting || submitted" placeholder="说明本次还料数量与系统应还数量不一致的原因" placeholder-style="color:#767676" />
+          <view class="request-material__operation">
+            <view class="request-material__operation-row">
+                <text class="request-material__label">本次还料</text>
+                <view class="request-material__control">
+                  <button class="request-material__step" :disabled="submitting || submitted || Number(m.returnQty) <= 0" :aria-label="`减少${m.name}还料数量`" @click="stepReturnQty(m, -1)"><wd-icon name="minus-circle" size="18px" /></button>
+                  <input v-model="m.returnQty" class="request-material__input" type="digit" inputmode="decimal" :disabled="submitting || submitted" :aria-label="`${m.name}本次还料数量`" placeholder="数量" placeholder-style="color:#767676" />
+                  <button class="request-material__step" :disabled="submitting || submitted || Number(m.returnQty) >= m.shouldReturnQty" :aria-label="`增加${m.name}还料数量`" @click="stepReturnQty(m, 1)"><wd-icon name="add-circle" size="18px" /></button>
+                  <button class="request-material__fill" :disabled="submitting || submitted" :aria-label="`全部归还${m.name}`" @click="m.returnQty = String(m.shouldReturnQty)">全部</button>
+                </view>
+            </view>
+            <text class="request-material__hint">本次最多可还 {{ m.shouldReturnQty }} {{ m.unitName }}</text>
+            <view v-if="needsDifferenceReason(m)" class="request-material__reason">
+              <text class="request-material__label">差异原因（必填）</text>
+              <textarea v-model="m.differenceReason" :disabled="submitting || submitted" :aria-label="`${m.name}还料差异原因`" placeholder="说明本次还料数量与系统应还数量不一致的原因" placeholder-style="color:#767676" />
+            </view>
           </view>
         </view>
         <view v-if="items.length" class="return-pagination">
           <button :disabled="materialPage <= 1" @click="materialPage--">上一页</button><text>{{ materialPage }} / {{ materialPages }} · 共 {{ items.length }} 项</text><button :disabled="materialPage >= materialPages" @click="materialPage++">下一页</button>
         </view>
-        <view v-if="items.length" class="tip">默认按系统应还数量填写，可改为 0 表示本次不还。部分还料须填写差异原因；合格回库、报废或遗失由库管核对处置，提交申请不会直接入库。</view>
+        <view v-if="items.length" class="tip">默认按系统应还数量填写。与应还数量不一致（包括填 0）须填写差异原因；至少一项还料数量须大于 0。合格回库、报废或遗失由库管核对处置，提交申请不会直接入库。</view>
       </SectionCard>
 
       <view class="submit-wrap">
@@ -78,8 +88,12 @@ const items = ref<any[]>([])
 const materialPage = ref(1)
 const materialPages = computed(() => Math.max(1, Math.ceil(items.value.length / 10)))
 const visibleItems = computed(() => items.value.slice((materialPage.value - 1) * 10, materialPage.value * 10))
-const needsDifferenceReason = (item: any) => Number(item.returnQty) > 0 && Math.abs(Number(item.returnQty) - item.shouldReturnQty) > 1e-8
+const needsDifferenceReason = (item: any) => item.returnQty !== null && item.returnQty !== undefined && String(item.returnQty).trim() !== '' && Number.isFinite(Number(item.returnQty)) && Number(item.returnQty) >= 0 && Math.abs(Number(item.returnQty) - Number(item.shouldReturnQty)) > 1e-8
 const submitting = ref(false)
+const stepReturnQty = (item: any, delta: number) => {
+  const current = Number(item.returnQty)
+  item.returnQty = String(Math.min(Number(item.shouldReturnQty), Math.max(0, Number(((Number.isFinite(current) ? current : 0) + delta).toFixed(4)))))
+}
 const returnNo = ref('')
 const submissionMessage = ref('请在申请记录中查看审批和入库进度。')
 const selectedProject = ref<any>(null), projects = ref<any[]>([]), projectKeyword = ref('')
@@ -164,8 +178,7 @@ const submit = async () => {
     materialPage.value = Math.floor(items.value.indexOf(invalid) / 10) + 1
     return toast.warning(`${invalid.name}还料数量须在 0 至 ${invalid.shouldReturnQty} 之间`)
   }
-  const selected = items.value.filter(item => Number(item.returnQty) > 0)
-  if (!selected.length) return toast.warning('请至少填写一条大于 0 的还料数量')
+  const selected = items.value
   const missingUnit = selected.find(item => !item.unitName)
   if (missingUnit) return toast.warning(`${missingUnit.name}缺少基准单位，请核实`)
   const missingReason = selected.find(item => needsDifferenceReason(item) && !item.differenceReason.trim())
@@ -173,6 +186,7 @@ const submit = async () => {
     materialPage.value = Math.floor(items.value.indexOf(missingReason) / 10) + 1
     return toast.warning(`${missingReason.name}请填写差异原因`)
   }
+  if (!selected.some(item => Number(item.returnQty) > 0)) return toast.warning('请至少填写一条大于 0 的还料数量')
   const payload = {
     applyType: 'IN', bizType: 'RETURN', usageType: 'PROJECT', periodId,
     ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
@@ -204,17 +218,8 @@ const back = () => getCurrentPages().length > 1 ? uni.navigateBack() : uni.redir
 </script>
 
 <style lang="scss" scoped>
+@import './components/materialRequest.scss';
 .return-remark { flex: 1; min-width: 0; height: 64px; font-size: 14px; line-height: 1.6; }
-.return-material { padding: 16px 0; border-bottom: 1px solid #edf0f4; color: #253247; }
-.return-material__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; line-height: 1.6; }
-.return-material__head text:first-child { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-.return-material__head text:last-child { max-width: 40%; font-size: 12px; color: #536176; overflow-wrap: anywhere; text-align: right; }
-.return-material__spec { display: block; margin-top: 4px; font-size: 13px; color: #536176; overflow-wrap: anywhere; }
-.return-material__quantity { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
-.return-material__quantity text:first-child { flex: 1; }
-.return-material__quantity input { width: 112px; height: 44px; padding: 0 10px; box-sizing: border-box; border: 1px solid #cbd2dc; border-radius: 6px; text-align: right; font-size: 16px; }
-.return-difference { margin-top: 12px; font-size: 14px; }
-.return-difference textarea { width: 100%; height: 88px; box-sizing: border-box; margin-top: 8px; padding: 10px; border: 1px solid #cbd2dc; border-radius: 6px; line-height: 1.6; }
 .return-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 16px; font-size: 12px; color: #536176; }
 .return-pagination button { margin: 0; padding: 0 12px; min-height: 44px; line-height: 44px; font-size: 13px; }
 .success-text { display: block; margin-bottom: 16px; color: #253247; font-size: 14px; line-height: 1.7; }

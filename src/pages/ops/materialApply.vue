@@ -50,37 +50,37 @@
       <!-- 领料明细 -->
       <SectionCard title="领料明细">
         <text v-if="reworkId" class="static-val">本轮返工额外领料；不使用首次施工额度。</text>
-        <view v-for="m in selectedMaterials" :key="m.id" class="material">
-          <view class="material__title">
-            <text class="material__name">{{ m.name }}</text>
-            <text class="material__code">{{ materialCode(m) || '暂无编码' }}</text>
+        <view v-for="m in selectedMaterials" :key="m.id" class="request-material">
+          <view class="request-material__heading">
+            <text class="request-material__name">{{ m.name }}</text>
+            <text class="request-material__code">{{ materialCode(m) || '暂无编码' }}</text>
           </view>
-          <view class="material__content">
-            <view class="material__info">
-              <view class="material__spec">规格：{{ m.spec || '暂无规格' }}</view>
-              <view v-if="isProjectUsage" class="material__available">
-                当前可申请 {{ getAvailableApplyQty(m) }}{{ m.unit }}
-              </view>
-              <view v-else class="material__spec">库存 {{ m.stock }}{{ m.unit }}</view>
-            </view>
-            <view class="material__actions">
-              <view class="material__qty">
-                <text class="minus" @click="dec(m)">－</text>
+          <text class="request-material__spec">规格：{{ m.spec || '暂无规格' }}</text>
+          <view class="request-material__summary">
+            <view><text class="request-material__summary-label">{{ isProjectUsage ? '当前可申请' : '库存数量' }}</text><text class="request-material__value">{{ isProjectUsage ? getAvailableApplyQty(m) : m.stock }}</text><text class="request-material__unit">{{ m.unit }}</text></view>
+            <view><text class="request-material__summary-label">本次领料</text><text class="request-material__value">{{ m.qty === '' ? '—' : m.qty }}</text><text class="request-material__unit">{{ m.unit }}</text></view>
+          </view>
+          <view class="request-material__operation">
+            <view class="request-material__operation-row">
+              <text class="request-material__label">本次领料</text>
+            <view class="request-material__control">
+                <button class="request-material__step" :disabled="submitting" :aria-label="`减少${m.name}申请数量`" @click="dec(m)"><wd-icon name="minus-circle" size="18px" /></button>
                 <input
                   v-model="m.qty"
-                  class="qty-input"
-                  type="number"
+                  class="request-material__input"
+                  type="digit"
+                  inputmode="decimal"
+                  :disabled="submitting"
+                  :aria-label="`${m.name}本次领料数量`"
                   @blur="normalizeMaterialQty(m)"
                 />
-                <text class="plus" @click="inc(m)">＋</text>
-              </view>
-              <button
-                class="material__remove"
-                :aria-label="`删除${m.name}`"
-                @click="removeMaterial(m)"
-              >
-                删除
-              </button>
+                <button class="request-material__step" :disabled="submitting" :aria-label="`增加${m.name}申请数量`" @click="inc(m)"><wd-icon name="add-circle" size="18px" /></button>
+                <button v-if="isProjectUsage" class="request-material__fill" :disabled="submitting" :aria-label="`申请${m.name}全部可用数量`" @click="m.qty = getAvailableApplyQty(m)">全部</button>
+            </view>
+            </view>
+            <view class="request-material__operation-footer">
+              <text class="request-material__hint">{{ isProjectUsage ? `本次最多可申请 ${getAvailableApplyQty(m)} ${m.unit}` : `数量单位：${m.unit}` }}</text>
+              <button class="request-material__remove" :disabled="submitting" :aria-label="`删除${m.name}`" @click="removeMaterial(m)">删除</button>
             </view>
           </view>
         </view>
@@ -499,6 +499,7 @@ const loadParticipatedProjects = async () => {
   try {
     const res: any = await projectApi.participatedProjects({
       periodStatus: projectMaterialPeriodStatus,
+      approvalStatus: '1',
       username,
       ...(keyword ? { keyword } : {}),
     })
@@ -756,6 +757,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss" scoped>
+@import './components/materialRequest.scss';
 .page {
   min-height: 0;
 }
@@ -805,119 +807,6 @@ onBeforeUnmount(() => {
 
   .static-val {
     color: #666;
-  }
-}
-
-.material {
-  display: flex;
-  padding: 12px 0;
-  border-bottom: 1px solid #f5f5f5;
-  flex-direction: column;
-
-  &__title,
-  &__content,
-  &__actions {
-    display: flex;
-    align-items: center;
-  }
-
-  &__title {
-    width: 100%;
-    gap: 12px;
-    justify-content: space-between;
-  }
-
-  &__content {
-    width: 100%;
-    gap: 12px;
-    margin-top: 7px;
-    justify-content: space-between;
-  }
-
-  &__info {
-    min-width: 0;
-    flex: 1;
-  }
-
-  &__name {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 14px;
-    color: #333;
-    font-weight: 500;
-    line-height: 1.45;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  &__code {
-    max-width: 46%;
-    overflow: hidden;
-    color: #667085;
-    font-size: 11px;
-    line-height: 1.45;
-    text-align: right;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: none;
-  }
-
-  &__spec {
-    font-size: 12px;
-    color: #667085;
-    margin-top: 2px;
-  }
-
-  &__available {
-    margin-top: 3px;
-    color: #176ac7;
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  &__actions {
-    gap: 6px;
-    flex: none;
-  }
-
-  &__qty {
-    display: flex;
-    align-items: center;
-
-    .minus,
-    .plus {
-      width: 28px;
-      height: 28px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      text-align: center;
-      line-height: 26px;
-      font-size: 16px;
-      color: #666;
-    }
-
-    .qty-input {
-      width: 44px;
-      text-align: center;
-      font-size: 14px;
-    }
-  }
-
-  &__remove {
-    box-sizing: border-box;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 0 4px;
-    margin: 0;
-    color: #b42318;
-    background: transparent;
-    font-size: 12px;
-    line-height: 44px;
-
-    &::after {
-      border: none;
-    }
   }
 }
 

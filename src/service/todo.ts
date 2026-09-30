@@ -49,6 +49,7 @@ const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_PLAN_APPROVAL: { text: "项目计划方案审批" },
   PROJECT_PERIOD_APPROVAL: { text: "项目计划方案审批" },
   PROJECT_CONTRACT_APPROVAL: { text: "项目合同审批" },
+  PROJECT_CANDIDATE_APPROVAL: { text: "报价审批" },
   PROJECT_MATERIAL_APPLY_APPROVAL: { text: "项目用料申请审批" },
   PROJECT_DELAY_APPROVAL: { text: "项目延期审批" },
   PROJECT_REWORK_APPROVAL: { text: "项目返工审批" },

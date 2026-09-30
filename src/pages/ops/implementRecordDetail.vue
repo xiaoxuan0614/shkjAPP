@@ -65,8 +65,7 @@
     </scroll-view>
     <wd-popup v-model="videoVisible" position="center" :root-portal="true" :z-index="2400">
       <view class="video-preview">
-        <video v-if="videoVisible" :key="videoPath" :src="recordMediaUrl(videoPath)" controls :autoplay="false" object-fit="contain" @error="videoFailed = true" />
-        <text v-if="videoFailed" class="hint">视频无法播放，请检查网络或视频编码，可尝试 H.264 编码的 MP4 文件。</text>
+        <LogVideoPlayer v-if="videoVisible" :key="videoPath" :file-path="videoPath" :original-url="recordMediaUrl(videoPath)" />
         <button @click="videoVisible = false">关闭预览</button>
       </view>
     </wd-popup>
@@ -75,9 +74,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import dayjs from 'dayjs'
-import { onLoad } from '@dcloudio/uni-app'
+import { onHide, onLoad } from '@dcloudio/uni-app'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import VideoCover from './components/VideoCover.vue'
+import LogVideoPlayer from './components/LogVideoPlayer.vue'
 import { useUserStore } from '@/store/user'
 import { projectApi, unwrapRecords } from '@/service/shkj'
 import { implementationRecordsApi, mediaPaths, isRecordVideo, recordMediaUrl } from '@/service/implementationRecords'
@@ -102,8 +102,9 @@ const hoursText = computed(() => {
 })
 const userNames = ref<Record<string, string>>({}), outsourceNames = ref<Record<string, string>>({}), namesError = ref(false), namesLoading = ref(false)
 const showMaterials = ref(false), failedMedia = ref<string[]>([])
-const videoVisible = ref(false), videoPath = ref(''), videoFailed = ref(false)
-const previewVideo = (path: string) => { videoPath.value = path; videoFailed.value = false; videoVisible.value = true }
+const videoVisible = ref(false), videoPath = ref('')
+const previewVideo = (path: string) => { videoPath.value = path; videoVisible.value = true }
+onHide(() => { videoVisible.value = false })
 const photos = computed(() => [...new Set([...mediaPaths(log.value?.photos), ...mediaPaths(log.value?.videos)])])
 const participantNames = computed(() => mediaPaths(log.value?.internalParticipantIds).map((key) => userNames.value[key] || '人员姓名未返回'))
 const mediaError = (path: string) => { if (!failedMedia.value.includes(path)) failedMedia.value.push(path) }
@@ -168,7 +169,7 @@ onLoad((query) => {
 })
 </script>
 <style scoped>
-.video-preview { width: min(92vw, 640px); padding: 12px; box-sizing: border-box; background: #fff; }
+.video-preview { width: min(92vw, 640px); max-height: 90vh; overflow-y: auto; padding: 12px; box-sizing: border-box; background: #fff; }
 .video-preview video { display: block; width: 100%; height: 52vh; background: #000; }
 .video-preview button { margin-top: 12px; min-height: 44px; font-size: 16px; }
 .log-page { height: calc(100vh - 44px); background: #f5f7fa; color: #253247; padding-bottom: env(safe-area-inset-bottom); box-sizing: border-box; }

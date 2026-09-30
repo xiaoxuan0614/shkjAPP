@@ -1,70 +1,66 @@
 <template>
-  <button class="video-cover" :style="{ height: `${height}px` }" aria-label="播放视频" @click="$emit('preview')">
+  <button ref="cover" class="video-cover" :style="{ height: `${height}px` }" aria-label="播放视频" @click="preview">
     <image v-if="poster" class="video-cover__image" :src="poster" mode="aspectFill" />
     <view class="video-cover__play"><wd-icon name="play" size="24px" color="#fff" /></view>
-    <view class="video-cover__caption"><text>视频</text><text>{{ durationText || '点击播放' }}</text></view>
+    <view class="video-cover__caption"><text>视频</text><text>{{ loading ? '正在生成封面' : '点击播放' }}</text></view>
   </button>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { videoPosterQueue } from '@/utils/videoPoster'
 const props = withDefaults(defineProps<{ src: string; height?: number }>(), { height: 140 })
-defineEmits<{ preview: [] }>()
-const poster = ref('')
-const duration = ref(0)
-const durationText = computed(() => {
-  if (!duration.value) return ''
-  const seconds = Math.floor(duration.value)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+const emit = defineEmits<{ preview: [] }>()
+const cover = ref<any>(null), poster = ref(''), loading = ref(false)
+let cancel = () => {}
+let observer: IntersectionObserver | null = null
+let mounted = false
+let visible = false
+let version = 0
+function stop() { version++; cancel(); cancel = () => {}; loading.value = false }
+function load() {
+  stop()
+  if (!visible || !props.src || poster.value) return
+  // #ifdef H5
+  if (document.hidden) return
+  loading.value = true
+  const current = version
+  cancel = videoPosterQueue.request(props.src, result => {
+    if (current !== version) return
+    poster.value = result || ''
+    loading.value = false
+  })
+  // #endif
+}
+function preview() { emit('preview') }
+function visibilityChanged() {
+  // #ifdef H5
+  if (document.hidden) stop()
+  else load()
+  // #endif
+}
+watch(() => props.src, () => { stop(); poster.value = ''; if (mounted) load() })
+onMounted(() => {
+  mounted = true
+  // #ifdef H5
+  document.addEventListener('visibilitychange', visibilityChanged)
+  const target = cover.value?.$el || cover.value
+  if (target && typeof IntersectionObserver !== 'undefined') {
+    observer = new IntersectionObserver(entries => {
+      visible = entries.some(entry => entry.isIntersecting)
+      if (visible) load()
+      else stop()
+    })
+    observer.observe(target)
+  } else { visible = true; load() }
+  // #endif
 })
-
-// H5 从真实视频截取首段画面，仅用作本地展示，不新增上传或更改日志字段。
-// 跨域、编码或网络失败时保留播放入口，不影响打开原视频。
-// #ifdef H5
-watch(() => props.src, (src, _, onCleanup) => {
-  poster.value = ''
-  duration.value = 0
-  if (!src) return
-  const video = document.createElement('video')
-  let stopped = false
-  video.crossOrigin = 'anonymous'
-  video.muted = true
-  video.playsInline = true
-  video.preload = 'auto'
-  const stop = () => {
-    if (stopped) return
-    stopped = true
-    clearTimeout(timer)
-    video.onloadedmetadata = video.onseeked = video.onerror = null
-    video.pause()
-    video.removeAttribute('src')
-    video.load()
-  }
-  const timer = setTimeout(stop, 10000)
-  video.onloadedmetadata = () => {
-    duration.value = Number.isFinite(video.duration) ? video.duration : 0
-    video.currentTime = Math.min(0.1, duration.value / 2)
-  }
-  video.onseeked = () => {
-    if (stopped) return
-    try {
-      if (!video.videoWidth || !video.videoHeight) return
-      const canvas = document.createElement('canvas')
-      const scale = Math.min(480 / video.videoWidth, 480 / video.videoHeight)
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
-      const context = canvas.getContext('2d')
-      if (!context) return
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
-      poster.value = canvas.toDataURL('image/jpeg', 0.8)
-    } catch { /* 无法提取封面时仍可点击预览 */ }
-    finally { stop() }
-  }
-  video.onerror = stop
-  video.src = src
-  onCleanup(stop)
-}, { immediate: true })
-// #endif
+onBeforeUnmount(() => {
+  mounted = false; stop(); observer?.disconnect()
+  // #ifdef H5
+  document.removeEventListener('visibilitychange', visibilityChanged)
+  // #endif
+})
 </script>
 
 <style scoped>

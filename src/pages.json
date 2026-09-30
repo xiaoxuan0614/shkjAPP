@@ -154,15 +154,6 @@
       }
     },
     {
-      "path": "pages/ops/home",
-      "type": "page",
-      "style": {
-        "navigationStyle": "custom",
-        "navigationBarTitleText": "运维工作台",
-        "disableScroll": true
-      }
-    },
-    {
       "path": "pages/ops/implementLog",
       "type": "page",
       "style": {

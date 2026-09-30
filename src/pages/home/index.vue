@@ -161,6 +161,7 @@
       ref="contractApprovalPopup"
       @processed="refreshAfterContractApproval"
     />
+    <QuotationDetailPopup ref="quotationDetailPopup" />
     <PlanApprovalPopup
       ref="planApprovalPopup"
       @processed="refreshAfterContractApproval"
@@ -258,6 +259,7 @@ import { useToast } from "wot-design-uni";
 import SectionCard from "@/components/SectionCard/SectionCard.vue";
 import ContractApprovalPopup from "./components/ContractApprovalPopup.vue";
 import PlanApprovalPopup from "./components/PlanApprovalPopup.vue";
+import QuotationDetailPopup from "./components/QuotationDetailPopup.vue";
 import DelayApprovalPopup from "./components/DelayApprovalPopup.vue";
 import MaterialApprovalPopup from "./components/MaterialApprovalPopup.vue";
 import { isMaterialApprovalTodo } from '@/service/materialApproval';
@@ -328,6 +330,7 @@ const todoPage = ref(0), todoHasMore = ref(true), todoError = ref('');
 let todoRequest = 0;
 const contractApprovalPopup = ref<InstanceType<typeof ContractApprovalPopup>>();
 const planApprovalPopup = ref<InstanceType<typeof PlanApprovalPopup>>();
+const quotationDetailPopup = ref<InstanceType<typeof QuotationDetailPopup>>();
 const delayApprovalPopup = ref<InstanceType<typeof DelayApprovalPopup>>();
 const materialApprovalPopup = ref<InstanceType<typeof MaterialApprovalPopup>>();
 const reworkAcceptancePopup =
@@ -490,7 +493,7 @@ const loadProjects = async () => {
   projectLoading.value = true;
   try {
     const [response, dictionary]: any[] = await Promise.all([
-      projectApi.list(),
+      projectApi.list({ pageNo: 1, pageSize: 3 }),
       http
         .get("/sys/dict/getDictItems/project_period_status")
         .catch(() => null),
@@ -681,6 +684,10 @@ async function openAcceptanceTodo(item: TodoRecord & { actionParams?: Record<str
 const openTodo = (
   item: TodoRecord & { actionParams?: Record<string, any> },
 ) => {
+  if ([item.todoType, item.actionKey].some((value) => String(value || '').trim().toUpperCase() === 'PROJECT_CANDIDATE_APPROVAL')) {
+    quotationDetailPopup.value?.open(item);
+    return;
+  }
   const acceptanceKeys = [item.todoType, item.actionKey];
   if (acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE', 'PROJECT_ACCEPTANCE_PENDING', 'PROJECT_ACCEPTANCE_HANDLE'].includes(String(key)))) {
     void openAcceptanceTodo(item, acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE'].includes(String(key))));

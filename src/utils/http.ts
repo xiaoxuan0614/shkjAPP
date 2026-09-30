@@ -21,7 +21,8 @@ export const http = <T>(options: CustomRequestOptions) => {
       // 开启了代理须加前缀。仅支持 H5 端
       options.url = import.meta.env.VITE_APP_PROXY_PREFIX + options.url
     }
-    uni.request({
+    const { onRequestTask, ...requestOptions } = options
+    const requestTask = uni.request({
       dataType: 'json',
       // #ifndef MP-WEIXIN
       responseType: 'json',
@@ -34,7 +35,7 @@ export const http = <T>(options: CustomRequestOptions) => {
         'X-TIMESTAMP': signMd5Utils.getTimestamp(),
         'X-Version': 'v3',
       },
-      ...options,
+      ...requestOptions,
       // 响应成功
       success(res) {
         // 状态码 2xx，参考 axios 的设计
@@ -80,13 +81,14 @@ export const http = <T>(options: CustomRequestOptions) => {
       },
       // 响应失败
       fail(err) {
-        uni.showToast({
+        !options.hideErrorToast && uni.showToast({
           icon: 'none',
           title: '网络错误，换个网络试试',
         })
         reject(err)
       },
     })
+    onRequestTask?.(requestTask)
   })
 }
 

@@ -19,7 +19,6 @@ interface NavigateToOptions {
        "/pages/login/loginOauth2" |
        "/pages/ops/accept" |
        "/pages/ops/acceptDetail" |
-       "/pages/ops/home" |
        "/pages/ops/implementLog" |
        "/pages/ops/implementRecordDetail" |
        "/pages/ops/implementRecords" |
