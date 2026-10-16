@@ -13,6 +13,10 @@ export interface AuthorizedMenu {
 const COMMON_AUTHENTICATED_PAGES = new Set([
   HOME_PAGE,
   '/pages/customer/mine',
+  // 首页待办的完整列表，不是独立菜单；登录与后端数据/审批鉴权保持不变。
+  '/pages/home/todoList',
+  // 首页待办详情入口；数据和审批资格仍由报价接口及按钮权限校验。
+  '/pages/home/quotationDetail',
   '/pages-user/userEdit/userEdit',
 ])
 

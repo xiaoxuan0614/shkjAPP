@@ -57,6 +57,16 @@
               </view>
               <text v-else class="contract-popup__muted">暂无附件</text>
             </view>
+            <view class="contract-popup__file">
+              <text>关联报价单</text>
+              <view class="contract-popup__file-content">
+                <text class="contract-popup__file-name">{{ contract.materialCandidateName || '查看关联报价文件' }}</text>
+                <button class="contract-popup__file-link" :disabled="quotationLoading" @click="openQuotation">
+                  <wd-icon name="view" size="16px" />
+                  {{ quotationLoading ? '加载中…' : '预览' }}
+                </button>
+              </view>
+            </view>
             <view class="contract-popup__section">回款计划</view>
             <view v-if="!paymentRecords.length" class="contract-popup__muted">暂无回款计划</view>
             <view v-else class="contract-popup__payment-container">
@@ -175,6 +185,7 @@
     </view>
   </wd-popup>
   <ContractFilePreview ref="filePreview" />
+  <QuotationDocumentPreview v-model="quotationVisible" :z-index="2300" :title="quotation.title" :project-label="projectLabel" :status-text="quotation.statusText" :rows="quotation.rows" :show-price="quotation.showPrice" :brands="{}" material-only :empty-text="quotation.emptyText" />
   <ContractManagerPicker ref="managerPicker" @select="handleManagerSelected" />
 </template>
 
@@ -189,6 +200,8 @@ import {
 import { parseTodoActionParams, type TodoRecord } from '@/service/todo'
 import ContractFilePreview from './ContractFilePreview.vue'
 import ContractManagerPicker from './ContractManagerPicker.vue'
+import QuotationDocumentPreview from './QuotationDocumentPreview.vue'
+import { loadContractQuotation } from '@/service/contractQuotation'
 import { http } from '@/utils/http'
 
 const emit = defineEmits<{ processed: [] }>()
@@ -210,7 +223,31 @@ const periodId = ref('')
 const projectLabel = ref('')
 const contract = ref<Record<string, any> | null>(null)
 const contractFile = ref<Record<string, any>>({})
-const materialFile = ref<Record<string, any>>({})
+const quotationVisible = ref(false)
+const quotationLoading = ref(false)
+const quotation = ref({ title: '', statusText: '', rows: [] as any[], showPrice: false, emptyText: '' })
+let quotationSequence = 0
+const resetQuotation = () => {
+  quotationSequence++
+  quotationVisible.value = false
+  quotationLoading.value = false
+  quotation.value = { title: '', statusText: '', rows: [], showPrice: false, emptyText: '' }
+}
+const openQuotation = async () => {
+  if (!contract.value || quotationLoading.value) return
+  const sequence = ++quotationSequence
+  quotationLoading.value = true
+  try {
+    const data = await loadContractQuotation(contract.value)
+    if (sequence !== quotationSequence || !visible.value) return
+    quotation.value = data
+    quotationVisible.value = true
+  } catch (error: any) {
+    if (sequence === quotationSequence) toast.warning(error?.message || '报价预览失败，请重试')
+  } finally {
+    if (sequence === quotationSequence) quotationLoading.value = false
+  }
+}
 const paymentRecords = ref<Record<string, any>[]>([])
 const dictionaries = ref<Record<string, Record<string, string>>>({})
 let loadSequence = 0
@@ -271,12 +308,6 @@ const files = computed(() => [
       contractFile.value.fileId || contractFile.value.url || contract.value?.contractFileId || '',
     name: contractFile.value.fileName || contract.value?.contractFileName || '',
   },
-  {
-    label: '合同货物清单',
-    path:
-      materialFile.value.fileId || materialFile.value.url || contract.value?.materialFileId || '',
-    name: materialFile.value.fileName || contract.value?.materialFileName || '',
-  },
 ])
 
 const load = async () => {
@@ -290,9 +321,8 @@ const load = async () => {
     const result = response?.result ?? response?.data ?? {}
     const value = result.contract || result
     if (!value.id && !value.contractName) throw new Error('未找到合同')
-    contract.value = value
+    contract.value = { ...value, materialSnapshot: result.contract ? result.materialSnapshot : value.materialSnapshot }
     contractFile.value = result.contractFile || value.contractFile || {}
-    materialFile.value = result.materialFile || value.materialFile || {}
     paymentRecords.value = Array.isArray(result.records) ? result.records : []
     selectedManagerId.value = String(value.projectManagerUserId || '').trim()
     selectedManagerName.value = String(
@@ -331,7 +361,7 @@ const open = (item: TodoRecord) => {
     [item.projectName, item.periodName].filter(Boolean).join('-') || item.summary || ''
   contract.value = null
   contractFile.value = {}
-  materialFile.value = {}
+  resetQuotation()
   paymentRecords.value = []
   approvalMode.value = ''
   rejectReason.value = ''
@@ -346,6 +376,7 @@ const open = (item: TodoRecord) => {
 }
 const close = () => {
   if (submitting.value) return
+  resetQuotation()
   managerPicker.value?.close()
   visible.value = false
   loadSequence++

@@ -8,6 +8,7 @@ export interface TodoQuery {
   pageSize?: number;
   scope?: TodoScope;
   todoType?: string;
+  todoType_dictText?: string;
 }
 
 export interface TodoRecord {
@@ -56,6 +57,8 @@ const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_ACCEPTANCE_FAILED: { text: "验收驳回提醒" },
   PROJECT_ACCEPTANCE_FAILED_HANDLE: { text: "验收驳回提醒" },
   PROJECT_ACCEPTANCE_PENDING: { text: "待验收" },
+  PROJECT_INTERNAL_ACCEPTANCE: { text: "项目内部验收" },
+  PROJECT_EXTERNAL_ACCEPTANCE: { text: "项目外部验收" },
   STOCK_IN_APPROVAL: { text: "入库申请审批" },
   STOCK_IN_EXECUTE: { text: "入库执行待办，等待库管入库" },
   STOCK_OUT_APPROVAL: { text: "出库申请审批" },
@@ -100,7 +103,7 @@ export const loadTodoTypeDictionary = async () => {
       const configured = Object.fromEntries(
         rows.flatMap((row: any) => {
           const value = String(row.value ?? "").trim();
-          const text = String(row.text ?? row.label ?? "").trim();
+          const text = String(row.text || row.label || "").trim();
           return value && text ? [[value, { text }]] : [];
         }),
       );
@@ -111,10 +114,11 @@ export const loadTodoTypeDictionary = async () => {
     }
 };
 
-export const todoTypeText = (type: unknown) => {
+export const todoTypeText = (type: unknown, dictText?: unknown) => {
   const value = String(type ?? "").trim();
   return (
     (todoTypeGeneration === dictionaryCacheGeneration() ? todoTypeMap[value]?.text : undefined) ||
+    String(dictText ?? "").trim() ||
     TODO_TYPE_FALLBACKS[value]?.text ||
     value ||
     "业务待办"

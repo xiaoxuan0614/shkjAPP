@@ -424,9 +424,22 @@
                 @blur="validateVehiclePlate"
                 class="input"
                 maxlength="20"
-                placeholder="手动填写车牌号（选填）"
+                placeholder="输入或选择车牌号（选填）"
                 placeholder-style="color:#767676"
               />
+              <button class="vehicle-select" :aria-expanded="showVehicleOptions" @click="toggleVehicleOptions">
+                <text>选择</text><wd-icon :name="showVehicleOptions ? 'arrow-up' : 'arrow-down'" size="14px" />
+              </button>
+            </view>
+            <view v-if="showVehicleOptions" class="vehicle-options">
+              <text v-if="vehicleOptionsLoading" class="vehicle-options__hint">正在加载车辆…</text>
+              <button v-else-if="vehicleOptionsError" class="vehicle-option" @click="loadVehicleOptions">加载失败，点击重试</button>
+              <template v-else>
+                <scroll-view v-if="vehicleOptions.length" scroll-y class="vehicle-options__list">
+                  <button v-for="option in vehicleOptions" :key="option.value" class="vehicle-option" @click="selectVehicle(option)">{{ option.label }}</button>
+                </scroll-view>
+                <text v-else class="vehicle-options__hint">暂无车辆选项，可直接输入车牌号</text>
+              </template>
             </view>
             <view v-if="form.plate" class="form-row">
               <text class="label">行驶公里</text>
@@ -1097,6 +1110,36 @@ const onPlateInput = (event: any) => {
   const plate = normalizeVehiclePlate(event.detail.value);
   form.value.plate = plate;
   return plate;
+};
+const showVehicleOptions = ref(false);
+const vehicleOptions = ref<DictOption[]>([]);
+const vehicleOptionsLoading = ref(false);
+const vehicleOptionsError = ref(false);
+const loadVehicleOptions = async () => {
+  if (vehicleOptionsLoading.value) return;
+  vehicleOptionsLoading.value = true;
+  vehicleOptionsError.value = false;
+  try {
+    const response: any = await http.get('/sys/dict/getDictItems/company_carNum');
+    if (response?.success === false) throw new Error('车辆字典加载失败');
+    const rows = Array.isArray(response?.result) ? response.result : Array.isArray(response) ? response : [];
+    vehicleOptions.value = rows.map((item: any) => ({
+      value: String(item.value ?? '').trim(),
+      label: String(item.text || item.label || item.value || '').trim(),
+    })).filter((item: DictOption) => item.value && item.label);
+  } catch {
+    vehicleOptionsError.value = true;
+  } finally {
+    vehicleOptionsLoading.value = false;
+  }
+};
+const toggleVehicleOptions = () => {
+  showVehicleOptions.value = !showVehicleOptions.value;
+  if (showVehicleOptions.value) void loadVehicleOptions();
+};
+const selectVehicle = (option: DictOption) => {
+  form.value.plate = normalizeVehiclePlate(option.value);
+  showVehicleOptions.value = false;
 };
 const validateVehiclePlate = () => {
   form.value.plate = normalizeVehiclePlate(form.value.plate);
@@ -2935,6 +2978,24 @@ onLoad((query) => {
   color: #267b54;
   background: #edf8f2;
 }
+.vehicle-select {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: #176ac7;
+  font-size: 14px;
+}
+.vehicle-select::after, .vehicle-option::after { border: 0; }
+.vehicle-options { margin: 0 0 12px; border: 1px solid #e4e7ec; border-radius: 8px; overflow: hidden; }
+.vehicle-options__list { max-height: 220px; }
+.vehicle-option { margin: 0; padding: 10px 12px; min-height: 44px; background: #f8fafc; color: #344054; font-size: 14px; line-height: 24px; text-align: left; border-radius: 0; }
+.vehicle-option + .vehicle-option { border-top: 1px solid #e4e7ec; }
+.vehicle-options__hint { display: block; padding: 12px; color: #667085; font-size: 14px; }
 .row,
 .form-row {
   display: flex;

@@ -98,14 +98,10 @@ const load = async (reset = true) => {
     void nextTick(() => { scrollTop.value = 0 })
   }
   const request = generation, nextPage = page + 1
-  const username = String(userStore.userInfo.username || '').trim()
-  if (!username) {
-    list.value = []; loading.value = false; loadError.value = true
-    uni.showToast({ title: '登录账号信息缺失，请重新登录', icon: 'none' })
-    return
-  }
+  // 数据范围由后端按登录态判断，令牌快照仅用于丢弃切换账号前的响应。
+  const sessionToken = userStore.userInfo.token
   const query = appliedKeyword.value
-  const params = { username, pageNo: nextPage, pageSize, ...(statusFilter.value ? { status: statusFilter.value } : {}) }
+  const params = { pageNo: nextPage, pageSize, ...(statusFilter.value ? { status: statusFilter.value } : {}) }
   loading.value = true; loadError.value = false
   try {
     // 名称字段为 AND 条件，分别查询后按分期去重，实现主项目或分期名称匹配。
@@ -113,7 +109,7 @@ const load = async (reset = true) => {
       mainMore ? projectApi.list({ ...params, ...(query ? { projectName: query } : {}) }) : null,
       query && periodMore ? projectApi.list({ ...params, periodName: query }) : null,
     ])
-    if (request !== generation || username !== String(userStore.userInfo.username || '').trim()) return
+    if (request !== generation || sessionToken !== userStore.userInfo.token) return
     const more = (result: any) => result != null && (result.result?.total != null
       ? nextPage * pageSize < Number(result.result.total) : unwrapRecords(result).length === pageSize)
     mainMore = more(mainResult); periodMore = more(periodResult)

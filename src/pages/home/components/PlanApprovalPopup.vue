@@ -106,37 +106,12 @@
                     : "暂无记录"
                 }}</text
               >
-              <view v-if="section.key === 'materials' && section.entries.length" class="plan-review__material-table" role="table" aria-label="用料计划">
-                <view class="plan-review__material-row plan-review__material-row--head" role="row">
-                  <text role="columnheader">物料</text>
-                  <text role="columnheader">合同量</text>
-                  <text role="columnheader">计划量</text>
-                  <text role="columnheader">库存</text>
-                  <text role="columnheader">单位</text>
-                </view>
-                <view v-for="(entry, index) in section.entries" :key="index" class="plan-review__material-row" role="row">
-                  <text role="cell">{{ entry.title }}</text>
-                  <text v-for="field in entry.fields" :key="field[0]" role="cell">{{ field[1] }}</text>
-                </view>
-              </view>
+              <ReadOnlyTable v-if="section.key === 'materials' && section.entries.length" label="用料计划" :columns="materialColumns" :rows="tableRows(section.entries, 4)" min-width="380px" />
               <template v-if="section.key === 'people'">
                 <view v-for="group in peopleTables(section)" :key="group.title" class="plan-review__people-group">
                   <text class="plan-review__name">{{ group.title }}（{{ group.rows.length }}）</text>
                   <text v-if="!group.rows.length" class="plan-review__subtitle">暂无{{ group.title }}</text>
-                  <view v-else class="plan-review__people-scroll">
-                    <view class="plan-review__people-table" :class="{ 'plan-review__people-table--outsource': group.outsource }" role="table" :aria-label="group.title">
-                      <view class="plan-review__people-row plan-review__material-row--head" role="row">
-                        <text v-for="label in group.headers" :key="label" role="columnheader">{{ label }}</text>
-                      </view>
-                      <template v-for="(entry, index) in group.rows" :key="index">
-                        <view class="plan-review__people-row" role="row">
-                          <text role="cell">{{ entry.title }}</text>
-                          <text v-for="field in entry.fields.slice(0, group.outsource ? 4 : 2)" :key="field[0]" role="cell">{{ field[1] }}</text>
-                        </view>
-                        <view v-if="group.outsource && entry.fields[4]?.[1] !== '—'" class="plan-review__people-remark">备注：{{ entry.fields[4]?.[1] }}</view>
-                      </template>
-                    </view>
-                  </view>
+                  <ReadOnlyTable v-else class="plan-review__people-scroll" :label="group.title" :columns="peopleColumns(group.headers, group.outsource)" :rows="tableRows(group.rows, group.outsource ? 4 : 2, group.outsource ? 4 : undefined)" :min-width="group.outsource ? '500px' : '0px'" />
                 </view>
               </template>
               <template v-if="section.key === 'payments'">
@@ -145,18 +120,7 @@
                   <view v-for="field in section.entries[0].fields" :key="field[0]" class="plan-review__field"><text>{{ field[0] }}</text><text>{{ field[1] }}</text></view>
                 </view>
                 <text v-if="section.entries.length <= 1" class="plan-review__subtitle">暂无回款节点</text>
-                <view v-else class="plan-review__payment-table" role="table" aria-label="回款计划">
-                  <view class="plan-review__payment-row plan-review__material-row--head" role="row">
-                    <text v-for="label in ['回款项', '比例', '计划金额', '回款周期']" :key="label" role="columnheader">{{ label }}</text>
-                  </view>
-                  <template v-for="(entry, index) in section.entries.slice(1)" :key="index">
-                    <view class="plan-review__payment-row" role="row">
-                      <text role="cell">{{ entry.title }}</text>
-                      <text v-for="field in entry.fields.slice(0, 3)" :key="field[0]" role="cell">{{ field[1] }}</text>
-                    </view>
-                    <view v-if="entry.fields[3]?.[1] !== '—'" class="plan-review__people-remark">备注：{{ entry.fields[3]?.[1] }}</view>
-                  </template>
-                </view>
+                <ReadOnlyTable v-else label="回款计划" :columns="paymentColumns" :rows="tableRows(section.entries.slice(1), 3, 3)" min-width="360px" />
               </template>
               <template v-if="section.key === 'processes'">
                 <view v-if="section.entries[0]" class="plan-review__entry">
@@ -164,21 +128,7 @@
                   <view v-for="field in section.entries[0].fields" :key="field[0]" class="plan-review__field"><text>{{ field[0] }}</text><text>{{ field[1] }}</text></view>
                 </view>
                 <text v-if="section.entries.length <= 1" class="plan-review__subtitle">暂无工序计划</text>
-                <view v-else class="plan-review__people-table plan-review__process-table" role="table" aria-label="工序计划">
-                  <view class="plan-review__people-row plan-review__material-row--head" role="row">
-                    <text role="columnheader">工序</text>
-                    <text role="columnheader">现场负责人</text>
-                    <text role="columnheader">计划周期</text>
-                  </view>
-                  <template v-for="(entry, index) in section.entries.slice(1)" :key="index">
-                    <view class="plan-review__people-row" role="row">
-                      <text role="cell">{{ entry.title }}</text>
-                      <text role="cell">{{ entry.fields[0][1] }}</text>
-                      <text role="cell">{{ entry.fields[1][1] }}</text>
-                    </view>
-                    <view v-if="entry.fields[2]?.[1] !== '—'" class="plan-review__people-remark">备注：{{ entry.fields[2]?.[1] }}</view>
-                  </template>
-                </view>
+                <ReadOnlyTable v-else label="工序计划" :columns="processColumns" :rows="tableRows(section.entries.slice(1), 2, 2)" />
               </template>
               <template v-if="!['materials', 'people', 'payments', 'processes'].includes(section.key)">
               <view
@@ -278,6 +228,8 @@ import { useUserStore } from "@/store/user";
 import type { ContractFile } from "@/utils/contractFile";
 import ContractFilePreview from "./ContractFilePreview.vue";
 import PlanLocationPreview from "@/pages/ops/components/PlanLocationPreview.vue";
+import ReadOnlyTable from '@/components/ReadOnlyTable/ReadOnlyTable.vue';
+import type { ReadOnlyColumn, ReadOnlyRow } from '@/components/ReadOnlyTable/types';
 const locationPreview = ref<InstanceType<typeof PlanLocationPreview>>();
 
 type Entry = {
@@ -287,6 +239,23 @@ type Entry = {
   file?: ContractFile;
   location?: { locationName?: string; description?: string; longitude?: unknown; latitude?: unknown };
 };
+const makeColumns = (labels: string[], widths: string[], numeric = false): ReadOnlyColumn[] =>
+  labels.map((label, index) => ({ key: index === 0 ? 'title' : `field${index - 1}`, label, width: widths[index], align: numeric && index > 0 ? 'right' : 'left' }));
+const materialColumns = makeColumns(['物料', '合同量', '计划量', '库存', '单位'], ['minmax(120px, 1.8fr)', '1fr', '1fr', '1fr', '52px'], true);
+materialColumns[4].align = 'center';
+const paymentColumns = makeColumns(['回款项', '比例', '计划金额', '回款周期'], ['1.1fr', '.7fr', '1.4fr', '1fr'], true);
+const processColumns = makeColumns(['工序', '现场负责人', '计划周期'], ['minmax(0, 1fr)', 'minmax(0, 1fr)', 'minmax(0, 1.8fr)']);
+const peopleColumns = (headers: string[], outsource: boolean) => makeColumns(headers, outsource
+  ? ['minmax(120px, 1.5fr)', '52px', '60px', 'minmax(80px, 1fr)', '120px']
+  : ['minmax(0, 1fr)', 'minmax(0, 1.5fr)', 'minmax(0, 1fr)']);
+const tableRows = (entries: Entry[], fieldCount: number, remarkIndex?: number): ReadOnlyRow[] => entries.map((entry, index) => {
+  const remark = remarkIndex === undefined ? '' : entry.fields[remarkIndex]?.[1];
+  return {
+    key: index, title: entry.title,
+    ...Object.fromEntries(Array.from({ length: fieldCount }, (_, i) => [`field${i}`, entry.fields[i]?.[1]])),
+    ...(remark && remark !== '—' ? { remark } : {}),
+  };
+});
 type Section = {
   key: string;
   title: string;
@@ -947,34 +916,12 @@ defineExpose({ open });
 .plan-review__confirmation { padding: 20px 16px 4px; }
 .plan-review__confirmation > .plan-review__subtitle { margin-top: 12px; }
 .plan-review__confirmation .plan-review__actions { margin-top: 16px; padding: 12px 0; }
-.plan-review__process-table .plan-review__people-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.8fr); }
-.plan-review__payment-table { width: 100%; box-sizing: border-box; border: 1px solid #e1e6ec; border-radius: 8px; overflow: hidden; }
-.plan-review__payment-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .7fr) minmax(0, 1.4fr) minmax(0, .9fr); border-bottom: 1px solid #e1e6ec; }
-.plan-review__payment-row:last-child { border-bottom: 0; }
-.plan-review__payment-row > text { min-width: 0; padding: 10px 6px; color: #27364a; font-size: 12px; line-height: 1.6; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; border-right: 1px solid #e1e6ec; }
-.plan-review__payment-row > text:first-child { text-align: left; }
-.plan-review__payment-row > text:last-child { border-right: 0; }
 .plan-review__people-group + .plan-review__people-group { margin-top: 16px; }
 .plan-review__people-scroll { width: 100%; overflow-x: auto; margin-top: 8px; }
-.plan-review__people-table { border: 1px solid #e1e6ec; border-radius: 8px; overflow: hidden; }
-.plan-review__people-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr); border-bottom: 1px solid #e1e6ec; }
-.plan-review__people-row:last-child { border-bottom: 0; }
-.plan-review__people-row > text { min-width: 0; padding: 10px 8px; font-size: 13px; line-height: 1.5; color: #27364a; overflow-wrap: anywhere; border-right: 1px solid #e1e6ec; }
-.plan-review__people-row > text:last-child { border-right: 0; }
-.plan-review__people-table--outsource { min-width: 500px; }
-.plan-review__people-table--outsource .plan-review__people-row { grid-template-columns: minmax(120px, 1.5fr) 52px 60px minmax(80px, 1fr) 120px; }
-.plan-review__people-remark { padding: 8px; color: #596574; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; border-bottom: 1px solid #e1e6ec; }
 .plan-review__query { flex: none; min-height: 44px; margin: 0; padding: 8px 12px; color: #176ac7; background: #edf5ff; font-size: 14px; line-height: 28px; }
 .plan-review__pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 12px; font-size: 12px; color: #596574; }
 .plan-review__pagination button { flex: none; min-height: 44px; padding: 8px; margin: 0; font-size: 13px; line-height: 28px; color: #176ac7; background: #f5f6f8; }
 .plan-review__pagination button[disabled] { color: #68788a; opacity: .5; }
-.plan-review__material-table { width: 100%; border: 1px solid #e1e6ec; border-radius: 8px; overflow: hidden; box-sizing: border-box; }
-.plan-review__material-row { display: grid; grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(0, 1fr)) minmax(0, .85fr); border-bottom: 1px solid #e1e6ec; }
-.plan-review__material-row:last-child { border-bottom: 0; }
-.plan-review__material-row > text { min-width: 0; padding: 10px 5px; font-size: 12px; line-height: 1.6; color: #27364a; text-align: right; overflow-wrap: anywhere; border-right: 1px solid #e1e6ec; font-variant-numeric: tabular-nums; }
-.plan-review__material-row > text:first-child { text-align: left; }
-.plan-review__material-row > text:last-child { text-align: center; border-right: 0; }
-.plan-review__material-row--head { background: #f5f6f8; font-weight: 600; }
 .plan-review__reason {
   padding: 16px;
   background: #fff;

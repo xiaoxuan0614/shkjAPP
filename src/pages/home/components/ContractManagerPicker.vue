@@ -32,7 +32,7 @@
       <scroll-view class="manager-picker__list" scroll-y @scrolltolower="loadMore">
         <view v-if="loading && !rows.length" class="manager-picker__state">正在加载人员…</view>
         <view v-else-if="loadFailed && !rows.length" class="manager-picker__state">
-          <text>人员列表加载失败</text>
+          <text>{{ loadError || '人员列表加载失败' }}</text>
           <wd-button size="small" plain @click="load(true)">重新加载</wd-button>
         </view>
         <view v-else-if="!rows.length" class="manager-picker__state">暂无匹配人员</view>
@@ -93,11 +93,13 @@ const selectedId = ref('')
 const selectedName = ref('')
 const loading = ref(false)
 const loadFailed = ref(false)
+const loadError = ref('')
 const pageNo = ref(0)
 const total = ref<number | null>(null)
 const reachedEnd = ref(false)
 const pageSize = 20
 let loadSequence = 0
+let managerRoleId = ''
 
 const hasMore = computed(() => {
   if (total.value != null) return pageNo.value * pageSize < total.value
@@ -123,6 +125,7 @@ const load = async (reset = false) => {
   const targetPage = reset ? 1 : pageNo.value + 1
   loading.value = true
   loadFailed.value = false
+  loadError.value = ''
   if (reset) {
     rows.value = []
     pageNo.value = 0
@@ -130,7 +133,11 @@ const load = async (reset = false) => {
     reachedEnd.value = false
   }
   try {
+    const roleId = managerRoleId || await contractApprovalApi.managerRoleId()
+    if (sequence !== loadSequence) return
+    managerRoleId = roleId
     const response: any = await contractApprovalApi.users({
+      roleId,
       pageNo: targetPage,
       pageSize,
       column: 'createTime',
@@ -146,9 +153,12 @@ const load = async (reset = false) => {
     pageNo.value = targetPage
     const resultTotal = result?.total == null ? Number.NaN : Number(result.total)
     total.value = Number.isFinite(resultTotal) ? resultTotal : null
-    reachedEnd.value = nextRows.length < pageSize
-  } catch {
-    if (sequence === loadSequence) loadFailed.value = true
+    reachedEnd.value = source.length < pageSize
+  } catch (error: any) {
+    if (sequence === loadSequence) {
+      loadFailed.value = true
+      loadError.value = error?.message || '人员列表加载失败'
+    }
   } finally {
     if (sequence === loadSequence) loading.value = false
   }
@@ -161,14 +171,15 @@ const select = (manager: ContractManagerOption) => {
   selectedName.value = manager.name
 }
 const confirm = () => {
+  if (loading.value || loadFailed.value) return toast.warning('请等待项目经理列表加载成功')
   if (!selectedId.value) return toast.warning('请选择项目经理')
   const current = rows.value.find((item) => item.id === selectedId.value)
-  const name = current?.name || selectedName.value
-  if (!name) return toast.warning('请重新选择项目经理')
-  emit('select', current || { id: selectedId.value, name })
+  if (!current) return toast.warning('请从项目经理列表重新选择')
+  emit('select', current)
   close()
 }
 const open = (manager?: Partial<ContractManagerOption>) => {
+  managerRoleId = ''
   loadSequence++
   visible.value = true
   keyword.value = ''

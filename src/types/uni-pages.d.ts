@@ -15,6 +15,8 @@ interface NavigateToOptions {
        "/pages/customer/repairRecord" |
        "/pages/dispatch/detail" |
        "/pages/dispatch/list" |
+       "/pages/home/quotationDetail" |
+       "/pages/home/todoList" |
        "/pages/login/login" |
        "/pages/login/loginOauth2" |
        "/pages/ops/accept" |

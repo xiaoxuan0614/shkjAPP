@@ -239,14 +239,22 @@
             <view v-if="isExecutableInboundHead(detail) && material.pendingQty > 0 && permission.hasPermission('mtl:goods:io')" class="execute-panel">
               <view class="execute-row">
                 <text class="execute-label">本次入库</text>
-                <input v-model="material.executeQty" class="quantity-input" type="digit" :disabled="submitting" :aria-label="material.name + '本次入库数量'" />
-                <text>{{ material.unitName }}</text>
+                <view class="inbound-quantity" :class="{ 'inbound-quantity--disabled': submitting }">
+                  <input v-model="material.executeQty" class="inbound-quantity__input" type="digit" :disabled="submitting" :aria-label="material.name + '本次入库数量'" />
+                  <text class="inbound-quantity__unit">{{ material.unitName }}</text>
+                </view>
               </view>
               <text class="execute-hint">最多 {{ formatQty(material.pendingQty) }} {{ material.unitName }}，填 0 则本次不处理</text>
               <template v-if="isProjectReturn">
-                <picker :range="dispositionOptions" range-key="label" :value="dispositionOptions.findIndex(option => option.value === material.dispositionType)" :disabled="submitting" @change="material.dispositionType = dispositionOptions[Number($event.detail.value)].value">
-                  <view class="execute-row">还料处置：{{ dispositionOptions.find(option => option.value === material.dispositionType)?.label }} <wd-icon name="arrow-down" size="14px" /></view>
-                </picker>
+                <view class="disposition-field">
+                  <text class="execute-label">还料处置</text>
+                  <view class="disposition-options" role="group" aria-label="还料处置">
+                    <button v-for="option in dispositionOptions" :key="option.value" class="disposition-option" :class="{ 'disposition-option--selected': material.dispositionType === option.value }" :aria-pressed="material.dispositionType === option.value" :disabled="submitting" hover-class="disposition-option--pressed" @click="material.dispositionType = option.value">
+                      <text class="disposition-option__mark" aria-hidden="true">{{ material.dispositionType === option.value ? '✓' : '' }}</text>
+                      <text>{{ option.label }}</text>
+                    </button>
+                  </view>
+                </view>
                 <input v-if="material.dispositionType !== 'RESTOCK'" v-model="material.dispositionRemark" class="execute-remark__input" :disabled="submitting" maxlength="500" placeholder="请填写报废或遗失原因（必填）" />
               </template>
               <input v-model="material.executeRemark" class="execute-remark__input" :disabled="submitting" maxlength="500" placeholder="执行备注（选填）" />
@@ -421,7 +429,10 @@ const inboundReadonlyReason = computed(() => {
   return ''
 })
 const dispositionOptions = [{ label: '合格回库', value: 'RESTOCK' }, { label: '报废', value: 'SCRAP' }, { label: '遗失', value: 'LOST' }]
-const isProjectReturn = computed(() => detail.value.applyType === 'IN' && detail.value.bizType === 'RETURN' && detail.value.usageType === 'PROJECT')
+const isProjectReturn = computed(() =>
+  String(detail.value.applyType || '').toUpperCase() === 'IN' &&
+  String(detail.value.bizType || '').toUpperCase() === 'RETURN' &&
+  String(detail.value.usageType || '').toUpperCase() === 'PROJECT')
 
 const toQty = (value: unknown) => {
   const result = Number(value)
@@ -1078,6 +1089,54 @@ onLoad((query) => {
   color: #667085;
   font-size: 11px;
 }
+
+.inbound-quantity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.inbound-quantity__input {
+  width: 80px;
+  min-width: 0;
+  height: 44px;
+  color: #1d2939;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: right;
+}
+.inbound-quantity__unit { color: #667085; font-size: 13px; overflow-wrap: anywhere; }
+.inbound-quantity--disabled { background: #f2f4f7; }
+.disposition-field { margin-top: 16px; }
+.disposition-options { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.disposition-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 72px;
+  gap: 5px;
+  min-height: 48px;
+  margin: 0;
+  padding: 8px 4px;
+  box-sizing: border-box;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #475467;
+  font-size: 13px;
+  line-height: 20px;
+}
+.disposition-option::after { border: 0; }
+.disposition-option--selected { border-color: #176ac7; background: #edf5ff; color: #176ac7; font-weight: 600; }
+.disposition-option__mark { width: 14px; height: 14px; border: 1px solid #b8c3d1; border-radius: 50%; font-size: 11px; line-height: 14px; }
+.disposition-option--selected .disposition-option__mark { background: #176ac7; border-color: #176ac7; color: #fff; }
+.disposition-option--pressed { background: #e8f0fb; }
+.disposition-option[disabled] { opacity: 0.6; }
 
 .execute-panel {
   margin: 12px 0 0;

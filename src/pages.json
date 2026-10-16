@@ -124,6 +124,23 @@
       }
     },
     {
+      "path": "pages/home/quotationDetail",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "报价详情",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/home/todoList",
+      "type": "page",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "待办事项",
+        "disableScroll": true
+      }
+    },
+    {
       "path": "pages/login/login",
       "type": "page",
       "style": {
