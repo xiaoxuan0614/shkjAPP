@@ -37,12 +37,14 @@
       scroll-with-animation
       @scrolltolower="todoOnly && loadTodos(false)"
     >
-      <SectionCard v-if="!todoOnly && canViewOpsPreview" title="运维页面预览" extra="打开" @extra-click="showOpsPreview = true">
-        <wd-button plain block @click="showOpsPreview = true">查看墨刀运维页面 · 仅演示</wd-button>
-      </SectionCard>
-
-      <SectionCard v-if="!todoOnly && visibleOfficeEntries.length" title="日常办公">
+      <SectionCard v-if="!todoOnly && (visibleOfficeEntries.length || canViewOpsPreview)" title="日常办公">
         <view class="grid grid--three">
+          <template v-if="canViewOpsPreview">
+            <view v-for="entry in opsEntries" :key="`ops-${entry.key}`" class="grid__item" role="button" tabindex="0" @click="openOps(entry.key)" @keydown.enter="openOps(entry.key)">
+              <view class="grid__icon" :class="`tone-${entry.tone}`"><wd-icon :name="entry.icon" size="24px" /></view>
+              <view class="grid__label">{{ entry.label }}</view>
+            </view>
+          </template>
           <view
             v-for="item in visibleOfficeEntries"
             :key="item.key"
@@ -232,7 +234,7 @@
         </view>
       </view>
     </wd-popup>
-    <OpsPreview v-if="canViewOpsPreview && showOpsPreview" @close="showOpsPreview = false" />
+    <OpsPreview v-if="canViewOpsPreview && !todoOnly" v-show="showOpsPreview" :key="opsSessionKey" ref="opsPreview" :can-manage="canManageOps" @role-change="opsDemoRole = $event" @close="showOpsPreview = false" />
   </PageLayout>
 </template>
 
@@ -245,8 +247,19 @@ const backToHome = () => {
   if (!props.todoOnly) return;
   uni.switchTab({ url: '/pages/home/index', fail: () => uni.reLaunch({ url: '/pages/home/index' }) });
 };
-import OpsPreview from "@/pages/ops/components/preview/OpsPreview.vue";
+import OpsPreview from "@/pages/ops/components/preview/OpsWorkflow.vue";
 const showOpsPreview = ref(false);
+const opsPreview = ref<InstanceType<typeof OpsPreview>>();
+const opsDemoRole = ref('technician');
+const opsEntries = computed(() => ([
+  { key: 'reports', label: '报修管理', icon: 'notification', tone: 'cyan' },
+  { key: 'records', label: '维修列表', icon: 'calendar', tone: 'blue' },
+  { key: 'inspection', label: '巡检管理', icon: 'search', tone: 'cyan' },
+] as const).filter(entry => entry.key !== 'records' || opsDemoRole.value !== 'reporter'));
+function openOps(entry: 'reports' | 'records' | 'inspection') {
+  showOpsPreview.value = true;
+  opsPreview.value?.openHomeEntry(entry);
+}
 import dayjs from "dayjs";
 import { useToast } from "wot-design-uni";
 import SectionCard from "@/components/SectionCard/SectionCard.vue";
@@ -293,10 +306,11 @@ type WorkbenchPresentation = Pick<WorkEntry, "icon" | "tone"> & {
 
 const toast = useToast();
 const userStore = useUserStore();
-// Temporary UI preview: only the exact admin account, still development-only.
-const canViewOpsPreview = computed(() =>
-  import.meta.env.DEV && userStore.isLogined && userStore.userInfo.username === 'admin',
-);
+// op 分支首页展示演示流程；正式业务仍待接口对接。
+const canViewOpsPreview = computed(() => userStore.isLogined);
+const opsSessionKey = computed(() => `${userStore.identity.userId}:${userStore.userInfo.username}:${userStore.userInfo.tenantId}`);
+const canManageOps = computed(() => userStore.identity.roleCodes.some(role => ['admin', 'operations_manager'].includes(role)));
+watch(opsSessionKey, () => { showOpsPreview.value = false; });
 watch(canViewOpsPreview, (allowed) => {
   if (!allowed) showOpsPreview.value = false;
 }, { flush: 'sync' });

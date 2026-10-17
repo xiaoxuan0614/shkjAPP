@@ -25,6 +25,8 @@ export interface PreviewLog {
 }
 export interface PreviewOrder {
   id: string;
+  projectId?: string;
+  projectName?: string;
   customer: string;
   equipment: string;
   fault: string;
@@ -35,6 +37,8 @@ export interface PreviewOrder {
   address: string;
   nature: string;
   owner: string;
+  ownerId?: string;
+  quoteStatus?: '无需报价' | '内部已确认';
   appointment: string;
   returnState: "无需还料" | "待申请" | "待库管入库" | "已入库";
   logs: PreviewLog[];
@@ -98,7 +102,7 @@ export const materialOptions = [
   { name: "工业电源", model: "24V / 5A", available: 4, unit: "个", qty: 0 },
   { name: "网线", model: "六类", available: 30, unit: "m", qty: 0 },
 ];
-export function createOrders(): PreviewOrder[] {
+export function createOrders(ownerId = ''): PreviewOrder[] {
   const statuses: OrderStatus[] = [
     "未开始",
     "进行中",
@@ -125,6 +129,10 @@ export function createOrders(): PreviewOrder[] {
     address: "示例园区 · 一号作业区",
     nature: "全包",
     owner: "当前操作人（示例）",
+    ownerId,
+    projectId: ['DEMO-P-1', 'DEMO-P-3', 'DEMO-P-4'][i % 3],
+    projectName: ['闸口设备维护（示例）', '车辆识别系统（示例）', '园区设备维护（示例）'][i % 3],
+    quoteStatus: '无需报价',
     appointment: "2026-09-24 14:00",
     returnState: i === 1 ? "待申请" : "无需还料",
     logs:
@@ -142,7 +150,7 @@ export function createOrders(): PreviewOrder[] {
             },
           ]
         : [],
-    events: ["09-24 09:00 · 创建工单（示例）"],
+    events: ["09-24 09:00 · 历史维修工单（示例）"],
   }));
 }
 export function createReports() {

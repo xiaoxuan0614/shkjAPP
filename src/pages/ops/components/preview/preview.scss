@@ -141,7 +141,7 @@ $muted: #667085;
   min-width: 104px;
 }
 .field {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 .field:last-child {
   margin-bottom: 0;
@@ -149,8 +149,8 @@ $muted: #667085;
 .field-label {
   display: block;
   font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 8px;
+  font-weight: 400;
+  margin-bottom: 9px;
   color: $ink;
 }
 .required {
@@ -162,24 +162,24 @@ $muted: #667085;
   box-sizing: border-box;
   width: 100%;
   padding: 0 12px;
-  border: 1px solid #e1e4e8;
+  border: 1px solid #ddd;
   background: #f7f8fa;
   border-radius: 10px;
   color: $ink;
-  font-size: 16px;
+  font-size: 14px;
 }
 .textarea {
   width: 100%;
   box-sizing: border-box;
-  min-height: 105px;
-  height: 105px;
-  padding: 12px;
-  border: 1px solid #e1e4e8;
+  min-height: 96px;
+  height: 96px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
   background: #f7f8fa;
   border-radius: 10px;
-  font-size: 16px;
-  line-height: 1.6;
-  color: $ink;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #222;
 }
 .choices {
   display: flex;

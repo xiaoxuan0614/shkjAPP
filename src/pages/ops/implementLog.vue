@@ -228,53 +228,15 @@
           <view class="form-row top">
             <text class="label">现场影像</text>
             <view class="media-field__body">
-              <text class="media-hint"
-                >照片 {{ logPhotoCount }}/6，视频
-                {{
-                  logVideoCount
-                }}/2（每段最多60秒）；照片自动添加定位和时间水印</text
-              >
-              <view class="media-grid">
-                <view
-                  v-for="(item, index) in logMedia"
-                  :key="`${item.type}-${item.path}`"
-                  class="media-card"
-                >
-                  <image
-                    v-if="item.type === 'image'"
-                    class="media-card__preview"
-                    :src="mediaPreviewUrl(item.path)"
-                    mode="aspectFill"
-                    @click="previewLogPhoto(item.path)"
-                  />
-                  <VideoCover
-                    v-else
-                    :height="108"
-                    :src="mediaPreviewUrl(item.path)"
-                    @preview="previewLogVideo(item.path)"
-                  />
-                  <view class="media-card__footer">
-                    <text
-                      >{{ item.type === "video" ? "视频" : "照片" }}
-                      {{ index + 1 }}</text
-                    >
-                    <text
-                      class="media-card__remove"
-                      @click="logMedia.splice(index, 1)"
-                    >
-                      删除
-                    </text>
-                  </view>
-                </view>
-                <view
-                  v-if="logPhotoCount < 6 || logVideoCount < 2"
-                  class="add-media"
-                  @click="addLogMedia"
-                >
-                  <wd-icon name="video" size="22px" color="#176ac7" />
-                  <text>添加影像</text>
-                </view>
-              </view>
+              <MediaAttachments
+                :items="logMedia"
+                :busy="mediaProcessing || submitting"
+                :resolve-url="mediaPreviewUrl"
+                hint="每段视频最多60秒；照片自动添加定位和时间水印"
+                @add="addLogMedia"
+                @remove="logMedia.splice($event, 1)"
+                @preview="$event.type === 'video' ? previewLogVideo($event.path) : previewLogPhoto($event.path)"
+              />
             </view>
           </view>
           <template v-if="isSiteLeader">
@@ -931,7 +893,7 @@ import { useToast } from "wot-design-uni";
 import SectionCard from "@/components/SectionCard/SectionCard.vue";
 import LocationPanel from "./components/LocationPanel.vue";
 import PhotoWatermarkCanvas from "./components/PhotoWatermarkCanvas.vue";
-import VideoCover from "./components/VideoCover.vue";
+import MediaAttachments from '@/components/MediaAttachments/MediaAttachments.vue';
 import LogVideoPlayer from "./components/LogVideoPlayer.vue";
 import { getFileAccessHttpUrl } from "@/common/uitls";
 import { logMediaUrl } from "@/utils/logMedia";

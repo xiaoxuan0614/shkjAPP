@@ -1,21 +1,11 @@
 <template>
   <!-- THESIS: 墨刀运维操作流，按任务分屏。OWN-WORLD: 沿用蓝白、12px圆角、系统字体。
-       STORY: 接单到预约/日志，再到还料审核；巡检独立。FIRST VIEWPORT: 顶栏、预览提示、任务入口。
+       STORY: 报修按值班表自动分配、勘查报价、内部确认后维修；巡检独立。FIRST VIEWPORT: 顶栏、预览提示、任务入口。
        FORM: 用户指定墨刀结构的局部扩展，无新视觉体系。FINISH: 检查移动布局，记录接口边界。 -->
   <view class="ops-preview">
-    <view class="preview-shell">
-      <view class="preview-nav"
-        ><button class="btn btn--text nav-back" @click="back">
-          <wd-icon name="arrow-left" size="18px" /><text>{{
-            screen === "hub" ? "退出" : "返回"
-          }}</text></button
-        ><text class="title">{{ titles[screen] }}</text
-        ><button class="btn btn--text" @click="navigate('hub')">
-          目录
-        </button></view
-      >
+    <PageLayout class="preview-shell" :nav-title="screen === 'reports' ? intakeTitle : titles[screen]" nav-left-text="返回" nav-background-color="#176ac7" type="popup" @nav-back="back">
       <view class="notice"
-        >页面预览 · 全部为示例数据，仅在本次打开期间保留，不会提交业务。</view
+        >页面演示 · 不提交业务。返回首页保留本次数据，刷新、退出登录或切换账号后清空。</view
       >
       <scroll-view
         class="preview-body"
@@ -30,228 +20,32 @@
               关闭
             </button></view
           >
-          <template v-if="screen === 'hub'">
-            <view class="panel intro"
-              ><view class="title">运维工作台</view
-              ><view class="muted"
-                >从报修受理到维修归档，逐页预览操作流程。</view
-              ><view class="summary"
-                ><button @click="navigate('reports')">
-                  <strong>{{
-                    reports.filter((r) => r.status === "未处理").length
-                  }}</strong
-                  ><text>待接报修</text></button
-                ><button @click="navigate('records')">
-                  <strong>{{
-                    orders.filter((o) => o.status === "进行中").length
-                  }}</strong
-                  ><text>维修中</text></button
-                ><button @click="navigate('inspection')">
-                  <strong>巡检</strong><text>查看任务</text>
-                </button></view
-              ></view
-            >
-            <view class="panel entry-panel"
-              ><view class="section-title">维修办理</view><view class="entry-grid"><button
-                v-for="entry in entries"
-                :key="entry.screen"
-                class="entry"
-                :aria-label="`${entry.label}，${entry.description}`"
-                @click="openEntry(entry.screen)"
-              >
-                <view class="entry-icon"
-                  ><wd-icon :name="entry.icon" size="24px" /></view
-                ><text class="entry-label">{{ entry.label }}</text></button
-            ></view></view>
-            <view class="panel recent-orders">
-            <view class="section-title">最近维修工单</view>
-            <view
-              v-for="order in orders.slice(0, 3)"
-              :key="order.id"
-              class="recent-order"
-              ><view class="row"
-                ><text class="muted">{{ order.id }}</text
-                ><text class="badge" :class="tone(order.status)">{{
-                  order.status
-                }}</text></view
-              ><view class="order-title">{{ order.customer }}</view
-              ><view class="muted"
-                >{{ order.equipment }} ·
-                {{ order.mode === "online" ? "线上维修" : "线下维修" }}</view
-              ><button
-                class="btn btn--text detail-link"
-                @click="openOrder(order)"
-              >
-                查看工单<wd-icon name="arrow-right" /></button
-            ></view>
+          <OpsIntake ref="intakePanel" v-show="screen === 'reports'" :entry="intakeEntry" :request="intakeRequest" :can-manage="canManage" @title-change="intakeTitle = $event" @order-created="receiveOrder" @open-order="openIntakeOrder" />
+          <template v-if="screen === 'records'">
+            <view class="repair-filters">
+              <view class="repair-search">
+                <input v-model="searchDraft" class="repair-input" placeholder="工单号、客户或设备名称" confirm-type="search" aria-label="搜索维修工单" @confirm="searchOrders" />
+                <button class="repair-query" @click="searchOrders">查询</button>
+              </view>
+              <view class="repair-filter-row">
+                <picker class="repair-picker" :range="orderStatuses" @change="statusFilter = orderStatuses[Number($event.detail.value)]; page = 1">
+                  <view class="repair-select"><text>状态：{{ statusFilter }}</text><wd-icon name="arrow-down" size="14px" /></view>
+                </picker>
+                <button class="repair-reset" :disabled="!searchDraft && !query && statusFilter === '全部状态' && modeFilter === '全部'" @click="resetOrders">重置</button>
+              </view>
+              <view class="repair-tabs">
+                <button v-for="m in ['全部', '线下维修', '线上维修']" :key="m" :class="{ active: modeFilter === m }" @click="modeFilter = m; page = 1">{{ m }}</button>
+              </view>
             </view>
-          </template>
-          <template v-else-if="screen === 'reports'">
-            <input
-              v-model="query"
-              class="input"
-              placeholder="搜索报修单号、客户、设备"
-            />
-            <view class="tabs"
-              ><button
-                v-for="s in reportStatuses"
-                :key="s"
-                :class="{ active: reportFilter === s }"
-                @click="
-                  reportFilter = s;
-                  page = 1;
-                "
-              >
-                {{ s
-                }}<text v-if="s === '未处理'">
-                  {{ reports.filter((r) => r.status === s).length }}</text
-                >
-              </button></view
-            >
-            <view class="muted list-count"
-              >共 {{ filteredReports.length }} 条报修</view
-            >
-            <view v-for="r in pagedReports" :key="r.id" class="panel"
-              ><view class="row"
-                ><text class="muted">{{ r.id }}</text
-                ><text class="badge" :class="tone(r.status)">{{
-                  r.status
-                }}</text></view
-              ><view class="order-title">{{ r.customer }}</view
-              ><view class="kv"
-                ><text>报修项目</text><text>{{ r.equipment }}</text></view
-              ><view class="kv"
-                ><text>故障描述</text><text>{{ r.fault }}</text></view
-              ><view class="muted">{{ r.time }} 申请</view
-              ><view class="actions"
-                ><button
-                  class="btn"
-                  @click="
-                    selectedReport = r;
-                    navigate('report');
-                  "
-                >
-                  查看详情</button
-                ><button
-                  v-if="r.status === '未处理'"
-                  class="btn btn--primary"
-                  @click="
-                    selectedReport = r;
-                    openAction('接单');
-                  "
-                >
-                  接单
-                </button></view
-              ></view
-            >
-            <view v-if="!filteredReports.length" class="empty"
-              >没有找到相关报修<br />请调整关键词或状态</view
-            >
-            <view v-if="filteredReports.length > 5" class="pagination"
-              ><button class="btn" :disabled="page === 1" @click="page--">
-                上一页</button
-              ><text
-                >{{ page }} / {{ Math.ceil(filteredReports.length / 5) }}</text
-              ><button
-                class="btn"
-                :disabled="page * 5 >= filteredReports.length"
-                @click="page++"
-              >
-                下一页
-              </button></view
-            >
-          </template>
-          <template v-else-if="screen === 'report' && selectedReport">
-            <view class="panel"
-              ><view class="row"
-                ><text class="title">{{ selectedReport.equipment }}报修</text
-                ><text class="badge" :class="tone(selectedReport.status)">{{
-                  selectedReport.status
-                }}</text></view
-              ><view class="muted">{{ selectedReport.id }}</view
-              ><view class="divider" /><view class="kv"
-                ><text>客户名称</text
-                ><text>{{ selectedReport.customer }}</text></view
-              ><view class="kv"
-                ><text>客户地址</text><text>示例园区 · 一号作业区</text></view
-              ><view class="kv"
-                ><text>联系人</text><text>客户联系人（示例）</text></view
-              ><view class="kv"><text>联系电话</text><text>未填写</text></view
-              ><view class="kv"
-                ><text>故障描述</text
-                ><text>{{ selectedReport.fault }}</text></view
-              ><view class="kv"
-                ><text>报故时间</text
-                ><text>{{ selectedReport.time }}</text></view
-              ><view class="muted">故障照片：暂无示例附件</view></view
-            >
-            <view class="panel"
-              ><view class="section-title">处理记录</view
-              ><view class="timeline">{{ selectedReport.time }} · 发起报修</view
-              ><view v-if="selectedReport.status !== '未处理'" class="timeline"
-                >{{ selectedReport.status }} · 当前操作人（示例）<view
-                  class="muted"
-                  >{{ selectedReport.reason }}</view
-                ></view
-              ></view
-            >
-            <view v-if="selectedReport.status === '未处理'" class="actions"
-              ><button class="btn btn--danger" @click="openAction('驳回')">
-                驳回</button
-              ><button class="btn btn--primary" @click="openAction('接单')">
-                接单
-              </button></view
-            >
-          </template>
-          <template v-else-if="screen === 'records'">
-            <view class="choices"
-              ><button
-                v-for="m in ['全部', '线下维修', '线上维修']"
-                :key="m"
-                class="choice"
-                :class="{ on: modeFilter === m }"
-                @click="
-                  modeFilter = m;
-                  page = 1;
-                "
-              >
-                {{ m }}
-              </button></view
-            >
-            <view class="search-row"
-              ><input
-                v-model="query"
-                class="input"
-                placeholder="搜索工单号、客户" /><picker
-                :range="orderStatuses"
-                @change="
-                  statusFilter = orderStatuses[Number($event.detail.value)];
-                  page = 1;
-                "
-                ><view class="filter"
-                  >{{ statusFilter
-                  }}<wd-icon name="arrow-down" /></view></picker
-            ></view>
-            <view class="muted list-count"
-              >共 {{ filteredOrders.length }} 条 · 每页 5 条</view
-            >
-            <view v-for="order in pagedOrders" :key="order.id" class="panel"
-              ><view class="row"
-                ><text class="muted">{{ order.id }}</text
-                ><text class="badge" :class="tone(order.status)">{{
-                  order.status
-                }}</text></view
-              ><view class="order-title">{{ order.customer }}</view
-              ><view class="muted"
-                >{{ order.equipment }} · {{ order.nature }} ·
-                {{ order.mode === "online" ? "线上" : "线下" }}</view
-              ><view class="kv"
-                ><text>故障描述</text><text>{{ order.fault }}</text></view
-              ><view class="row"
-                ><text class="muted">{{ order.owner }}</text
-                ><button class="btn btn--text" @click="openOrder(order)">
-                  查看详情<wd-icon name="arrow-right" /></button></view
-            ></view>
+            <view class="muted list-count">共 {{ filteredOrders.length }} 条 · 每页 5 条</view>
+            <view v-for="order in pagedOrders" :key="order.id" class="repair-card" role="button" tabindex="0" :aria-label="'查看维修单 ' + order.id" @click="openOrder(order)" @keydown.enter="openOrder(order)">
+              <view class="repair-card__head"><text class="repair-card__no">{{ order.id }}</text><StatusBadge :value="order.status" :dict="repairStatusOptions" /></view>
+              <view class="repair-card__name">{{ order.projectName || order.equipment || '维修工单' }}</view>
+              <view class="repair-row"><text class="repair-label">客户</text><text class="repair-value">{{ order.customer }}</text></view>
+              <view class="repair-row"><text class="repair-label">类型</text><text class="repair-value">{{ order.mode === 'online' ? '线上维修' : '线下维修' }} · {{ order.nature }}</text></view>
+              <view class="repair-row"><text class="repair-label">故障</text><text class="repair-value repair-fault">{{ order.fault }}</text></view>
+              <view class="repair-row"><text class="repair-label">负责人</text><text class="repair-value">{{ order.owner }}</text></view>
+            </view>
             <view v-if="!filteredOrders.length" class="empty"
               >暂无匹配工单，请调整筛选条件</view
             >
@@ -307,7 +101,7 @@
               ><view class="row"
                 ><text class="section-title">预约信息</text
                 ><button
-                  v-if="selectedOrder.status === '未开始'"
+                  v-if="canOperate && selectedOrder.status === '未开始'"
                   class="btn btn--text"
                   @click="navigate('reservation')"
                 >
@@ -400,7 +194,7 @@
               ><view class="kv"
                 ><text>转单原因</text
                 ><text>{{ selectedOrder.transfer.reason }}</text></view
-              ><template v-if="selectedOrder.transfer.status === '待接收'"
+              ><template v-if="canOperate && selectedOrder.transfer.status === '待接收'"
                 ><text class="muted"
                   >以下按钮仅演示不同处理结果，正式版需按办理人权限显示。</text
                 ><view class="actions"
@@ -433,7 +227,7 @@
               ><view class="kv"><text>服务态度</text><text>5 分</text></view
               ><text class="muted">问题已解决，设备运行正常。</text></view
             >
-            <view class="detail-actions">
+            <view v-if="canOperate" class="detail-actions">
               <template
                 v-if="['未开始', '进行中'].includes(selectedOrder.status)"
                 ><button class="btn" @click="openAction('更多操作')">
@@ -479,7 +273,7 @@
             </view>
           </template>
           <OpsPreviewForm
-            v-else-if="['reservation', 'offline', 'online'].includes(screen)"
+            v-else-if="canOperate && ['reservation', 'offline', 'online'].includes(screen)"
             :key="formKey"
             :mode="formMode"
             :order="selectedOrder || undefined"
@@ -536,8 +330,6 @@
           <view v-if="actionError" class="error spaced">{{ actionError }}</view>
           <template v-if="action === '更多操作'"
             ><view class="action-menu"
-              ><button class="btn" @click="openAction('转单')">
-                人员协作 · 转单</button
               ><button class="btn" @click="openAction('临时邀约')">
                 人员协作 · 临时邀约</button
               ><button class="btn" @click="openMaterial('apply')">
@@ -546,29 +338,6 @@
                 物料办理 · 申请还料</button
               ><button class="btn btn--danger" @click="openAction('关闭工单')">
                 工单管理 · 关闭工单
-              </button></view
-            ></template
-          >
-          <template v-else-if="action === '接单'"
-            ><view class="choices spaced"
-              ><button
-                class="choice"
-                :class="{ on: acceptMode === 'offline' }"
-                @click="acceptMode = 'offline'"
-              >
-                线下预约</button
-              ><button
-                class="choice"
-                :class="{ on: acceptMode === 'online' }"
-                @click="acceptMode = 'online'"
-              >
-                线上维修
-              </button></view
-            ><view class="actions"
-              ><button class="btn" @click="confirmAccept(false)">
-                接单后稍后处理</button
-              ><button class="btn btn--primary" @click="confirmAccept(true)">
-                接单并继续
               </button></view
             ></template
           >
@@ -625,7 +394,7 @@
               v-model="remark"
               class="textarea spaced"
               :placeholder="
-                ['驳回', '关闭工单', '转单'].includes(action)
+                ['关闭工单', '转单'].includes(action)
                   ? '请填写原因（必填）'
                   : '填写备注（选填）'
               "
@@ -640,7 +409,7 @@
           </template>
         </view>
       </view>
-    </view>
+    </PageLayout>
   </view>
 </template>
 
@@ -648,20 +417,27 @@
 import { computed, nextTick, ref, watch } from "vue";
 import OpsPreviewForm from "./OpsPreviewForm.vue";
 import OpsPreviewInspection from "./OpsPreviewInspection.vue";
+import OpsIntake from './OpsIntake.vue';
+import PageLayout from '@/components/PageLayout/PageLayout.vue';
+import StatusBadge from '@/components/StatusBadge/StatusBadge.vue';
+import type { IntakeView } from './intakeFlow';
+import { useUserStore } from '@/store/user';
+const props = defineProps<{ canManage: boolean }>();
+const userStore = useUserStore();
+const intakeEntry = ref<IntakeView>('reports');
+const intakeRequest = ref(0);
+const intakeTitle = ref('报修列表');
+const intakePanel = ref<InstanceType<typeof OpsIntake>>();
 import {
   createOrders,
-  createReports,
   materialOptions,
   peopleOptions,
   type PreviewOrder,
-  type RepairMode,
   type PreviewFormData,
 } from "./previewData";
 const emit = defineEmits<{ close: [] }>();
 type Screen =
-  | "hub"
   | "reports"
-  | "report"
   | "records"
   | "detail"
   | "reservation"
@@ -670,10 +446,8 @@ type Screen =
   | "material"
   | "inspection";
 const titles: Record<Screen, string> = {
-  hub: "运维页面预览",
-  reports: "报修接单",
-  report: "报修详情",
-  records: "维修记录",
+  reports: "报修列表",
+  records: "维修列表",
   detail: "工单详情",
   reservation: "线下预约",
   offline: "线下维修",
@@ -681,58 +455,12 @@ const titles: Record<Screen, string> = {
   material: "物料办理",
   inspection: "巡检管理",
 };
-const entries: {
-  screen: Screen;
-  label: string;
-  description: string;
-  icon: string;
-}[] = [
-  {
-    screen: "reports",
-    label: "报修接单",
-    description: "查看报修、接单或驳回",
-    icon: "notification",
-  },
-  {
-    screen: "reservation",
-    label: "线下预约",
-    description: "客户、预约时间与协助人员",
-    icon: "calendar",
-  },
-  {
-    screen: "offline",
-    label: "线下维修",
-    description: "到岗签到、日志填写与结束打卡",
-    icon: "edit-outline",
-  },
-  {
-    screen: "online",
-    label: "线上维修",
-    description: "无需预约，直接填写维修日志",
-    icon: "computer",
-  },
-  {
-    screen: "records",
-    label: "维修记录",
-    description: "工单进度、用料与审核",
-    icon: "calendar",
-  },
-  {
-    screen: "inspection",
-    label: "巡检管理",
-    description: "巡检任务、对象检查与异常办结",
-    icon: "search",
-  },
-];
-const screen = ref<Screen>("hub");
+const screen = ref<Screen>("records");
 const history = ref<Screen[]>([]);
-const orders = ref(createOrders());
-const reports = ref(createReports());
+const orders = ref(createOrders(userStore.identity.userId));
 const selectedOrder = ref<PreviewOrder | null>(null);
-const selectedReport = ref<ReturnType<typeof createReports>[number] | null>(
-  null,
-);
-const reportStatuses = ["全部", "未处理", "已接单", "已驳回"];
+const canOperate = computed(() => !!selectedOrder.value && (props.canManage ||
+  (!!userStore.identity.userId && selectedOrder.value.ownerId === userStore.identity.userId)));
 const orderStatuses = [
   "全部状态",
   "未开始",
@@ -743,10 +471,16 @@ const orderStatuses = [
   "已完结",
   "已关闭",
 ];
-const reportFilter = ref("全部");
 const modeFilter = ref("全部");
 const statusFilter = ref("全部状态");
 const query = ref("");
+const searchDraft = ref('');
+const repairStatusOptions = orderStatuses.slice(1).map(status => ({
+  value: status, label: status,
+  color: status === '已完结' ? '#237046' : status === '已关闭' ? '#667085' : ['待审批', '待确认', '待评价'].includes(status) ? '#996515' : '#176ac7',
+}));
+function searchOrders() { query.value = searchDraft.value.trim(); page.value = 1; }
+function resetOrders() { searchDraft.value = ''; query.value = ''; statusFilter.value = '全部状态'; modeFilter.value = '全部'; page.value = 1; }
 const page = ref(1);
 const formKey = ref(0);
 const scrollTop = ref(0);
@@ -755,7 +489,6 @@ const message = ref("");
 const action = ref("");
 const actionError = ref("");
 const remark = ref("");
-const acceptMode = ref<RepairMode>("offline");
 const selectedPeople = ref<string[]>([]);
 const laborCost = ref("0");
 const materialCost = ref("0");
@@ -773,28 +506,17 @@ const totalCost = computed(() =>
     2,
   ),
 );
-const filteredReports = computed(() =>
-  reports.value.filter(
-    (r) =>
-      (reportFilter.value === "全部" || r.status === reportFilter.value) &&
-      `${r.id}${r.customer}${r.equipment}`
-        .toLowerCase()
-        .includes(query.value.trim().toLowerCase()),
-  ),
-);
 const filteredOrders = computed(() =>
   orders.value.filter(
     (o) =>
+      (props.canManage || (!!userStore.identity.userId && o.ownerId === userStore.identity.userId)) &&
       (statusFilter.value === "全部状态" || o.status === statusFilter.value) &&
       (modeFilter.value === "全部" ||
         o.mode === (modeFilter.value === "线上维修" ? "online" : "offline")) &&
-      `${o.id}${o.customer}`
+      `${o.id}${o.customer}${o.equipment}${o.projectName || ''}`
         .toLowerCase()
         .includes(query.value.trim().toLowerCase()),
   ),
-);
-const pagedReports = computed(() =>
-  filteredReports.value.slice((page.value - 1) * 5, page.value * 5),
 );
 const pagedOrders = computed(() =>
   filteredOrders.value.slice((page.value - 1) * 5, page.value * 5),
@@ -809,14 +531,12 @@ async function focusTop() {
 }
 watch(screen, focusTop);
 function navigate(target: Screen) {
+  if (['reservation', 'offline', 'online', 'material'].includes(target) && !canOperate.value) return;
   if (target === screen.value) return;
-  if (target === "hub") history.value = [];
-  else history.value.push(screen.value);
+  history.value.push(screen.value);
   screen.value = target;
   action.value = "";
   actionError.value = "";
-  query.value = "";
-  page.value = 1;
   formKey.value++;
 }
 function back() {
@@ -824,27 +544,36 @@ function back() {
     action.value = "";
     return;
   }
-  if (screen.value === "hub") emit("close");
+  if (screen.value === 'reports' && intakePanel.value?.backToList()) return;
+  if (!history.value.length) emit("close");
   else {
-    screen.value = history.value.pop() || "hub";
-    query.value = "";
-    page.value = 1;
+    screen.value = history.value.pop() || "records";
     formKey.value++;
   }
-}
-function openEntry(target: Screen) {
-  selectedOrder.value =
-    target === "offline"
-      ? orders.value.find(
-          (o) => o.mode === "offline" && o.status === "未开始",
-        ) || null
-      : null;
-  navigate(target);
 }
 function openOrder(order: PreviewOrder) {
   selectedOrder.value = order;
   navigate("detail");
 }
+function openHomeEntry(entry: IntakeView | 'records' | 'inspection') {
+  if (entry === 'records') resetOrders();
+  if (entry === 'records' || entry === 'inspection') screen.value = entry;
+  else {
+    intakeEntry.value = entry;
+    intakeRequest.value++;
+    screen.value = 'reports';
+  }
+  history.value = [];
+  action.value = '';
+  query.value = '';
+  page.value = 1;
+}
+function receiveOrder(order: PreviewOrder) { orders.value.unshift(order); }
+function openIntakeOrder(id: string) {
+  const order = orders.value.find(item => item.id === id);
+  if (order) openOrder(order);
+}
+defineExpose({ openHomeEntry });
 function tone(status: string) {
   return ["已完结", "已接单"].includes(status)
     ? "badge--success"
@@ -855,11 +584,11 @@ function tone(status: string) {
         : "";
 }
 function openAction(name: string) {
+  if (!canOperate.value) return;
   action.value = name;
   actionError.value = "";
   remark.value = "";
   selectedPeople.value = [];
-  acceptMode.value = "offline";
   laborCost.value = String(selectedOrder.value?.costs?.labor || 0);
   materialCost.value = String(selectedOrder.value?.costs?.material || 0);
 }
@@ -870,39 +599,9 @@ function selectPerson(p: string) {
     i < 0 ? selectedPeople.value.push(p) : selectedPeople.value.splice(i, 1);
   }
 }
-function confirmAccept(continueNow: boolean) {
-  const report = selectedReport.value;
-  if (!report || report.status !== "未处理") return;
-  report.status = "已接单";
-  const order: PreviewOrder = {
-    ...createOrders()[0],
-    id: `DEMO-GZ-${orders.value.length + 1}`,
-    customer: report.customer,
-    equipment: report.equipment,
-    fault: report.fault,
-    mode: acceptMode.value,
-    events: [`关联报修 ${report.id} · 已接单（演示）`],
-    logs: [],
-  };
-  orders.value.unshift(order);
-  selectedOrder.value = orders.value[0];
-  action.value = "";
-  message.value = "已演示接单；未发送到服务器。";
-  if (continueNow)
-    navigate(acceptMode.value === "offline" ? "reservation" : "online");
-}
 function completeForm(data: PreviewFormData) {
-  let order = selectedOrder.value;
-  if (!order) {
-    orders.value.unshift({
-      ...createOrders()[0],
-      id: `DEMO-GZ-${orders.value.length + 1}`,
-      mode: screen.value === "online" ? "online" : "offline",
-      logs: [],
-      events: [],
-    });
-    order = orders.value[0];
-  }
+  if (!canOperate.value || !selectedOrder.value) return;
+  const order = selectedOrder.value;
   Object.assign(order, {
     customer: data.customer,
     contact: data.contact,
@@ -947,15 +646,17 @@ function completeForm(data: PreviewFormData) {
   selectedOrder.value = order;
   message.value = "已展示填写结果；未发送到服务器。";
   navigate("detail");
-  history.value = ["hub", "records"];
+  history.value = ["records"];
 }
 function openMaterial(mode: "apply" | "return") {
+  if (!canOperate.value) return;
   materialMode.value = mode;
   materialRows.value = materialOptions.map((m) => ({ ...m }));
   remark.value = "";
   navigate("material");
 }
 function submitMaterial() {
+  if (!canOperate.value) return;
   if (!selectedOrder.value) return;
   if (
     materialRows.value.some(
@@ -981,8 +682,9 @@ function submitMaterial() {
   navigate("detail");
 }
 function confirmAction() {
+  if (!canOperate.value) return;
   if (
-    ["驳回", "关闭工单", "转单"].includes(action.value) &&
+    ["关闭工单", "转单"].includes(action.value) &&
     !remark.value.trim()
   ) {
     actionError.value = "请填写原因";
@@ -995,12 +697,8 @@ function confirmAction() {
     actionError.value = "请选择人员";
     return;
   }
-  if (action.value === "驳回" && selectedReport.value) {
-    selectedReport.value.status = "已驳回";
-    selectedReport.value.reason = remark.value;
-  }
   const order = selectedOrder.value;
-  if (order && action.value !== "驳回") {
+  if (order) {
     if (action.value === "提交审核") {
       if (["待申请", "待库管入库"].includes(order.returnState)) {
         actionError.value = "还料尚未入库，当前不能演示提交审核";
@@ -1036,6 +734,7 @@ function confirmAction() {
   action.value = "";
 }
 function respondTransfer(status: "已接收" | "已驳回" | "已撤回") {
+  if (!canOperate.value) return;
   const order = selectedOrder.value;
   if (!order?.transfer || order.transfer.status !== "待接收") return;
   order.transfer.status = status;
@@ -1061,33 +760,7 @@ function viewPhotos(current: string, urls: string[]) {
 }
 .preview-shell {
   height: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
   background: #f3f5f8;
-}
-.preview-nav {
-  flex-shrink: 0;
-  padding: env(safe-area-inset-top) 12px 0;
-  min-height: 48px;
-  background: #fff;
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 64px;
-  align-items: center;
-  border-bottom: 1px solid #edf0f3;
-}
-.preview-nav > .title {
-  text-align: center;
-  font-size: 16px;
-}
-.preview-nav > .btn:last-child {
-  text-align: right;
-}
-.nav-back {
-  display: flex;
-  align-items: center;
-  gap: 3px;
 }
 .preview-body {
   flex: 1;
@@ -1095,6 +768,9 @@ function viewPhotos(current: string, urls: string[]) {
   min-height: 0;
 }
 .preview-content {
+  box-sizing: border-box;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 12px 12px calc(22px + env(safe-area-inset-bottom));
 }
 .intro {
@@ -1251,6 +927,28 @@ function viewPhotos(current: string, urls: string[]) {
 .list-count {
   padding: 12px 2px;
 }
+.repair-filters { padding: 12px; margin: -12px -12px 0; background: #fff; }
+.repair-search, .repair-filter-row, .repair-select { display: flex; align-items: center; gap: 12px; }
+.repair-input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; font-size: 16px; background: #f4f6f8; border-radius: 8px; }
+.repair-filters button { margin: 0; padding: 0 16px; font-size: 14px; line-height: 44px; flex: none; border-radius: 8px; }
+.repair-filters button::after { border: 0; }
+.repair-query { color: #fff; background: #176ac7; }
+.repair-filter-row { margin-top: 8px; }
+.repair-picker { flex: 1; min-width: 0; }
+.repair-select { min-height: 44px; justify-content: space-between; font-size: 14px; color: #333; }
+.repair-reset { background: #f4f6f8; color: #176ac7; }
+.repair-tabs { display: flex; margin-top: 8px; border-bottom: 1px solid #eef0f5; }
+.repair-tabs button { flex: 1; padding: 0 4px; color: #667085; background: transparent; border-radius: 0; }
+.repair-tabs button.active { color: #176ac7; font-weight: 600; border-bottom: 2px solid #176ac7; }
+.repair-card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+.repair-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.repair-card__no { min-width: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; color: #333; }
+.repair-card__name { font-size: 16px; font-weight: 600; color: #222; margin-bottom: 8px; overflow-wrap: anywhere; }
+.repair-row { display: flex; margin-top: 6px; line-height: 1.6; }
+.repair-label { width: 60px; font-size: 13px; color: #667085; flex: none; }
+.repair-value { flex: 1; min-width: 0; font-size: 13px; color: #333; overflow-wrap: anywhere; }
+.repair-fault { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.repair-card:focus-visible, .repair-input:focus-visible, .repair-filters button:focus-visible { outline: 2px solid #176ac7; outline-offset: 2px; }
 .search-row {
   display: flex;
   gap: 10px;

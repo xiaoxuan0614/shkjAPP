@@ -336,20 +336,7 @@
             placeholder="填写故障现象和排查结果"
           />
         </view>
-        <view v-if="mode === 'offline' && form.nature !== '全包'" class="field"
-          ><text class="field-label">报价状态</text
-          ><view class="choices"
-            ><button
-              v-for="s in ['待报价', '报价完成', '客户弃修']"
-              :key="s"
-              class="choice"
-              :class="{ on: form.quote === s }"
-              @click="form.quote = s"
-            >
-              {{ s }}
-            </button></view
-          ></view
-        >
+        <view class="field"><text class="field-label">报价情况</text><text class="muted">{{ order?.quoteStatus || '历史示例，未关联报价' }} · 需要报价时，维修前完成内部确认</text></view>
       </view>
     </template>
     <template v-if="mode === 'offline' && step === 2">
@@ -535,7 +522,7 @@ const form = reactive<PreviewFormData>({
   description: "",
   reason: "",
   photos: [],
-  quote: "待报价",
+  quote: props.order?.quoteStatus || '',
   vehicle: "",
   mileage: "",
   materials,
