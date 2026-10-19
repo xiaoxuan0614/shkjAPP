@@ -20,6 +20,36 @@ function finish(c, needsQuote = '是', result = '维修完成') {
   Object.assign(w.activeLog(c), { position: '机柜', fault: '断电', description: '检查电源', needsQuote, result })
   w.finishLog(c, techA, now + 3600000)
 }
+test('assistance supports multiple company users without immediate membership', () => {
+  const c = fresh(), users = [{ id: 'company-u1', name: '用户一' }, { id: 'company-u2', name: '用户二' }]
+  assert.throws(() => w.requestAssistance(c, supervisor, users, '协助排查'), /负责人/)
+  assert.throws(() => w.requestAssistance(c, techA, [], '原因'), /请选择/)
+  assert.throws(() => w.requestAssistance(c, techA, users, ' '), /原因/)
+  w.requestAssistance(c, techA, users, '协助排查')
+  assert.equal(c.assistanceRequests[0].users.length, 2)
+  assert.equal(c.assistanceRequests[0].status, '待双主管审批')
+  assert.equal(c.assistants.length, 0)
+  assert.throws(() => w.requestAssistance(c, techA, users, '重复申请'), /重复/)
+  assert.throws(() => w.requestAssistance(c, techA, [{ id: techA.id, name: techA.name }], '本人'), /重复/)
+})
+test('material applications validate limits and reserve returns without clearing balances', () => {
+  const c = fresh()
+  assert.throws(() => w.requestRepairMaterials(c, supervisor, '领料', [{ id: 'DEMO-M1', qty: 1, reason: '' }], ''), /负责人/)
+  assert.throws(() => w.requestRepairMaterials(c, techA, '领料', [{ id: 'DEMO-M1', qty: 21, reason: '' }], ''), /范围/)
+  assert.throws(() => w.requestRepairMaterials(c, techA, '领料', [{ id: 'DEMO-M1', qty: NaN, reason: '' }], ''), /至少/)
+  w.requestRepairMaterials(c, techA, '领料', [{ id: 'REAL-M1', qty: 2, reason: '', material: { id: 'REAL-M1', name: '真实目录物料', spec: 'A', unit: '件', stock: 0 } }, { id: 'REAL-M2', qty: 3.5, reason: '', material: { id: 'REAL-M2', name: '真实目录物料2', spec: 'B', unit: '米', stock: 1 } }], '用于检修')
+  assert.equal(c.materialRequests[0].lines[0].material.name, '真实目录物料')
+  assert.equal(c.materialRequests[0].status, '待运维主管审批')
+  w.startLog(c, techA, now); finish(c, '否')
+  assert.match(w.completionBlock(c), /待处理申请/)
+  assert.throws(() => w.requestException(c, techA, '关闭', '其他', '原因'), /物料未结清/)
+  c.materialOpen = true
+  assert.throws(() => w.requestRepairMaterials(c, techA, '还料', [{ id: 'DEMO-M1', qty: 0.5, reason: '' }], ''), /差异原因/)
+  w.requestRepairMaterials(c, techA, '还料', [{ id: 'DEMO-M1', qty: 1, reason: '' }], '')
+  assert.equal(w.returnAvailable(c, 'DEMO-M1'), 0)
+  assert.equal(c.materialOpen, true)
+  assert.throws(() => w.requestRepairMaterials(c, techA, '还料', [{ id: 'DEMO-M1', qty: 1, reason: '' }], ''), /范围/)
+})
 test('default demo identities can see repair records without relaxing reporter access', () => {
   const rows = w.createWorkflowFixtures(now)
   assert.equal(w.demoActors[w.defaultDemoActorIndex(false)].role, 'technician')

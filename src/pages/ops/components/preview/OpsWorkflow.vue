@@ -88,8 +88,15 @@
                 <view v-if="selected.confirmedPrice != null" class="kv"><text>客户确认价</text><text>¥{{ selected.confirmedPrice.toFixed(2) }}</text></view>
                 <text v-if="selected.quoteReason" class="muted">审批意见：{{ selected.quoteReason }}</text>
               </SectionCard>
-              <SectionCard v-if="selected.materialOpen || selected.completion !== '未提交'" :title="selected.materialOpen ? '物料与完工' : '完工信息'">
+              <SectionCard v-if="selected.assistanceRequests?.length" title="协助申请">
+                <view v-for="(request, index) in selected.assistanceRequests" :key="index" class="log-entry"><text class="description">{{ request.users.map(u => u.name).join('、') }}</text><text class="muted">{{ request.reason }}</text><text class="muted">{{ request.status }}（Mock，审批办理待对接）</text></view>
+              </SectionCard>
+              <SectionCard v-if="selected.materialRequests?.length" title="物料申请记录">
+                <view v-for="(request, index) in selected.materialRequests" :key="index" class="log-entry"><text class="description">{{ request.type }} · {{ request.status }}（Mock）</text><text v-for="line in request.lines" :key="line.id" class="muted">{{ line.material?.name || repairMaterials.find(m => m.id === line.id)?.name }}：{{ line.qty }} {{ line.material?.unit || repairMaterials.find(m => m.id === line.id)?.unit }}{{ line.reason ? `；差异原因：${line.reason}` : '' }}</text><text v-if="request.remark" class="muted">备注：{{ request.remark }}</text></view>
+              </SectionCard>
+              <SectionCard v-if="selected.materialOpen || selected.materialRequests?.length || selected.completion !== '未提交'" :title="selected.materialOpen || selected.materialRequests?.length ? '物料与完工' : '完工信息'">
                 <view v-if="selected.materialOpen" class="kv"><text>物料结清</text><text>未结清（示例：电源 1 件）</text></view>
+                <text v-if="selected.materialRequests?.length" class="muted">有待处理物料申请，审批及库管执行尚未对接，暂不能提交完工。</text>
                 <view v-if="selected.completion !== '未提交'" class="kv"><text>完工审批</text><text>{{ selected.completion }}</text></view>
                 <view v-if="selected.finalPrice != null" class="kv"><text>最终维修价</text><text>¥{{ selected.finalPrice.toFixed(2) }}</text></view>
                 <text v-if="selected.completionReason" class="muted">审批意见：{{ selected.completionReason }}</text>
@@ -165,6 +172,8 @@
               <textarea v-model="exceptionRemark" class="textarea" maxlength="1000" aria-label="申请备注" placeholder="填写备注（必填）" />
             </SectionCard>
           </template>
+          <RepairAssistanceForm v-else-if="screen === 'assistance' && selected && owner" ref="assistanceForm" :excluded="[selected.ownerId, ...selected.assistants, ...(selected.assistanceRequests ?? []).flatMap(r => r.users.map(u => u.id))]" @submit="submitAssistance" />
+          <RepairMaterialForm v-else-if="screen === 'materials' && selected && owner" ref="materialForm" :key="materialType" :repair="selected" :type="materialType" @submit="submitMaterials" />
           <OpsPreviewInspection v-else-if="screen === 'inspection'" />
           <view v-else class="empty">当前身份无权查看此内容<button class="btn" @click="go('reports')">返回报修列表</button></view>
         </view>
@@ -196,10 +205,19 @@ import PageLayout from '@/components/PageLayout/PageLayout.vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import ReportAttachments from './ReportAttachments.vue'
 import OpsPreviewInspection from './OpsPreviewInspection.vue'
+import RepairAssistanceForm from './RepairAssistanceForm.vue'
+import RepairMaterialForm from './RepairMaterialForm.vue'
+import { requestAssistance, requestRepairMaterials, repairMaterials, type AssistUser, type MaterialLine } from './repairWorkflow'
 import { demoActors, demoCustomers, createWorkflowFixtures, createCase, canSeeReport, canSeeRepair, isOwner, activeLog, blockReason, startLog, finishLog, submitQuote, quoteTotal, canApproveQuote, approveQuote, confirmCustomer, completionBlock, submitCompletion, approveCompletion, requestException, totalHours, waitText, defaultDemoActorIndex, type DemoRole, type RepairCase, type ReportDraft, type QuoteLine } from './repairWorkflow'
 const props = defineProps<{ canManage: boolean }>()
 const emit = defineEmits<{ close: []; 'role-change': [role: DemoRole] }>()
-type Screen = 'create' | 'reports' | 'records' | 'detail' | 'log' | 'quote' | 'customer' | 'completion' | 'approval' | 'exception' | 'inspection'
+type Screen = 'create' | 'reports' | 'records' | 'detail' | 'log' | 'quote' | 'customer' | 'completion' | 'approval' | 'exception' | 'inspection' | 'assistance' | 'materials'
+const assistanceForm = ref<InstanceType<typeof RepairAssistanceForm>>()
+const materialForm = ref<InstanceType<typeof RepairMaterialForm>>()
+const materialType = ref<'领料' | '还料'>('领料')
+function submitAssistance(users: AssistUser[], reason: string) { run(() => requestAssistance(selected.value!, actor.value, users, reason)) }
+function submitMaterials(lines: MaterialLine[], remark: string) { run(() => requestRepairMaterials(selected.value!, actor.value, materialType.value, lines, remark)) }
+function openMaterials(type: '领料' | '还料') { materialType.value = type; go('materials') }
 const screen = ref<Screen>('reports'), source = ref<Screen>('reports')
 const actorIndex = ref(defaultDemoActorIndex(props.canManage))
 const actor = computed(() => demoActors[actorIndex.value])
@@ -240,8 +258,8 @@ const paged = computed(() => filtered.value.slice((page.value - 1) * 5, page.val
 watch([query, filter, relation, pendingOnly], () => { page.value = 1 })
 watch(page, scrollToTop)
 watch(pageCount, value => { if (page.value > value) page.value = value })
-const titles: Record<Screen, string> = { create: '填写报修', reports: '报修管理', records: '维修列表', detail: '维修详情', log: '填写维修日志', quote: '填写报价', customer: '客户确认维修', completion: '提交完工', approval: '审批详情', exception: '申请处理', inspection: '巡检管理' }
-const title = computed(() => screen.value === 'detail' && source.value === 'reports' ? '报修详情' : titles[screen.value])
+const titles: Record<Screen, string> = { create: '填写报修', reports: '报修管理', records: '维修列表', detail: '维修详情', log: '填写维修日志', quote: '填写报价', customer: '客户确认维修', completion: '提交完工', approval: '审批详情', exception: '申请处理', inspection: '巡检管理', assistance: '申请协助', materials: '物料申请' }
+const title = computed(() => screen.value === 'materials' ? `${materialType.value}申请` : screen.value === 'detail' && source.value === 'reports' ? '报修详情' : titles[screen.value])
 const reportRows = computed(() => selected.value ? [['客户', selected.value.customer], ['项目', selected.value.project], ['产品', selected.value.product], ['报修人', selected.value.applicant], ['报修时间', selected.value.reportedAt], ['故障现象', selected.value.fault], ['备注', selected.value.remark || '—']] : [])
 const emptyDraft = (): ReportDraft => ({ customerId: '', projectId: '', product: '', fault: '', reportedAt: dayjs().format('YYYY-MM-DD'), remark: '', photos: [], videos: [] })
 const draft = reactive(emptyDraft())
@@ -331,6 +349,8 @@ const footerActions = computed<FooterAction[]>(() => {
   }
   if (screen.value === 'approval' && (canApproveQuote(c, actor.value) || (actor.value.role === 'supervisor' && c.completion === '待审批'))) return [{ text: '驳回', action: () => review(false) }, { text: '审批通过', action: () => review(true), primary: true }]
   if (!owner.value || terminal.value) return []
+  if (screen.value === 'assistance') return primary('提交协助申请', () => assistanceForm.value?.submit())
+  if (screen.value === 'materials') return primary(`提交${materialType.value}申请`, () => materialForm.value?.submit())
   if (screen.value === 'log' && currentLog.value) return primary('保存并结束打卡', endWork)
   if (screen.value === 'quote') return primary('提交报价审批', () => run(() => submitQuote(c, actor.value, quoteDraft.value)))
   if (screen.value === 'customer') return primary('确认维修价格', confirmPrice)
@@ -346,7 +366,7 @@ const moreGroups = computed(() => {
   if (!currentLog.value && !blockReason(c) && !work.some(op => op.text === '继续维修' || op.text === '开始维修')) work.push({ text: '再开始一次维修', action: startWork })
   return [
     ...(work.length ? [{ title: '维修办理', items: work }] : []),
-    { title: '人员与物料', items: [{ text: '申请协助 · 未开放', disabled: true, action: () => {} }, { text: '物料申请 · 未开放', disabled: true, action: () => {} }] },
+    { title: '人员与物料', items: [{ text: '申请协助', action: () => go('assistance') }, { text: '领料申请', action: () => openMaterials('领料') }, { text: '申请还料', action: () => openMaterials('还料') }] },
     { title: '单据流转', items: [{ text: '申请转单', action: () => openException('转单') }, { text: '申请关闭', action: () => openException('关闭') }] },
   ]
 })

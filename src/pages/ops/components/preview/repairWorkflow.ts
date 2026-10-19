@@ -26,6 +26,16 @@ export const demoCustomers = [
 export type MainState = '待处理' | '进行中' | '已完成' | '已关闭'
 export type QuoteState = '未判断' | '待报价' | '无需报价' | '报价审批中' | '审批通过待客户确认' | '审批驳回' | '报价已确认'
 export interface QuoteLine { name: string; qty: number; price: number }
+export interface AssistUser { id: string; name: string }
+export interface AssistanceRequest { users: AssistUser[]; reason: string; status: '待双主管审批' }
+export const repairMaterials = [
+  { id: 'DEMO-M1', name: '开关电源', spec: '通用 · 12V / 5A', unit: '件', stock: 20 },
+  { id: 'DEMO-M2', name: '网络线', spec: '通用 · 六类', unit: '米', stock: 100 },
+  { id: 'DEMO-M3', name: '接线端子', spec: '通用 · 2.5mm²', unit: '个', stock: 50 },
+]
+export interface RepairMaterial { id: string; name: string; spec: string; unit: string; stock: number; code?: string; brand?: string }
+export interface MaterialLine { id: string; qty: number; reason: string; material?: RepairMaterial }
+export interface RepairMaterialRequest { type: '领料' | '还料'; lines: MaterialLine[]; remark: string; status: string }
 export interface RepairLog {
   id: string; actorId: string; startedAt: number; endedAt?: number
   mode: '线上' | '线下' | '检修'; position: string; fault: string; needsQuote: '' | '是' | '否'
@@ -42,6 +52,33 @@ export interface RepairCase {
   completion: '未提交' | '待审批' | '已驳回' | '已通过'; completionReason: string
   pendingRequest?: { type: '转单' | '关闭'; reason: string; remark: string }
   materialOpen: boolean; events: string[]
+  assistanceRequests?: AssistanceRequest[]
+  materialRequests?: RepairMaterialRequest[]
+}
+export function requestAssistance(c: RepairCase, a: DemoActor, users: AssistUser[], reason: string) {
+  requireOwner(c, a); requireOpen(c)
+  if (!users.length || !reason.trim()) throw new Error('请选择协助人员并填写申请原因')
+  const ids = users.map(u => u.id)
+  if (new Set(ids).size !== ids.length || users.some(u => !u.id || !u.name.trim() || u.id === c.ownerId || c.assistants.includes(u.id) || c.assistanceRequests?.some(r => r.users.some(p => p.id === u.id)))) throw new Error('所选人员重复、已加入或已有待审批申请，请重新选择')
+  ;(c.assistanceRequests ??= []).push({ users: users.map(u => ({ ...u })), reason: reason.trim(), status: '待双主管审批' })
+  c.events.push('提交协助申请，等待运维主管与所选人员角色主管审批（模拟）')
+}
+export function returnAvailable(c: RepairCase, id: string) {
+  const balance = c.materialOpen && id === 'DEMO-M1' ? 1 : 0
+  const pending = (c.materialRequests ?? []).filter(r => r.type === '还料').flatMap(r => r.lines).filter(l => l.id === id).reduce((n, l) => n + l.qty, 0)
+  return Math.max(0, balance - pending)
+}
+export function requestRepairMaterials(c: RepairCase, a: DemoActor, type: '领料' | '还料', lines: MaterialLine[], remark: string) {
+  requireOwner(c, a); requireOpen(c)
+  if (!lines.length || !lines.some(l => l.qty > 0) || new Set(lines.map(l => l.id)).size !== lines.length) throw new Error('请选择物料，至少一项数量须大于 0')
+  for (const line of lines) {
+    const material = type === '领料' ? line.material : repairMaterials.find(m => m.id === line.id)
+    const max = type === '还料' ? returnAvailable(c, line.id) : material?.stock ?? 0
+    if (!material || material.id !== line.id || !material.name || !Number.isFinite(line.qty) || line.qty < 0 || (type === '领料' && line.qty === 0) || (type === '还料' && (max <= 0 || line.qty > max)) || Math.abs(line.qty * 10000 - Math.round(line.qty * 10000)) > 0.000001) throw new Error('请选择有效物料并填写有效数量，还料不得超过可申请范围，最多 4 位小数')
+    if (type === '还料' && line.qty !== max && !line.reason.trim()) throw new Error('还料数量与应还数量不一致，请填写差异原因')
+  }
+  ;(c.materialRequests ??= []).push({ type, lines: lines.map(l => ({ ...l, ...(l.material ? { material: { ...l.material } } : {}) })), remark: remark.trim(), status: type === '领料' ? '待运维主管审批' : '待库管核对' })
+  c.events.push(`提交${type}申请（模拟），不直接变更库存或结清物料`)
 }
 export function canSeeReport(c: RepairCase, a: DemoActor) {
   if (a.role === 'supervisor') return true
@@ -122,7 +159,7 @@ export function completionBlock(c: RepairCase) {
   if (activeLog(c)) return '请先结束维修打卡'
   if (!['无需报价', '报价已确认'].includes(c.quoteState)) return '报价需为无需报价或报价已确认'
   if (c.logs[c.logs.length - 1]?.result !== '维修完成') return '最近一次维修尚未完成，请继续维修'
-  if (c.materialOpen) return '存在未结清物料，暂不能提交完工'
+  if (c.materialOpen || c.materialRequests?.length) return '存在未结清物料或待处理申请，暂不能提交完工'
   return ''
 }
 export function submitCompletion(c: RepairCase, a: DemoActor, price?: number) {
@@ -143,7 +180,7 @@ export function approveCompletion(c: RepairCase, a: DemoActor, approved: boolean
 export function requestException(c: RepairCase, a: DemoActor, type: '转单' | '关闭', reason: string, remark: string) {
   requireOwner(c, a); requireOpen(c)
   if (activeLog(c)) throw new Error('请先结束维修打卡')
-  if (type === '关闭' && c.materialOpen) throw new Error('物料未结清，不能申请关闭')
+  if (type === '关闭' && (c.materialOpen || c.materialRequests?.length)) throw new Error('物料未结清，不能申请关闭')
   const reasons = type === '关闭' ? ['客户弃修', '不是问题', '其他'] : ['个人问题', '病假']
   if (!reasons.includes(reason) || !remark.trim()) throw new Error('请选择原因并填写备注')
   c.pendingRequest = { type, reason, remark: remark.trim() }; c.events.push(`${type}申请待主管审批：${reason}；${remark.trim()}`)
