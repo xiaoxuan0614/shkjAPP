@@ -73,7 +73,7 @@ export async function getQuotationRecord(periodId: string, candidateId: string) 
 }
 
 export async function getQuotationAccess(periodId: string, candidateId: string) {
-  return unwrapQuotation(await http.get('/project/materialCandidate/permissions', { periodId, candidateId }))
+  return unwrapQuotation(await http.get('/project/materialCandidate/permissions', { periodId, ...(candidateId ? { candidateId } : {}) }))
 }
 
 export function canApproveQuotation(record: any, access: any, hasPermission: (code: string) => boolean) {

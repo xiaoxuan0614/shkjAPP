@@ -21,6 +21,10 @@ const COMMON_AUTHENTICATED_PAGES = new Set([
 ])
 
 const PAGE_PARENT_ACCESS: Record<string, string[]> = {
+  '/pages/stock/purchaseApply': ['/pages/stock/purchaseList'],
+  // 兼容尚未同步新入口的原采购菜单；不借用领料或其他模块权限。
+  '/pages/stock/purchaseList': ['/pages/stock/purchaseApply'],
+  '/pages/home/quotationEdit': ['/pages/home/quotationList'],
   '/pages/customer/repair': ['/pages/customer/home'],
   '/pages/customer/repairRecord': ['/pages/customer/home'],
   '/pages/customer/repairDetail': ['/pages/customer/home'],

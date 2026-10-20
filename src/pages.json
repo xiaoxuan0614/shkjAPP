@@ -132,6 +132,24 @@
       }
     },
     {
+      "path": "pages/home/quotationEdit",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "编辑报价",
+        "navigationStyle": "custom",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/home/quotationList",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "报价管理",
+        "navigationStyle": "custom",
+        "disableScroll": true
+      }
+    },
+    {
       "path": "pages/home/todoList",
       "type": "page",
       "style": {
@@ -296,6 +314,24 @@
       "type": "page",
       "style": {
         "navigationBarTitleText": "申请详情"
+      }
+    },
+    {
+      "path": "pages/stock/purchaseApply",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "采购申请",
+        "navigationStyle": "custom",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/stock/purchaseList",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "采购管理",
+        "navigationStyle": "custom",
+        "disableScroll": true
       }
     }
   ],

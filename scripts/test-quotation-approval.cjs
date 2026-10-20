@@ -166,7 +166,7 @@ async function main() {
   const source = fs.readFileSync(root + '/src/pages/home/quotationDetail.vue', 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
   let latest = { ...record }, access = { canApprove: true }, calls = [], postError = false, handleBack
   const page = evaluate(source + '\nmodule.exports = { record, access, loading, materials, fees, items, rows, page, canApprove, openItem, opinion, saveOpinion, review, actionError, processed, submitting, rejectReason, documentPreviewVisible, drawerVisible, summaryColumns, tableColumns, quotationTotal, showQuoteRatio };', {
-    vue, '@dcloudio/uni-app': { onLoad() {}, onUnload() {}, onBackPress(callback) { handleBack = callback } },
+    vue, '@dcloudio/uni-app': { onLoad() {}, onShow() {}, onUnload() {}, onBackPress(callback) { handleBack = callback } },
     '@/utils/http': { http: { post: async (url, body) => { if (postError) throw new Error('网络异常'); calls.push({ url, body }); return { success: true } } } },
     '@/store/permission': { usePermissionStore: () => ({ loaded: true, hasPermission: () => true }) },
     '@/store/user': { useUserStore: () => ({ userInfo: {}, identity: { departmentIds: [] } }) },
