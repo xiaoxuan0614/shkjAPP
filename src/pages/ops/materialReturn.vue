@@ -188,7 +188,7 @@ const submit = async () => {
   }
   if (!selected.some(item => Number(item.returnQty) > 0)) return toast.warning('请至少填写一条大于 0 的还料数量')
   const payload = {
-    applyType: 'IN', bizType: 'RETURN', usageType: 'PROJECT', periodId,
+    applyType: 'IN', usageType: 'PROJECT', periodId,
     ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
     itemList: selected.map(item => ({
       materialId: item.materialId, unitName: item.unitName, unitQty: Number(item.returnQty),

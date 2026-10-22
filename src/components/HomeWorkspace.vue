@@ -306,7 +306,7 @@ type WorkbenchPresentation = Pick<WorkEntry, "icon" | "tone"> & {
 
 const toast = useToast();
 const userStore = useUserStore();
-// op 分支首页展示演示流程；正式业务仍待接口对接。
+// 报修、维修沿用工作台入口；数据范围和业务操作权限由维修接口控制。
 const canViewOpsPreview = computed(() => userStore.isLogined);
 const opsSessionKey = computed(() => `${userStore.identity.userId}:${userStore.userInfo.username}:${userStore.userInfo.tenantId}`);
 const canManageOps = computed(() => userStore.identity.roleCodes.some(role => ['admin', 'operations_manager'].includes(role)));

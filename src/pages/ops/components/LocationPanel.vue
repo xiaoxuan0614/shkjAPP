@@ -40,7 +40,7 @@
         <view class="location-name">{{ location.name || '尚未获取当前位置' }}</view>
         <view class="location-address">{{ location.address || '打卡前请先完成定位' }}</view>
       </view>
-      <text class="location-status">{{ statusText }}</text>
+      <text class="location-status">{{ statusLabel || statusText }}</text>
     </view>
   </view>
 </template>
@@ -69,6 +69,7 @@ const props = defineProps<{
   locating?: boolean
   sites?: ImplementationSite[]
   suspended?: boolean
+  statusLabel?: string
 }>()
 
 const emit = defineEmits<{

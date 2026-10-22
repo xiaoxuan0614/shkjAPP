@@ -6,10 +6,10 @@
         <view class="dot"></view>
         <text>{{ title }}</text>
       </view>
-      <view class="section-card__extra" @click="$emit('extraClick')">
+      <slot name="extra"><view class="section-card__extra" @click="$emit('extraClick')">
         <text class="extra-text">{{ extra }}</text>
         <text v-if="extra" class="extra-arrow">›</text>
-      </view>
+      </view></slot>
     </view>
     <slot></slot>
   </view>

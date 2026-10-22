@@ -1,10 +1,10 @@
 <template>
-  <view class="attachments">
+  <view class="attachments" :class="{ 'attachments--compact': compact }">
     <text class="media-hint">照片 {{ photoCount }}/{{ maxPhotos }}，视频 {{ videoCount }}/{{ maxVideos }}<text v-if="hint">；{{ hint }}</text></text>
     <view class="media-grid">
       <view v-for="(item, index) in items" :key="`${item.type}-${item.path}-${index}`" class="media-card">
         <image v-if="item.type === 'image'" class="media-card__preview" :src="resolveUrl(item.path)" mode="aspectFill" @click="emit('preview', item)" />
-        <VideoCover v-else :height="108" :src="resolveUrl(item.path)" @preview="emit('preview', item)" />
+        <VideoCover v-else :height="compact ? 80 : 108" :src="resolveUrl(item.path)" @preview="emit('preview', item)" />
         <view class="media-card__footer">
           <text>{{ item.type === 'video' ? '视频' : '照片' }} {{ index + 1 }}</text>
           <button v-if="!readonly" class="media-card__remove" :disabled="busy || item.status === 'uploading'" :aria-label="`删除${item.type === 'video' ? '视频' : '照片'} ${index + 1}`" @click="remove(index)">删除</button>
@@ -29,7 +29,7 @@ export interface MediaAttachment {
   error?: string
 }
 const props = withDefaults(defineProps<{
-  items: MediaAttachment[]; readonly?: boolean; busy?: boolean; maxPhotos?: number; maxVideos?: number
+  items: MediaAttachment[]; readonly?: boolean; busy?: boolean; maxPhotos?: number; maxVideos?: number; compact?: boolean
   hint?: string; error?: string; busyText?: string; resolveUrl?: (path: string) => string
 }>(), { readonly: false, busy: false, maxPhotos: 6, maxVideos: 2, hint: '', error: '', busyText: '正在处理…', resolveUrl: (path: string) => path })
 const emit = defineEmits<{ add: []; remove: [index: number]; preview: [item: MediaAttachment]; retry: [index: number] }>()
@@ -40,6 +40,10 @@ function remove(index: number) { if (!props.readonly && !props.busy && props.ite
 
 <style scoped>
 .attachments { min-width: 0; }
+.attachments--compact .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.attachments--compact .media-card__preview { height: 80px; }
+.attachments--compact .add-media { min-height: 124px; padding: 8px; }
+.attachments--compact .media-card__footer { padding: 0 6px; }
 .media-hint { display: block; margin-bottom: 10px; font-size: 12px; line-height: 1.6; color: #68788a; }
 .media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .media-card { overflow: hidden; background: #f6f8fa; border: 1px solid #e3e8ee; border-radius: 10px; }
