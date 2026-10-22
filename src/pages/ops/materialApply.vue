@@ -695,7 +695,6 @@ const submit = async () => {
     const user = userStore.userInfo as any
     const res: any = await stockApi.addApply({
       applyType: 'OUT',
-      bizType: 'PICK',
       usageType: usageType.value,
       ...(isProjectUsage.value
         ? {
