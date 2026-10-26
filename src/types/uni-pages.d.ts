@@ -16,6 +16,8 @@ interface NavigateToOptions {
        "/pages/dispatch/detail" |
        "/pages/dispatch/list" |
        "/pages/home/quotationDetail" |
+       "/pages/home/quotationEdit" |
+       "/pages/home/quotationList" |
        "/pages/home/todoList" |
        "/pages/login/login" |
        "/pages/login/loginOauth2" |
@@ -39,6 +41,8 @@ interface NavigateToOptions {
        "/pages/role/index" |
        "/pages/stock/materialApply" |
        "/pages/stock/materialDetail" |
+       "/pages/stock/purchaseApply" |
+       "/pages/stock/purchaseList" |
        "/pages-user/location/location" |
        "/pages-user/organization/organization" |
        "/pages-user/userDetail/userDetail" |

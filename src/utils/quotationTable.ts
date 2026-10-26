@@ -10,7 +10,7 @@ export function quotationDisplayColumns(record: any, access: any, personnelRoute
     { key: 'unit', title: '单位', kind: 'unit' },
     { key: 'quantity', title: '数量', kind: 'number' },
     ...(cost ? [{ key: 'basePrice', title: '成本单价', kind: 'price' }, { key: 'costTotal', title: '成本总价', kind: 'price' }] : []),
-    ...(!direct && rate ? [{ key: 'markupRate', title: '指导比例', kind: 'price' }] : []),
+    ...(!direct && rate ? [{ key: 'markupRate', title: '加价比例（%）', kind: 'price' }] : []),
     ...(quote ? [{ key: 'finalPrice', title: direct ? '报价单价' : '指导价', kind: 'price' }] : []),
     ...(direct && quote && rate ? [{ key: 'quotationPercent', title: '报价比例', kind: 'price' }] : []),
     ...(quote && (direct || String(record.status) === '1') ? [{ key: 'guideTotal', title: direct ? '报价总价' : '指导总价', kind: 'price' }] : []),
@@ -57,11 +57,10 @@ export function quotationPercent(cost: unknown, price: unknown) {
 export function quotationCell(item: any, key: string) {
   if (key === 'costTotal') return quotationLineTotal(item.basePrice, item.quantity)
   if (key === 'guideTotal') return quotationLineTotal(item.finalPrice, item.quantity)
-  if (key === 'quotationPercent') return quotationPercent(item.basePrice, item.finalPrice)
+  if (key === 'quotationPercent' || key === 'markupRate') return quotationPercent(item.basePrice, item.finalPrice)
   const value = item[key]
   if (value == null || value === '') return '—'
   if (key === 'basePrice' || key === 'finalPrice') return Number.isFinite(Number(value)) ? `¥${Number(value).toFixed(2)}` : '—'
-  if (key === 'markupRate') return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : '—'
   return String(value)
 }
 

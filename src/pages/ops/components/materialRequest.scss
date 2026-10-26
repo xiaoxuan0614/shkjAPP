@@ -1,4 +1,26 @@
 // Matches stock/materialDetail: identity, quantity summary, then operation panel.
+.request-material.request-material--compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 10px 0;
+  .request-material__identity { min-width: 0; }
+  .request-material__heading { display: block; }
+  .request-material__name { display: block; font-size: 14px; line-height: 1.4; }
+  .request-material__spec { margin-top: 2px; font-size: 12px; line-height: 1.4; }
+  .request-material__operation { margin: 0; padding: 0; background: transparent; }
+  .request-material__operation-row { display: block; }
+  .request-material__label { display: block; margin-bottom: 3px; text-align: right; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+  .request-material__control { gap: 4px; width: 140px; }
+  .request-material__step { width: 40px; }
+  .request-material__input { width: 52px; min-width: 0; }
+  .request-material__operation-footer { grid-column: 1 / -1; margin-top: 2px; }
+  .request-material__actions { display: flex; flex: none; align-items: center; gap: 8px; }
+  .request-material__fill { background: transparent; border: 0; }
+  .request-material__reason { grid-column: 1 / -1; margin-top: 6px; padding-top: 8px; }
+  .request-material__reason .request-material__label { text-align: left; font-weight: 600; }
+}
 .request-material {
   padding: 16px 0;
   border-top: 1px solid #edf0f3;

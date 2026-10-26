@@ -21,29 +21,29 @@
 
       <SectionCard title="还料信息">
         <view v-if="!items.length" class="empty-tip">{{ materialsLoading ? '正在加载可还料物料…' : materialsError ? '物料加载失败，请重试' : selectedProject ? '暂无可还料物料' : '选择项目后查看可还料物料' }}<button v-if="materialsError" @click="loadMaterials">重新加载</button></view>
-        <view v-for="m in visibleItems" :key="m.materialId" class="request-material">
-          <view class="request-material__heading"><text class="request-material__name">{{ m.name }}</text><text class="request-material__code">{{ m.materialCode || '暂无编码' }}</text></view>
-          <text class="request-material__spec">规格：{{ m.spec || '暂无规格' }}</text>
-          <view class="request-material__summary">
-            <view><text class="request-material__summary-label">应还数量</text><text class="request-material__value">{{ m.shouldReturnQty }}</text><text class="request-material__unit">{{ m.unitName }}</text></view>
-            <view><text class="request-material__summary-label">本次还料</text><text class="request-material__value">{{ m.returnQty === '' ? '—' : m.returnQty }}</text><text class="request-material__unit">{{ m.unitName }}</text></view>
+        <view v-for="m in visibleItems" :key="m.materialId" class="request-material request-material--compact">
+          <view class="request-material__identity">
+            <view class="request-material__heading"><text class="request-material__name">{{ m.name }}</text></view>
+            <text class="request-material__spec">{{ m.spec || '品牌型号未提供' }}</text>
           </view>
           <view class="request-material__operation">
             <view class="request-material__operation-row">
-                <text class="request-material__label">本次还料</text>
+                <text class="request-material__label">数量（{{ m.unitName || '单位未提供' }}）</text>
                 <view class="request-material__control">
                   <button class="request-material__step" :disabled="submitting || submitted || Number(m.returnQty) <= 0" :aria-label="`减少${m.name}还料数量`" @click="stepReturnQty(m, -1)"><wd-icon name="minus-circle" size="18px" /></button>
                   <input v-model="m.returnQty" class="request-material__input" type="digit" inputmode="decimal" :disabled="submitting || submitted" :aria-label="`${m.name}本次还料数量`" placeholder="数量" placeholder-style="color:#767676" />
                   <button class="request-material__step" :disabled="submitting || submitted || Number(m.returnQty) >= m.shouldReturnQty" :aria-label="`增加${m.name}还料数量`" @click="stepReturnQty(m, 1)"><wd-icon name="add-circle" size="18px" /></button>
-                  <button class="request-material__fill" :disabled="submitting || submitted" :aria-label="`全部归还${m.name}`" @click="m.returnQty = String(m.shouldReturnQty)">全部</button>
                 </view>
             </view>
-            <text class="request-material__hint">本次最多可还 {{ m.shouldReturnQty }} {{ m.unitName }}</text>
+          </view>
+          <view class="request-material__operation-footer">
+            <text class="request-material__hint">应还 {{ m.shouldReturnQty }} {{ m.unitName }}</text>
+            <button class="request-material__fill" :disabled="submitting || submitted" :aria-label="`全部归还${m.name}`" @click="m.returnQty = String(m.shouldReturnQty)">全部</button>
+          </view>
             <view v-if="needsDifferenceReason(m)" class="request-material__reason">
               <text class="request-material__label">差异原因（必填）</text>
               <textarea v-model="m.differenceReason" :disabled="submitting || submitted" :aria-label="`${m.name}还料差异原因`" placeholder="说明本次还料数量与系统应还数量不一致的原因" placeholder-style="color:#767676" />
             </view>
-          </view>
         </view>
         <view v-if="items.length" class="return-pagination">
           <button :disabled="materialPage <= 1" @click="materialPage--">上一页</button><text>{{ materialPage }} / {{ materialPages }} · 共 {{ items.length }} 项</text><button :disabled="materialPage >= materialPages" @click="materialPage++">下一页</button>
@@ -79,6 +79,7 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useToast } from 'wot-design-uni'
+import { canReturnAtStage } from '@/service/materialReturnAccess'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { projectApi, stockApi, unwrapRecords, formatProjectName } from '@/service/shkj'
 
@@ -108,11 +109,11 @@ const loadProjects = async () => {
   if (projectsLoading.value) return
   projectsLoading.value = true; projectsError.value = false
   try {
-    // 不传状态或用户 ID：后端返回当前成员已确认参与的全部项目分期。
+    // 后端限制当前已确认成员；前端再限制筹备中起的可还料阶段。
     const response = await projectApi.participatedProjects()
     const unique = new Map<string, any>()
     unwrapRecords(response).forEach(project => { if (project.periodId) unique.set(String(project.periodId), project) })
-    projects.value = [...unique.values()]
+    projects.value = [...unique.values()].filter(project => canReturnAtStage(project.periodStatus ?? project.status))
   } catch { projects.value = []; projectsError.value = true }
   finally { projectsLoading.value = false }
 }
@@ -134,6 +135,7 @@ onLoad(async (query) => {
   if (!requestedId) return
   const project = projects.value.find(item => String(item.periodId) === requestedId)
   if (project) selectProject(project)
+  else toast.warning('当前项目不在可还料范围或您尚未确认参与，请重新选择项目')
 })
 
 const loadMaterials = async () => {
@@ -155,7 +157,7 @@ const loadMaterials = async () => {
         const qty = Number(row.remainingReturnQty)
         if (row.materialId && Number.isFinite(qty) && qty > 0) all.set(String(row.materialId), {
           materialId: String(row.materialId), name: row.materialName || '未命名物料', materialCode: row.materialCode || '',
-          spec: [row.brand, row.model].filter(Boolean).join(' / '), unitName: row.baseUnitName || '',
+          spec: [row.brand_dictText || row.brand, row.model].filter(Boolean).join(' · '), unitName: row.baseUnitName || '',
           shouldReturnQty: qty, returnQty: String(qty), differenceReason: '',
         })
       }
@@ -202,6 +204,15 @@ const submit = async () => {
       success: result => resolve(Boolean(result.confirm)), fail: () => resolve(false),
     }))
     if (!confirmed) return
+    const [latest, participation]: any[] = await Promise.all([
+      projectApi.detail(periodId), projectApi.participatedProjects(),
+    ])
+    const current = latest?.result
+    if (!current || !canReturnAtStage(current.periodStatus ?? current.status) ||
+      !unwrapRecords(participation).some(project => String(project.periodId) === periodId)) {
+      toast.warning('项目阶段或参与资格已变化，请重新选择项目')
+      return
+    }
     const res: any = await stockApi.addApply(payload)
     returnNo.value = String(res?.result?.applyNo || '')
     submissionMessage.value = String(res?.result?.status) === '1' ? '申请已通过，等待库管办理入库。' : String(res?.result?.status) === '2' ? '等待审批，通过后由库管办理入库。' : '请在申请记录中查看审批和入库进度。'

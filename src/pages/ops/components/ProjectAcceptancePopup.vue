@@ -167,6 +167,7 @@
                 >
                   上传{{ field.label }}
                 </button>
+                <text v-if="canEdit(type)" class="acceptance__muted">支持图片、DOCX、PDF、Excel，最大20MB；网页查看 Excel 请使用 XLSX。不能只修改文件后缀。</text>
               </view>
               <view
                 v-if="
@@ -240,6 +241,9 @@
 </template>
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+// #ifdef H5
+import { checkPreviewSignature } from "@/utils/filePreviewRead";
+// #endif
 import dayjs from "dayjs";
 import { useToast } from "wot-design-uni";
 import { useUserStore } from "@/store/user";
@@ -573,12 +577,19 @@ async function upload(type: AcceptanceType, key: string, limit: number) {
       // #endif
     });
     if (
-      !/\.(png|jpe?g|webp|gif|bmp|docx?|pdf|xlsx?)$/i.test(
+      !/\.(png|jpe?g|webp|gif|bmp|docx|pdf|xlsx?)$/i.test(
         file.name || file.path || "",
       ) ||
       Number(file.size) > 20 * 1024 * 1024
     )
-      throw new Error("请选择 20MB 以内的图片、Word、PDF 或 Excel");
+      throw new Error("请选择 20MB 以内的图片、DOCX、PDF 或 Excel，不支持旧版 DOC");
+    // #ifdef H5
+    const extension = String(file.name || '').split('.').pop()?.toLowerCase() || '';
+    if (['docx', 'pdf', 'xlsx'].includes(extension)) {
+      if (!file.file?.arrayBuffer) throw new Error('无法读取文件内容，请重新选择文件');
+      checkPreviewSignature(await file.file.arrayBuffer(), extension);
+    }
+    // #endif
     const response: any = await http.upload("/sys/common/upload", {
       filePath: file.path,
       name: "file",

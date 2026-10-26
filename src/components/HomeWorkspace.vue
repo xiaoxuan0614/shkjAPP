@@ -384,6 +384,15 @@ const avatarText = computed(() => String(displayName.value).slice(0, 1));
 const normalizedPath = (path: string) => path.split("?")[0];
 
 const workbenchPresentation: Record<string, WorkbenchPresentation> = {
+  "/pages/stock/purchaseList": {
+    icon: "goods", tone: "orange", section: "office", label: "采购管理",
+  },
+  "/pages/stock/purchaseApply": {
+    icon: "goods", tone: "orange", section: "office", label: "采购申请",
+  },
+  "/pages/home/quotationList": {
+    icon: "file", tone: "blue", section: "office", label: "报价管理",
+  },
   "/pages/ops/repairOffline": {
     icon: "tools",
     tone: "blue",

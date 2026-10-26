@@ -24,14 +24,14 @@
     "spacing": "3px",
     "list": [
       {
-        "iconPath": "/static/tabbar/tabbar-home-2.png",
-        "selectedIconPath": "/static/tabbar/tabbar-home.png",
+        "iconPath": "static/tabbar/tabbar-home-2.png",
+        "selectedIconPath": "static/tabbar/tabbar-home.png",
         "pagePath": "pages/home/index",
         "text": "首页"
       },
       {
-        "iconPath": "/static/tabbar/tabbar-user-2.png",
-        "selectedIconPath": "/static/tabbar/tabbar-user.png",
+        "iconPath": "static/tabbar/tabbar-user-2.png",
+        "selectedIconPath": "static/tabbar/tabbar-user.png",
         "pagePath": "pages/customer/mine",
         "text": "我的"
       }
@@ -128,6 +128,24 @@
       "type": "page",
       "style": {
         "navigationBarTitleText": "报价详情",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/home/quotationEdit",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "编辑报价",
+        "navigationStyle": "custom",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/home/quotationList",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "报价管理",
+        "navigationStyle": "custom",
         "disableScroll": true
       }
     },
@@ -296,6 +314,24 @@
       "type": "page",
       "style": {
         "navigationBarTitleText": "申请详情"
+      }
+    },
+    {
+      "path": "pages/stock/purchaseApply",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "采购申请",
+        "navigationStyle": "custom",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/stock/purchaseList",
+      "type": "page",
+      "style": {
+        "navigationBarTitleText": "采购管理",
+        "navigationStyle": "custom",
+        "disableScroll": true
       }
     }
   ],
