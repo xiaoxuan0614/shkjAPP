@@ -1,6 +1,15 @@
 <template>
   <view v-if="files.length" class="repair-files" :class="{ 'repair-files--inline': inline }">
-    <scroll-view :scroll-x="inline" class="repair-files-scroll">
+    <view v-if="editable" class="repair-edit-grid">
+      <view v-for="(file, index) in files" :key="file.fileId" class="repair-edit-card">
+        <button class="repair-edit-preview" :disabled="busy || disabled" :aria-label="`预览附件 ${index + 1}`" @click="preview(file)">
+          <image v-if="thumbnails[file.fileId]" :src="thumbnails[file.fileId]" mode="aspectFill" @error="thumbnailErrors[file.fileId] = true" v-show="!thumbnailErrors[file.fileId]" />
+          <view v-if="!thumbnails[file.fileId] || thumbnailErrors[file.fileId]" class="repair-edit-placeholder"><wd-icon :name="file.mediaType === 'VIDEO' ? 'play-circle' : 'image'" size="28px" /><text>{{ file.mediaType === 'VIDEO' ? '点击播放视频' : thumbnailErrors[file.fileId] ? '加载失败，点击重试' : '正在加载…' }}</text></view>
+        </button>
+        <view class="repair-edit-footer"><text>{{ file.mediaType === 'VIDEO' ? '视频' : '照片' }} {{ index + 1 }}</text><button :disabled="disabled || busy" @click="emit('remove', file.fileId)">移除</button></view>
+      </view>
+    </view>
+    <scroll-view v-else :scroll-x="inline" class="repair-files-scroll">
     <view class="repair-files-items" :class="{ 'repair-files-items--inline': inline }">
     <button v-for="(file, index) in files" :key="file.fileId" class="repair-file" :disabled="busy" @click="preview(file)">
       <wd-icon :name="file.mediaType === 'VIDEO' ? 'play-circle' : 'image'" />
@@ -17,13 +26,36 @@
   </view>
 </template>
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { downloadRepairAttachment } from '@/service/repairOrder'
-defineProps<{ files: {fileId:string; mediaType:string; fileName?:string; fileNameSnapshot?:string}[]; inline?:boolean }>()
+const props = defineProps<{ files: {fileId:string; mediaType:string; fileName?:string; fileNameSnapshot?:string}[]; inline?:boolean; editable?:boolean; disabled?:boolean }>()
+const emit = defineEmits<{ remove: [fileId: string] }>()
+const thumbnails = ref<Record<string, string>>({})
+const thumbnailErrors = ref<Record<string, boolean>>({})
+const pending = new Set<string>()
 const busy = ref(false), showVideo = ref(false), videoUrl = ref('')
 const showImage = ref(false), imageUrl = ref('')
 const mediaError = ref('')
 let disposed = false
+watch(() => props.editable ? props.files.map(file => file.fileId).join(',') : '', async () => {
+  const ids = new Set(props.files.map(file => file.fileId))
+  for (const id of Object.keys(thumbnails.value)) {
+    if (!ids.has(id)) { release(thumbnails.value[id]); delete thumbnails.value[id]; delete thumbnailErrors.value[id] }
+  }
+  if (!props.editable) return
+  // Only fetch image thumbnails; videos are downloaded on demand.
+  for (const file of props.files.filter(file => file.mediaType === 'IMAGE')) {
+    if (disposed) return
+    if (thumbnails.value[file.fileId] || pending.has(file.fileId)) continue
+    pending.add(file.fileId)
+    try {
+      const url = await downloadRepairAttachment(file.fileId)
+      if (disposed || !props.files.some(item => item.fileId === file.fileId)) release(url)
+      else thumbnails.value[file.fileId] = url
+    } catch { thumbnailErrors.value[file.fileId] = true }
+    finally { pending.delete(file.fileId) }
+  }
+}, { immediate: true })
 function release(url: string) {
   // #ifdef H5
   if (url.startsWith('blob:')) URL.revokeObjectURL(url)
@@ -46,7 +78,7 @@ async function preview(file: {fileId:string;mediaType:string}) {
   } catch (e: any) { uni.showToast({title:e.message || '附件加载失败',icon:'none'}) }
   finally { busy.value = false }
 }
-onBeforeUnmount(() => { disposed = true; closePreview() })
+onBeforeUnmount(() => { disposed = true; closePreview(); Object.values(thumbnails.value).forEach(release) })
 </script>
 <style scoped>
 .repair-files { min-width:0; margin-top:12px; }
@@ -58,4 +90,12 @@ onBeforeUnmount(() => { disposed = true; closePreview() })
 .repair-file { margin:0; padding:8px 12px; max-width:100%; line-height:1.5; font-size:14px; color:#1769c2; overflow-wrap:anywhere; }
 .repair-video { width:85vw; padding:12px; background:#fff; }
 .repair-video video { width:100%; }
+.repair-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.repair-edit-card { overflow:hidden; border:1px solid #e3e8ee; border-radius:10px; background:#f6f8fa; }
+.repair-edit-preview { display:block; width:100%; height:108px; margin:0; padding:0; background:#f6f8fa; }
+.repair-edit-preview image { width:100%; height:100%; }
+.repair-edit-placeholder { display:flex; height:100%; flex-direction:column; align-items:center; justify-content:center; gap:8px; font-size:12px; color:#475569; }
+.repair-edit-footer { display:flex; align-items:center; justify-content:space-between; padding:0 10px; font-size:13px; color:#475569; }
+.repair-edit-footer button { min-height:44px; min-width:44px; margin:0; padding:0; background:transparent; color:#a13a3a; font-size:13px; line-height:44px; }
+.repair-edit-card button::after { border:none; }
 </style>

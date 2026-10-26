@@ -11,9 +11,12 @@ function setup(file, overrides){
  if(n==='@dcloudio/uni-app')return {onLoad:()=>{}}
  if(n in overrides)return overrides[n]
  if(n.endsWith('.vue'))return {}
+ if(n==='@/service/repairQuotationDictionary')return {loadRepairQuotationDictionary:async()=>[],repairQuotationText:(value)=>value||'—'}
  if(n==='@/store/user')return {useUserStore:()=>({identity:{userId:'me'},userInfo:{realname:'测试'}})}
- if(n==='./repairWorkflow') { const m={exports:{}};vm.runInNewContext(compile(fs.readFileSync('src/pages/ops/components/preview/repairWorkflow.ts','utf8')),m);return m.exports }
+ if(n==='./repairView') { const m={exports:{}};vm.runInNewContext(compile(fs.readFileSync('src/pages/ops/components/preview/repairView.ts','utf8')),m);return m.exports }
  if(n==='@/service/repairAdditional') { const m={exports:{},require};vm.runInNewContext(compile(fs.readFileSync('src/service/repairAdditional.ts','utf8')),m);return m.exports }
+ if(n==='@/service/repairCollaboration') { const m={exports:{},require:()=>({http:{}})};vm.runInNewContext(compile(fs.readFileSync('src/service/repairCollaboration.ts','utf8')),m);return m.exports }
+ if(n==='@/service/repairWorkMaterials') { const m={exports:{}};vm.runInNewContext(compile(fs.readFileSync('src/service/repairWorkMaterials.ts','utf8')),m);return m.exports }
  return require(n)
  }}
  vm.runInNewContext(compile(script.content),box)
@@ -43,7 +46,8 @@ async function main(){
  assert.equal(requests.at(-1).workStatus,'COMPLETED')
  p.openHomeEntry('reports');await tick();assert.equal(requests.at(-1).scope,'REPORTED')
  assert.ok(descriptor.template.content.includes('@scrolltolower="loadMore"'))
- assert.ok(!descriptor.template.content.includes('上一页'))
+ const orderList=descriptor.template.content.split("['reports', 'records'].includes(screen)")[1].split("screen === 'detail'")[0]
+ assert.ok(!orderList.includes('上一页'),'order list remains infinite scroll; personnel logs may paginate separately')
  scope.stop()
  let logRequests=[],logRespond=async()=>({result:{records:[{id:'l1',periodId:'p'}],total:21}})
  const {page:l,scope:ls}=setup('src/pages/ops/implementRecords.vue',{'@/service/shkj':{projectApi:{},unwrapRecords:x=>x},'@/service/implementationRecords':{implementationRecordsApi:{list:(...q)=>{logRequests.push(q);return logRespond(...q)}}},'@/utils/http':{http:{}}})

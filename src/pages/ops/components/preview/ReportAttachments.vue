@@ -1,6 +1,6 @@
 <template>
   <view class="report-media">
-    <MediaAttachments :items="items" :readonly="readonly" :busy="busy" :error="mediaError" :compact="compact" :max-photos="Math.max(0, 6 - existingPhotos)" :max-videos="Math.max(0, 2 - existingVideos)" busy-text="正在选择…"
+    <MediaAttachments :items="items" :readonly="readonly" :busy="busy" :error="mediaError" :compact="compact" :max-photos="6" :max-videos="2" :existing-photos="existingPhotos" :existing-videos="existingVideos" busy-text="正在选择…"
       :hint="readonly ? '本次报修附件' : '可拍摄或从相册选择；提交时上传，单个文件不超过 400 MB'"
       @add="chooseAttachment" @remove="removeAttachment" @preview="previewAttachment" />
     <wd-popup v-model="videoVisible" position="center" :z-index="12000" @close="videoVisible = false">

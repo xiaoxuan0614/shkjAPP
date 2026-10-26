@@ -12,7 +12,8 @@ const http = {
 const source = fs.readFileSync('src/service/repairOrder.ts','utf8').replaceAll('import.meta.env','({MODE:"test"})')
 const code = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
 const exportsObject = {}
-vm.runInNewContext(code, {exports:exportsObject,require: name => {
+let uploadResponse={success:true,code:200,message:'repair/photo.jpg'},uploadOptions
+vm.runInNewContext(code, {exports:exportsObject,uni:{uploadFile:options=>{uploadOptions=options;options.success({statusCode:200,data:JSON.stringify(uploadResponse)})}},require: name => {
   if (name === '@/utils/http') return {http}
   if (name === '@/store/user') return {useUserStore:() => ({userInfo:{token:'test-only'}})}
   if (name === '@/utils/platform') return {isH5:false}
@@ -22,6 +23,15 @@ vm.runInNewContext(code, {exports:exportsObject,require: name => {
 const {repairReportPayload,repairCaseView,repairOrderApi} = exportsObject
 const plain = value => JSON.parse(JSON.stringify(value))
 async function main() {
+  assert.equal(await exportsObject.uploadRepairAttachment('local-photo'),'repair/photo.jpg')
+  assert.equal(uploadOptions.url,'/api/sys/common/upload')
+  assert.equal(uploadOptions.name,'file');assert.equal(uploadOptions.formData.biz,'repair')
+  for(const bad of [{success:false,code:500,message:'上传失败'},{success:true,code:200,result:{id:'legacy'}},{success:true,code:200,message:'https://oss.example/photo.jpg'},{success:true,code:200,message:'../photo.jpg'}]) {
+    uploadResponse=bad;await assert.rejects(exportsObject.uploadRepairAttachment('local-photo'))
+  }
+  uploadResponse={success:true,code:200,message:'repair/video.mp4'}
+  assert.equal(await exportsObject.uploadRepairAttachment('local-video'),'repair/video.mp4')
+  assert.equal(repairCaseView({id:'q',quotationStatus:'WITHDRAWN'}).quotationStatus,'WITHDRAWN')
   const input = {customerId:'c',periodId:'p',productNames:['产品一','产品二'],faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人'}
   assert.deepEqual(plain(repairReportPayload({...input,orderId:'must-not-send',version:10,requestId:'must-not-send'})),{
     customerId:'c',periodId:'p',productNames:'产品一,产品二',faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人',
@@ -58,13 +68,14 @@ async function main() {
     assert.equal(calls.at(-1)[1],path)
   }
   await repairOrderApi.workDetail('o','r')
-  for(const [method,path] of Object.entries({confirmUse:'/repair/material/confirmUse',writeoff:'/repair/material/writeoff',closeRemainder:'/repair/material/closeRemainder',withdraw:'/repair/application/withdraw',memberExit:'/repair/member/exit',contact:'/repair/order/contact',clockCorrection:'/repair/clockCorrection/submit',missingClock:'/repair/work/missingClock',evaluation:'/repair/evaluation/submit'})) {
+  for(const [method,path] of Object.entries({withdraw:'/repair/application/withdraw',memberExit:'/repair/member/exit',clockCorrection:'/repair/clockCorrection/submit',missingClock:'/repair/work/missingClock',evaluation:'/repair/evaluation/submit'})) {
     await repairOrderApi[method]({orderId:'o'})
     assert.equal(calls.at(-1)[1],path)
     assert.equal(calls.at(-1)[0],'POST')
   }
   await repairOrderApi.workDetail('o','r')
   assert.deepEqual(plain(calls.at(-1)),['GET','/repair/work/detail',{orderId:'o',recordId:'r'}])
+  for(const kind of ['confirmUse','writeoff','closeRemainder','contact']) assert.equal(repairOrderApi[kind],undefined)
   await repairOrderApi.personOptions('o')
   assert.deepEqual(plain(calls.at(-1)),['GET','/repair/work/personOptions',{orderId:'o'}])
   response={success:false,code:200,message:'业务拒绝'}
@@ -83,7 +94,7 @@ async function main() {
   const workflow=fs.readFileSync('src/pages/ops/components/preview/OpsWorkflow.vue','utf8')
   assert.doesNotMatch(workflow,/\b(startLog|finishLog|requestAssistance|requestRepairMaterials|approveQuote|approveCompletion|requestException)\(/)
   assert.match(workflow,/actions\.canViewRepairDetail/)
-  assert.match(workflow,/t\.canHandle === true/)
+  assert.match(workflow,/repairReviewTasks/)
   console.log('PASS: report payload, response mapping, migrated work API routes, business errors, Vue compilation, no mock mutations')
 }
 main().catch(e=>{console.error(e);process.exitCode=1})

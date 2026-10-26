@@ -1,3 +1,4 @@
+import type { AssignmentInput, AssignmentOptions } from './repairCollaboration'
 import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
 import { isH5 } from '@/utils/platform'
@@ -70,19 +71,14 @@ export const repairOrderApi = {
     if (!orderId || !reason.trim() || reason.trim().length > 1000) throw new Error('请填写取消原因，最多 1000 字符')
     return mutate('/repair/order/reportCancel',{orderId,reason:reason.trim()})
   },
-  async confirmUse(payload: Record<string, unknown>) { return mutate('/repair/material/confirmUse',payload) },
-  async writeoff(payload: Record<string, unknown>) { return mutate('/repair/material/writeoff',payload) },
-  async closeRemainder(payload: Record<string, unknown>) { return mutate('/repair/material/closeRemainder',payload) },
   async withdraw(payload: Record<string, unknown>) { return mutate('/repair/application/withdraw',payload) },
   async memberExit(payload: Record<string, unknown>) { return mutate('/repair/member/exit',payload) },
-  async contact(payload: Record<string, unknown>) { return mutate('/repair/order/contact',payload) },
   async clockCorrection(payload: Record<string, unknown>) { return mutate('/repair/clockCorrection/submit',payload) },
   async missingClock(payload: Record<string, unknown>) { return mutate('/repair/work/missingClock',payload) },
   async evaluation(payload: Record<string, unknown>) { return mutate('/repair/evaluation/submit',payload) },
-  async materialUse(payload: Record<string, unknown>) { return mutate('/repair/material/use', payload) },
   async materialApply(payload: Record<string, unknown>) { return mutate('/stock/apply/add', payload) },
-  async options(type: 'vehicles' | 'internal' | 'external' | 'roles', sourcePersonId?: string) {
-    return result<{value: string; label: string}[]>(await http.get('/repair/options', { type, ...(sourcePersonId ? { sourcePersonId } : {}) }))
+  async options(type: 'vehicles' | 'internal' | 'external' | 'roles' | 'collaborationMembers', sourcePersonId?: string) {
+    return result<{value: string; label: string; departmentId?: string; departmentName?: string}[]>(await http.get('/repair/options', { type, ...(sourcePersonId ? { sourcePersonId } : {}) }))
   },
   async begin(payload: Record<string, unknown>) { return mutate('/repair/work/begin', payload) },
   async workDetail(orderId: string, recordId?: string) { return result<any>(await http.get('/repair/work/detail', {orderId, ...(recordId ? {recordId} : {})})) },
@@ -97,6 +93,19 @@ export const repairOrderApi = {
   async completion(payload: Record<string, unknown>) { return mutate('/repair/completion/submit', payload) },
   async transfer(payload: Record<string, unknown>) { return mutate('/repair/transfer/submit', payload) },
   async close(payload: Record<string, unknown>) { return mutate('/repair/close/submit', payload) },
+  async assignmentOptions(applicationId:string,departmentId:string):Promise<AssignmentOptions> {
+    const response:any = await http.get('/repair/collaboration/assignmentOptions',{applicationId,departmentId})
+    if(response?.success !== true || response.code !== 200) throw Object.assign(new Error(response?.message || '当前不可指定人员'),{success:false})
+    const data=response.result
+    if(data?.departmentId !== departmentId || !Array.isArray(data.members)) throw new Error('人员候选响应不完整')
+    return data
+  },
+  async assignCollaboration(payload:AssignmentInput) {
+    const response:any = await http.post('/repair/collaboration/assign',payload)
+    if(response?.success === false || (response?.code != null && response.code !== 200)) throw Object.assign(new Error(response?.message || '指定人员失败'),{success:false})
+    if(response?.success !== true || response.code !== 200) throw new Error('指派响应不完整，请重试同一请求核对结果')
+    return response.result
+  },
   async collaboration(payload: Record<string, unknown>) { return mutate('/repair/collaboration/submit', payload) },
   async review(payload: Record<string, unknown>) { return mutate('/repair/application/review', payload) },
   async reportOptions(query: { keyword?: string; customerId?: string; periodId?: string } = {}) {
@@ -123,21 +132,25 @@ export const repairOrderApi = {
 
 export function uploadRepairAttachment(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const path = '/repair/order/attachment/upload'
+    const path = '/sys/common/upload'
     const url = isH5 && import.meta.env.MODE === 'development' && JSON.parse(import.meta.env.VITE_APP_PROXY)
       ? import.meta.env.VITE_APP_PROXY_PREFIX.replace(/\/$/, '') + path
       : getEnvBaseUrl().replace(/\/$/, '') + path
     uni.uploadFile({
       url,
       filePath, name: 'file',
+      formData: { biz: 'repair' },
       timeout: 180000,
       header: { 'X-Access-Token': useUserStore().userInfo.token },
       success(response) {
         try {
           if (response.statusCode < 200 || response.statusCode >= 300) throw new Error('附件上传失败')
-          const file = result<{ id: string }>(JSON.parse(response.data))
-          if (!file.id) throw new Error('附件未返回文件ID')
-          resolve(file.id)
+          const file = JSON.parse(response.data)
+          if (file.success === false || (file.code != null && ![0, 200].includes(Number(file.code)))) throw new Error(file.message || '附件上传失败')
+          const relativePath = typeof file.message === 'string' ? file.message.trim() : ''
+          // New uploads are local relative paths; saved snapshot IDs remain unchanged during edits.
+          if (!relativePath || !relativePath.includes('/') || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(relativePath) || relativePath.includes('..') || relativePath.includes('\\')) throw new Error('附件未返回有效的相对路径，请重新上传')
+          resolve(relativePath)
         } catch (error) { reject(error) }
       },
       fail: reject,
@@ -159,11 +172,6 @@ export function downloadRepairAttachment(id: string): Promise<string> {
 
 const stateLabels: Record<string, string> = {
   DRAFT: '草稿', PENDING: '待处理', PROCESSING: '进行中', COMPLETED: '已完成', CLOSED: '已关闭',
-}
-const quoteLabels: Record<string, string> = {
-  UNDETERMINED: '未判断', NOT_REQUIRED: '无需报价', TO_QUOTE: '待报价', PENDING_QUOTATION: '待报价',
-  HEAD_REVIEW: '报价审批中', GM_REVIEW: '报价审批中', RETURNED: '审批驳回',
-  WAIT_CUSTOMER: '审批通过待客户确认', CONFIRMED: '报价已确认',
 }
 
 /** Translate server fields into the incumbent card view, without deriving permissions. */
@@ -195,8 +203,7 @@ export function repairCaseView(data: Record<string, any>) {
     ownerId: order.responsibleUserId || '', owner: order.responsibleUserName || '—',
     previousOwners: [] as string[], assistants: [] as string[],
     state: stateLabels[order.workStatus] || order.workStatus || '—',
-    logs, quoteState: quoteLabels[order.quotationStatus] || order.quotationStatus || '未判断',
-    quoteStep: order.quotationStatus === 'HEAD_REVIEW' ? '主管' : order.quotationStatus === 'GM_REVIEW' ? '总经理' : '',
+    logs, quotationStatus: order.quotationStatus == null ? '' : String(order.quotationStatus),
     quoteItems: (data.quotationItems || []).filter((i: any) => i.quotationId === order.latestQuotationId).map((i: any) => ({ name: i.itemName, qty: Number(i.quantity), price: Number(i.unitPrice) })),
     confirmedPrice: quotation?.customerConfirmedAmount == null ? undefined : Number(quotation.customerConfirmedAmount),
     finalPrice: order.finalAmount == null ? undefined : Number(order.finalAmount),

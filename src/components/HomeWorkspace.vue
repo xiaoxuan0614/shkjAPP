@@ -90,6 +90,7 @@
             <text>菜单权限暂未同步，功能页仍由后端接口鉴权。点击重试。</text>
           </view>
           <view v-if="todoLoading && !todoList.length" class="empty">正在加载待办…</view>
+          <view v-if="todoOpening" class="empty" role="status">正在打开待办，请稍候…</view>
           <view v-else-if="!todoList.length && !todoError" class="empty">暂无待办事项</view>
           <view v-if="todoList.length">
           <view
@@ -239,9 +240,15 @@
 </template>
 
 <script lang="ts" setup>
+import { repairTodoTarget, repairTodoUrl } from "@/service/repairCollaboration";
 import { computed, ref, watch } from "vue";
 const props = withDefaults(defineProps<{ todoOnly?: boolean }>(), { todoOnly: false });
-const openTodoList = () => uni.navigateTo({ url: '/pages/home/todoList' });
+let todoListNextOpenAt = 0;
+const openTodoList = () => {
+  if (Date.now() < todoListNextOpenAt) return;
+  todoListNextOpenAt = Date.now() + 600;
+  uni.navigateTo({ url: '/pages/home/todoList', fail: () => { todoListNextOpenAt = 0; } });
+};
 // 列表明确返回首页Tab；禁用布局默认back，避免无页面栈和重复导航。
 const backToHome = () => {
   if (!props.todoOnly) return;
@@ -686,9 +693,22 @@ async function openAcceptanceTodo(item: TodoRecord & { actionParams?: Record<str
   finally { uni.hideLoading(); acceptanceTodoLoading.value = false; }
 }
 
-const openTodo = (
+const todoOpening = ref(false);
+let todoNextOpenAt = 0;
+const openTodo = async (item: TodoRecord & { actionParams?: Record<string, any> }) => {
+  if (todoOpening.value || Date.now() < todoNextOpenAt) return;
+  todoOpening.value = true;
+  try { await openTodoContent(item); }
+  catch (e:any) { toast.warning(e?.message || '待办详情打开失败，请重试'); }
+  finally { todoOpening.value = false; todoNextOpenAt = Date.now() + 600; }
+};
+const openTodoContent = async (
   item: TodoRecord & { actionParams?: Record<string, any> },
 ) => {
+  try {
+    const target = await repairTodoTarget(item, parseTodoActionParams(item.actionParams));
+    if (target) { await uni.navigateTo({url:repairTodoUrl(target)}); return; }
+  } catch (e:any) { toast.warning(e.message || '待办读取失败，请刷新重试'); return; }
   if ([item.todoType, item.actionKey].some((value) => String(value || '').trim().toUpperCase() === 'PROJECT_CANDIDATE_APPROVAL')) {
     const params = parseTodoActionParams(item.actionParams);
     const periodId = String(params.periodId || item.bizSubId || '').trim();
@@ -696,16 +716,16 @@ const openTodo = (
     if (!periodId || !candidateId) return toast.warning('待办缺少分期或报价单信息，请刷新核实');
     const projectLabel = [item.projectName, item.periodName].filter(Boolean).join('-') || item.summary || '';
     const submitterName = String(item.applyUserName || item.createBy || '').trim();
-    uni.navigateTo({ url: `/pages/home/quotationDetail?periodId=${encodeURIComponent(periodId)}&candidateId=${encodeURIComponent(candidateId)}&projectLabel=${encodeURIComponent(projectLabel)}&submitterName=${encodeURIComponent(submitterName)}` });
+    await uni.navigateTo({ url: `/pages/home/quotationDetail?periodId=${encodeURIComponent(periodId)}&candidateId=${encodeURIComponent(candidateId)}&projectLabel=${encodeURIComponent(projectLabel)}&submitterName=${encodeURIComponent(submitterName)}` });
     return;
   }
   const acceptanceKeys = [item.todoType, item.actionKey];
   if (acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE', 'PROJECT_ACCEPTANCE_PENDING', 'PROJECT_ACCEPTANCE_HANDLE'].includes(String(key)))) {
-    void openAcceptanceTodo(item, acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE'].includes(String(key))));
+    await openAcceptanceTodo(item, acceptanceKeys.some((key) => ['PROJECT_ACCEPTANCE_FAILED', 'PROJECT_ACCEPTANCE_FAILED_HANDLE'].includes(String(key))));
     return;
   }
   if (isMaterialApprovalTodo(item)) {
-    materialApprovalPopup.value?.open(item);
+    await materialApprovalPopup.value?.open(item);
     return;
   }
   if ([item.todoType, item.actionKey].includes("PROJECT_REWORK_APPROVAL")) {
@@ -713,11 +733,11 @@ const openTodo = (
     const reworkId = String(item.actionParams?.reworkId || item.bizId || "");
     if (!periodId || !reworkId)
       return toast.warning("返工待办缺少分期或返工单信息，请刷新核实");
-    reworkAcceptancePopup.value?.open(periodId, reworkId);
+    await reworkAcceptancePopup.value?.open(periodId, reworkId);
     return;
   }
   if ([item.todoType, item.actionKey].includes("PROJECT_DELAY_APPROVAL")) {
-    delayApprovalPopup.value?.open(item);
+    await delayApprovalPopup.value?.open(item);
     return;
   }
   if (isStockOutExecuteTodo(item)) {
@@ -739,7 +759,7 @@ const openTodo = (
           .toUpperCase() === "PROJECT_CONTRACT_APPROVAL",
     )
   ) {
-    contractApprovalPopup.value?.open(item);
+    await contractApprovalPopup.value?.open(item);
     return;
   }
   if (
@@ -747,11 +767,11 @@ const openTodo = (
       .trim()
       .toUpperCase() === "PROJECT_MEMBER_INVITATION"
   ) {
-    openProjectInvitation(item);
+    await openProjectInvitation(item);
     return;
   }
 
-  if (isPlanApprovalTodo(item)) planApprovalPopup.value?.open(item);
+  if (isPlanApprovalTodo(item)) await planApprovalPopup.value?.open(item);
   else uni.showModal({
     title: '请到 PC 端办理',
     content: '该待办暂不支持手机端办理，请登录 PC 端 OA 系统处理。',

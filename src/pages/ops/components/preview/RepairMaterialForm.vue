@@ -1,8 +1,8 @@
 <template>
-  <SectionCard title="关联信息"><view class="info"><text>关联项目</text><text>{{ repair.project }}</text></view><view class="info"><text>维修产品</text><text>{{ repair.product }}</text></view><text class="hint">申请自动关联当前维修单。还料按原领料明细提交，剩余额度由后端核验。</text></SectionCard>
+  <SectionCard title="关联信息"><view class="info"><text>关联项目</text><text>{{ repair.project }}</text></view><view class="info"><text>维修产品</text><text>{{ repair.product }}</text></view><text class="hint">申请自动关联当前维修单，数量按基准单位填写。还料请选择本人领用的物料，个人可还余额由后端核验。</text></SectionCard>
   <SectionCard :title="type === '领料' ? '领料明细' : '还料信息'">
-    <view v-if="type === '领料'" class="pick-toolbar"><text>已选 {{ lines.length }} 种物料</text><button class="pick-add" @click="showPicker = true"><wd-icon name="add" /> 添加物料</button></view>
-    <text v-if="!lines.length" class="hint">{{ type === '领料' ? '请先选择需要领用的物料。' : '暂无可申请还料的物料；已提交的数量需等待库管核对。' }}</text>
+    <view class="pick-toolbar"><text>已选 {{ lines.length }} 种物料</text><button class="pick-add" @click="showPicker = true"><wd-icon name="add" /> 添加物料</button></view>
+    <text v-if="!lines.length" class="hint">{{ type === '领料' ? '请先选择需要领用的物料。' : '请添加本人领用、本次需要退还的物料。物料目录不代表个人可还余额。' }}</text>
     <view v-for="line in (type === '领料' ? visibleLines : [])" :key="line.id" class="pick-line" :class="{ 'pick-line--invalid': invalidId === line.id }">
       <view class="request-material__heading"><text class="request-material__name">{{ material(line.id).name }}</text><button class="request-material__remove" @click="toggle(line.id)">移除</button></view>
       <text class="request-material__spec">{{ [material(line.id).brand, material(line.id).spec, material(line.id).unit].filter(Boolean).join(' · ') || '暂无规格' }}</text>
@@ -15,6 +15,7 @@
       <text class="request-material__spec">{{ [material(line.id).brand, material(line.id).spec].filter(Boolean).join(' · ') || '暂无规格' }}</text>
       <view class="request-material__summary"><view><text class="request-material__summary-label">{{ type === '领料' ? '库存数量' : '可申请还料' }}</text><text class="request-material__value">{{ type === '还料' ? '提交时核验' : maximum(line.id) }}</text><text class="request-material__unit">{{ material(line.id).unit }}</text></view><view><text class="request-material__summary-label">本次{{ type }}</text><text class="request-material__value">{{ line.qty || 0 }}</text><text class="request-material__unit">{{ material(line.id).unit }}</text></view></view>
       <view class="request-material__operation"><view class="request-material__operation-row"><text class="request-material__label">{{ type }}数量<text class="required"> *</text></text><view class="request-material__control"><button class="request-material__step" :aria-label="`减少${material(line.id).name}数量`" :disabled="Number(line.qty) <= 0" @click="step(line, -1)"><wd-icon name="minus" /></button><input v-model="line.qty" class="request-material__input" type="digit" :aria-label="`${material(line.id).name}${type}数量`" /><button class="request-material__step" :aria-label="`增加${material(line.id).name}数量`" @click="step(line, 1)"><wd-icon name="add" /></button></view></view></view>
+      <view class="pick-input"><text>还料单价（元）<text class="required"> *</text></text><input v-model="line.unitPrice" type="digit" :aria-label="`${material(line.id).name}还料单价`" placeholder="请输入" /></view>
       <view v-if="type === '还料'" class="request-material__reason"><text>还料说明</text><textarea v-model="line.reason" maxlength="1000" :aria-label="`${material(line.id).name}还料说明`" placeholder="填写本次还料说明" /></view>
     </view>
   </SectionCard>
@@ -25,18 +26,17 @@
 import { computed, ref, watch } from 'vue'
 import RepairMaterialPicker from './RepairMaterialPicker.vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
-import { type RepairCase, type MaterialLine, type RepairMaterial } from './repairWorkflow'
+import { type RepairCase, type MaterialLine, type RepairMaterial } from './repairView'
 const props = defineProps<{ repair: RepairCase & {raw: Record<string,any>}; type: '领料' | '还料' }>()
 const emit = defineEmits<{ submit: [lines: MaterialLine[], remark: string] }>()
-interface DraftLine { id: string; qty: string; reason: string }
-const sources = (props.repair.raw.materialLinks || []).filter((m: any) => m.linkType === 'PICK' && m.stockApplyItemId)
-const lines = ref<DraftLine[]>(props.type === '还料' ? sources.map((m: any) => ({ id: m.stockApplyItemId, qty: '', reason: '' })) : [])
+interface DraftLine { id: string; qty: string; reason: string; unitPrice?: string }
+const lines = ref<DraftLine[]>([])
 const remark = ref(''), showPicker = ref(false)
 const pageSize = 5, page = ref(1), invalidId = ref('')
 const pageCount = computed(() => Math.max(1, Math.ceil(lines.value.length / pageSize)))
 const visibleLines = computed(() => lines.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 watch(pageCount, count => { page.value = Math.min(page.value, count) }, { flush:'sync' })
-const catalog = ref<RepairMaterial[]>(props.type === '还料' ? sources.map((m: any) => ({id:m.stockApplyItemId,name:m.material?.materialName || m.material?.name || m.materialId,brand:m.material?.brand || '',spec:m.material?.spec || '',unit:m.material?.unitName || '',stock:0})) : [])
+const catalog = ref<RepairMaterial[]>([])
 function confirmMaterials(materials: RepairMaterial[]) {
   catalog.value = materials.map(m => ({ ...m }))
   lines.value = materials.map(m => lines.value.find(l => l.id === m.id) || { id: m.id, qty: '1', reason: '' })
@@ -55,7 +55,7 @@ function submit() {
       uni.showToast({title:`请检查第 ${page.value} 页领料数量`,icon:'none'}); return
     }
   }
-  emit('submit', lines.value.map(l => ({ ...l, qty: l.qty.trim() ? Number(l.qty) : NaN, material: { ...material(l.id) } })), remark.value)
+  emit('submit', lines.value.map(l => ({ ...l, qty: l.qty.trim() ? Number(l.qty) : NaN, unitPrice: l.unitPrice?.trim() ? Number(l.unitPrice) : undefined, material: { ...material(l.id) } })), remark.value)
 }
 defineExpose({ submit })
 </script>

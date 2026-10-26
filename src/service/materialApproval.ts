@@ -17,7 +17,9 @@ export async function canApproveMaterial(record: any, user: any, hasPermission: 
     return (await readProjectMembership(String(record.periodId || ''), String(user.userid || user.id || user.userId || ''))).manager
   }
   if (record.applyType === 'IN') return hasPermission('mtl:goods:io')
-  if (!['MAINTENANCE', 'LABOR_PROTECTION'].includes(record.usageType) || !hasPermission('mtl:apply:approve')) return false
+  if (!['MAINTENANCE', 'LABOR_PROTECTION'].includes(record.usageType)) return false
+  // 维修用料按申请部门负责人办理，服务端最终鉴权；劳保保留菜单权限。
+  if (record.usageType === 'LABOR_PROTECTION' && !hasPermission('mtl:apply:approve')) return false
   const ids = Array.isArray(user.departIds) ? user.departIds : String(user.departIds || '').split(',')
   return String(user.userIdentity) === '2' && !!record.deptId && ids.map(id => String(id).trim()).includes(String(record.deptId))
 }

@@ -4,8 +4,10 @@ const ts = require('typescript'), vue = require('vue'), sfc = require('vue/compi
 const transpile = source => ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText
 const domain = {exports:{}}
 const additional={exports:{},require}
+const collaborationModule={exports:{},require:()=>({http:{}})}
+vm.runInNewContext(transpile(fs.readFileSync('src/service/repairCollaboration.ts','utf8')),collaborationModule)
 vm.runInNewContext(transpile(fs.readFileSync('src/service/repairAdditional.ts','utf8')),additional)
-vm.runInNewContext(transpile(fs.readFileSync('src/pages/ops/components/preview/repairWorkflow.ts','utf8')),domain)
+vm.runInNewContext(transpile(fs.readFileSync('src/pages/ops/components/preview/repairView.ts','utf8')),domain)
 const apiModule = {exports:{},require:name => name === '@/utils/http' ? {http:{}} : name === '@/store/user' ? {} : name === '@/utils/platform' ? {isH5:false} : {getEnvBaseUrl:()=>'/api'}}
 vm.runInNewContext(transpile(fs.readFileSync('src/service/repairOrder.ts','utf8').replaceAll('import.meta.env','({MODE:"test"})')),apiModule)
 const calls = []
@@ -33,13 +35,19 @@ const {descriptor}=sfc.parse(fs.readFileSync(filename,'utf8'),{filename})
 const logTemplate=descriptor.template.content.split(`screen === 'log' && selected && currentLog`)[1].split(`screen === 'quote'`)[0]
 assert.ok(!logTemplate.includes('canFillQuotation') && !logTemplate.includes('报价状态'),'quotation belongs to order detail, not log form')
 assert.ok(descriptor.template.content.includes('title="报价管理"'))
+assert.ok(!descriptor.template.content.includes('title="物料申请记录"'))
+assert.ok(!descriptor.template.content.includes('title="申请与审批记录"'))
+assert.ok(descriptor.template.content.includes('>处理日志<'))
 const script=sfc.compileScript(descriptor,{id:'repair-test'})
 const box={exports:{},setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},uni:{getStorageSync:()=>false,showToast:()=>{},getLocation:p=>p.success({longitude:117.2,latitude:39.1})},require:name=>{
+  if(name==='@/service/repairWorkMaterials'){const m={exports:{}};vm.runInNewContext(transpile(fs.readFileSync('src/service/repairWorkMaterials.ts','utf8')),m);return m.exports}
   if(name==='vue')return {...vue,onBeforeUnmount:()=>{}}
-  if(name==='./repairWorkflow')return domain.exports
+  if(name==='./repairView')return domain.exports
+  if(name==='@/service/repairQuotationDictionary')return {loadRepairQuotationDictionary:async()=>[],repairQuotationText:(value)=>value||'—'}
   if(name==='@/store/user')return {useUserStore:()=>({identity:{userId:'me'},userInfo:{realname:'当前人员',username:'me'}})}
   if(name==='@/service/repairOrder')return {...apiModule.exports,repairOrderApi:api,uploadRepairAttachment:async()=> 'file-id'}
   if(name==='@/service/repairAdditional')return additional.exports
+  if(name==='@/service/repairCollaboration')return collaborationModule.exports
   if(name.endsWith('.vue'))return {}
   return require(name)
 }}
@@ -48,6 +56,12 @@ const tick=async()=>{await vue.nextTick();await new Promise(setImmediate);await 
 async function main(){
   const scope=vue.effectScope()
   const page=scope.run(()=>box.exports.default.setup({canManage:false},{expose:()=>{},emit:()=>{}}))
+  api.logs=async()=>({records:[{occurredAt:'2026-10-23T12:00:00',operatorName:'测试人员',eventName:'协助审批通过',content:'审批已完成'}],total:1})
+  await page.loadEvents()
+  assert.equal(page.events.value[0].time,'2026-10-23 12:00:00')
+  assert.equal(page.events.value[0].action,'协助审批通过')
+  api.logs=async()=>{throw Error('读取失败')}
+  await page.loadEvents();assert.equal(page.eventError.value,'读取失败')
   assert.equal(page.formatReportedAt('2026-10-22T09:30:12'),'2026-10-22 09:30:12')
   assert.equal(page.formatReportedAt(''),'—')
   const card=descriptor.template.content.split('class="case-card"')[1].split('</view>\n            </view>')[0]
@@ -101,6 +115,7 @@ async function main(){
   assert.equal(calls[0][1].scope,'RESPONSIBLE')
   assert.equal(page.paged.value.length,1)
   await page.openCase(page.paged.value[0])
+  await page.openCase(page.paged.value[0])
   assert.equal(page.footerActions.value[0].text,'开始维修')
   assert.equal(calls.filter(c=>c[0]==='detail').length,1)
   await page.startWork()
@@ -149,11 +164,11 @@ async function main(){
   page.submitLogForCheckout();await tick()
   assert.equal(page.screen.value,'checkout')
   const preserved={personType:'INTERNAL',sourcePersonId:'no-longer-in-options'}
-  page.workDraft.value.persons=[preserved];page.workDraft.value.vehicleValue='historical-car';page.workDraft.value.materialUseIds=['historical-use']
+  page.workDraft.value.persons=[preserved];page.workDraft.value.vehicleValue='historical-car';page.workDraft.value.materialItems=[{pickLinkId:'pick',quantity:1}];detail.materialLinks=[{id:'pick',linkType:'PICK',handlerUserId:'me',outboundQty:3,availableUseQty:3}]
   await page.transact(()=>page.saveLog(),'checkout')
   const updated=calls.find(c=>c[0]==='updateWork')[1]
   assert.equal(updated.persons[0].sourcePersonId,'no-longer-in-options')
-  assert.equal(updated.vehicleValue,'historical-car');assert.equal(updated.materialUseIds[0],'historical-use')
+  assert.equal(updated.vehicleValue,'historical-car');assert.equal(updated.materialItems[0].pickLinkId,'pick');assert.equal(updated.materialUseIds,undefined)
   assert.equal(updated.fileIds[0],'file-id','full replacement must preserve uploaded file IDs')
   assert.equal(calls.filter(c=>c[0]==='end').length,0,'saving log must not sign out')
   assert.equal(page.clockLocation.value.status,'NORMAL')
@@ -176,7 +191,7 @@ async function main(){
   assert.equal(calls.filter(c=>c[0]==='completion').length,0)
   page.priceInput.value='101';page.selected.value.confirmedPrice=100
   assert.equal(page.completionPriceChanged.value,true)
-  page.selected.value.quoteState='无需报价'
+  page.selected.value.quotationStatus='NOT_REQUIRED'
   assert.equal(page.completionNeedsPrice.value,false)
   assert.equal(page.completionPriceChanged.value,false)
   page.go('detail')
@@ -231,7 +246,7 @@ async function main(){
   page.submitLogForCheckout();await tick()
   assert.equal(page.screen.value,'checkout')
   const assistantPayload=calls.filter(c=>c[0]==='submitWork').at(-1)[1]
-  assert.equal(Object.keys(assistantPayload).sort().join(','),'faultDescription,fileIds,materialUseIds,orderId,persons,recordId,repairDescription,vehicleValue','full replacement preserves optional collaborator fields without result or quotation')
+  assert.equal(Object.keys(assistantPayload).sort().join(','),'faultDescription,fileIds,materialItems,orderId,persons,recordId,repairDescription,vehicleValue','full replacement preserves optional collaborator fields without result or quotation')
   assert.equal(assistantPayload.repairDescription,'协助检查线路')
   assert.equal(detail.order.responsibleUserId,'actual-owner')
   page.endWork();await tick()
@@ -241,20 +256,31 @@ async function main(){
   assert.equal(calls.filter(c=>c[0]==='list').at(-1)[1].scope,'HELPING')
   page.resetFilters();await tick()
   assert.equal(calls.filter(c=>c[0]==='list').at(-1)[1].scope,'RESPONSIBLE')
-  page.cases.value=[{id:'log-test',raw:{workRecords:[],order:{}},actions:{},logs:[{id:'a',startedAt:100},{id:'c',startedAt:300},{id:'b',startedAt:200},{id:'d',startedAt:400}]}]
-  page.selectedId.value='log-test';page.showAllLogs.value=false
-  assert.equal(page.visibleLogs.value.map(l=>l.id).join(','),'d,c,b','detail defaults to latest three logs regardless of response ordering')
-  page.showAllLogs.value=true
-  assert.equal(page.visibleLogs.value.length,4)
+  page.cases.value=[{id:'log-test',raw:{workRecords:[],order:{}},actions:{},logs:Array.from({length:7},(_,i)=>({id:String(i),startedAt:i*100,actorId:i%2?'p1':'p2',people:i%2?'人员一':'人员二'}))}]
+  page.selectedId.value='log-test';await tick()
+  assert.equal(page.pagedRepairLogs.value.map(l=>l.id).join(','),'6,5,4,3,2')
+  assert.equal(page.repairLogsPages.value,2)
+  page.repairLogsPage.value=2;assert.equal(page.pagedRepairLogs.value.length,2)
+  page.repairLogPerson.value='p1';page.repairLogsPage.value=1
+  assert.equal(page.filteredRepairLogs.value.length,3)
+  assert.equal(page.repairLogPeople.value.length,3)
+  assert.equal(page.repairSummaryRows.value.find(r=>r.label==='累计维修工时').value,'待接口提供')
+  page.cases.value[0].raw.order.effectiveDurationSeconds=0
+  assert.equal(page.repairSummaryRows.value.find(r=>r.label==='累计维修工时').value,'0.00h')
+  page.go('logList');page.go('logDetail');page.back();assert.equal(page.screen.value,'logList')
+  assert.equal(page.repairLogPerson.value,'p1','back preserves person filter')
+  page.back();assert.equal(page.screen.value,'detail')
   detail.actions={canViewRepairDetail:true,canEditContact:true,canStartWork:true}
   page.selectedId.value='o1';page.cases.value=[apiModule.exports.repairCaseView(detail)];await tick()
-  api.contact=async data=>{calls.push(['contact',data]);return detail}
-  page.openAdditional('contact');assert.equal(page.screen.value,'additional');assert.equal(page.title.value,'修改联系资料')
-  page.submitAdditional({orderId:'o1',serviceAddress:'地址',contactPerson:'联系人',contactPhone:'123',reason:'变更'},[]);await tick()
-  assert.equal(calls.at(-1)[0],'contact');assert.equal(page.screen.value,'detail')
+  for(const kind of ['confirmUse','writeoff','closeRemainder','contact']) {
+    page.openAdditional(kind);assert.equal(page.screen.value,'detail','removed action cannot open')
+    assert.equal(page.additionalActions.value.includes(kind),false)
+  }
   api.missingClock=async data=>{calls.push(['missingClock',data]);return detail}
-  page.openAdditional('missingClock');page.submitAdditional({orderId:'o1',afterFileIds:['pending-upload-0']},['local-photo']);await tick()
-  assert.equal(calls.at(-1)[1].afterFileIds[0],'file-id','upload placeholders must never reach backend')
+  page.openAdditional('missingClock');await tick()
+  assert.equal(page.screen.value,'detail','retired missing-clock entry cannot open')
+  assert.equal(page.additionalActions.value.includes('clockCorrection'),false)
+  assert.equal(page.additionalActions.value.includes('missingClock'),false)
   Object.assign(detail.order,{customerId:'c1',periodId:'p1',productNames:'门禁',reporterName:'原始报修姓名',reportTime:'2026-10-22T09:30:12',reportRemark:'原备注'})
   detail.actions={canEditReport:true,canCancelReport:true,canViewRepairDetail:false}
   detail.reportAttachments=[{fileId:'old-image',mediaType:'IMAGE',fileName:'原图'}]
@@ -276,16 +302,17 @@ async function main(){
   await page.toggleLog('history-1')
   assert.equal(page.screen.value,'logDetail');assert.equal(page.title.value,'维修日志详情')
   assert.equal(page.viewedWork.value.recordId,'history-1');assert.equal(page.logState('history-1'),'已签退')
+  const openedLogCalls=calls.filter(c=>c[0]==='workDetail').length;await page.toggleLog('history-1');assert.equal(calls.filter(c=>c[0]==='workDetail').length,openedLogCalls,'already displayed log does not reload on duplicate click');
   assert.equal(page.footerActions.value.map(x=>x.text).join(','),'编辑本次日志')
   assert.equal(calls.filter(c=>c[0]==='workDetail').at(-1)[1].recordId,'history-1')
-  page.back();assert.equal(page.screen.value,'detail')
+  page.back();assert.equal(page.screen.value,'logList')
   const originalWorkDetail=api.workDetail
   api.workDetail=async()=>{throw Error('测试加载失败')}
   await page.toggleLog('history-1');assert.equal(page.viewedWork.value,undefined);assert.equal(page.footerActions.value.length,0);assert.match(page.error.value,/加载失败/)
   let resolveLog
   api.workDetail=()=>new Promise(resolve=>{resolveLog=resolve})
-  const pendingLog=page.toggleLog('history-1');page.back();resolveLog(work);await pendingLog
-  assert.equal(page.screen.value,'detail');assert.equal(page.viewedWork.value,undefined,'late response after back is ignored')
+  const pendingLog=page.toggleLog('history-1');await page.toggleLog('history-1');page.back();resolveLog(work);await pendingLog
+  assert.equal(page.screen.value,'logList');assert.equal(page.viewedWork.value,undefined,'late response after back is ignored')
   api.workDetail=originalWorkDetail
   page.go('detail');await tick();page.showContact.value=true;page.back()
   assert.equal(page.showContact.value,false);assert.equal(page.screen.value,'detail','back closes contact sheet first')
@@ -300,8 +327,12 @@ async function main(){
   detail.canChangeQuotationDecision=true;page.installDetail(detail)
   assert.equal(page.quotationEntryText.value,'查看详情','submitted quotation never shows handling even if modification flag is true')
   assert.equal(page.canEditQuotationDetails.value,false,'pending quotation must withdraw before editing')
+  assert.equal(page.canSwitchToNoQuotation.value,true,'decision permission still allows no-quotation branch')
+  page.switchToNoQuotation();assert.equal(page.screen.value,'quote');assert.equal(page.quoteRequired.value,false)
+  assert.equal(page.quotationDecisionOnly.value,true)
   page.openQuotationEntry();assert.equal(page.showQuoteDetails.value,true)
   detail.canChangeQuotationDecision=false;page.installDetail(detail)
+  assert.equal(page.canSwitchToNoQuotation.value,false)
   assert.ok(!descriptor.template.content.includes('quotationWithdrawReason'),'quotation withdrawal needs no reason input')
   detail.order.quotationStatus='GM_REVIEW';page.installDetail(detail);assert.equal(page.canWithdrawQuotation.value,false)
   detail.order.quotationStatus='HEAD_REVIEW';page.installDetail(detail)
@@ -315,13 +346,71 @@ async function main(){
   detail.quotations=[];detail.order.latestQuotationId=null;page.installDetail(detail)
   assert.equal(page.quotationEntryText.value,'办理报价')
   api.materialApply=async payload=>{calls.push(['materialApply',payload]);return detail}
-  page.materialType.value='领料';page.submitMaterials([{id:'m1',qty:2}],'维修使用');await tick()
+  page.materialType.value='领料';page.submitMaterials([{id:'m1',qty:2,material:{unit:'件'}}],'维修使用');await tick()
   let materialPayload=calls.filter(c=>c[0]==='materialApply').at(-1)[1]
   assert.equal('bizType' in materialPayload,false);assert.equal(materialPayload.applyType,'OUT');assert.equal(materialPayload.usageType,'MAINTENANCE');assert.equal(materialPayload.repairOrderId,'o1')
-  detail.materialLinks=[{linkType:'PICK',stockApplyItemId:'source1',materialId:'m1'}];page.installDetail(detail)
-  page.materialType.value='还料';page.submitMaterials([{id:'source1',qty:1}],'剩余退回');await tick()
+  assert.equal(materialPayload.itemList[0].applyQty,2);assert.equal('unitQty' in materialPayload.itemList[0],false)
+  detail.materialLinks=[{linkType:'PICK',stockApplyItemId:'source1',materialId:'m1',material:{baseUnitName:'件'}}];page.installDetail(detail)
+  page.materialType.value='还料';page.submitMaterials([{id:'m1',qty:1,unitPrice:0}],'剩余退回');await tick()
   materialPayload=calls.filter(c=>c[0]==='materialApply').at(-1)[1]
   assert.equal('bizType' in materialPayload,false);assert.equal(materialPayload.applyType,'IN');assert.equal(materialPayload.usageType,'MAINTENANCE')
+  assert.equal('repairSourceItemId' in materialPayload.itemList[0],false);assert.equal(materialPayload.itemList[0].applyQty,1);assert.equal(materialPayload.itemList[0].unitPrice,0);assert.equal(materialPayload.itemList[0].materialId,'m1')
+  const beforeInvalidMaterial=calls.filter(c=>c[0]==='materialApply').length
+  page.submitMaterials([{id:'source1',qty:1.12345}],'');await tick()
+  assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeInvalidMaterial)
+  page.submitMaterials([{id:'m1',qty:1}],'');await tick()
+  page.submitMaterials([{id:'m1',qty:1,unitPrice:-1}],'');await tick()
+  assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeInvalidMaterial,'return requires a nonnegative price')
+  api.collaboration=async payload=>{calls.push(['collaboration',payload]);return detail}
+  page.submitAssistance({personType:'INTERNAL',departments:[{departmentId:'department1',reason:'现场协助'}]});await tick()
+  assert.equal(calls.filter(c=>c[0]==='collaboration').length,0,'requires server owner action')
+  detail.actions.canOwnerApply=true;page.installDetail(detail)
+  page.submitAssistance({personType:'INTERNAL',departments:[{departmentId:'department1',reason:'支持'}]});await tick()
+  assert.equal(calls.filter(c=>c[0]==='collaboration').length,0,'owner action cannot override wrong actor or closed order')
+  detail.order.responsibleUserId='me';detail.order.workStatus='PROCESSING';page.installDetail(detail)
+  assert.equal(page.moreGroups.value.flatMap(g=>g.items).filter(i=>i.text==='邀请协助').length,1,'single invitation entry in More');
+  page.submitAssistance({personType:'INTERNAL',departments:[{departmentId:'department1',reason:'现场协助'},{departmentId:'department2',reason:'技术支持'}]});await tick()
+  const invitation=calls.filter(c=>c[0]==='collaboration').at(-1)[1]
+  assert.equal(invitation.orderId,'o1');assert.equal(invitation.departments.length,2);assert.equal('assignedUserIds' in invitation,false)
+  page.submitAssistance({personType:'EXTERNAL',targetId:'company1',reason:'现场协助',headcount:2,hoursPerPerson:4});await tick()
+  assert.equal(calls.filter(c=>c[0]==='collaboration').length,1,'external extras are not silently discarded')
+  detail.members=[{id:'member1',userId:'helper',personType:'INTERNAL',memberStatus:'ACTIVE',userNameSnapshot:'协助人员'}]
+  detail.applications=[{id:'editable',applicationType:'COLLABORATION',applicationStatus:'PENDING',applicantUserId:'me',formData:{personType:'INTERNAL',departments:[{departmentId:'d1',departmentName:'工程部',reason:'原原因'}]}}];page.installDetail(detail)
+  page.openAssistance('editable');assert.notEqual(page.screen.value,'assistance','pending invitation cannot be edited in place')
+  api.withdraw=async payload=>{calls.push(['withdraw',payload]);detail.applications[0].applicationStatus='WITHDRAWN';return detail}
+  assert.equal(await page.manageCollaboration({kind:'withdraw',targetId:'editable',reason:'补充内容'}),true)
+  page.openAssistance('editable');assert.equal(page.screen.value,'assistance');assert.equal(page.assistanceInitial.value.departments[0].reason,'原原因')
+  page.assistanceInitial.value.departments[0].reason='新原因';assert.equal(detail.applications[0].formData.departments[0].reason,'原原因')
+  page.go('detail')
+  api.memberExit=async payload=>{calls.push(['memberExit',payload]);detail.members[0].memberStatus='EXITED';detail.members[0].exitReason=payload.reason;return detail}
+  assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'任务结束'}),true)
+  assert.equal(calls.filter(c=>c[0]==='memberExit').at(-1)[1].memberId,'member1')
+  assert.equal(detail.members.length,1,'removed member history is retained')
+  assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'重复'}),false)
+  detail.applications=[{id:'ca',applicationType:'COLLABORATION',applicationStatus:'PENDING',formData:{departments:[{departmentId:'d1',reason:'支持'}]}}]
+  detail.workflows=[{id:'wi',businessId:'ca',tasks:[{id:'t1',canHandle:true,departmentName:'工程部'},{id:'t2',canHandle:true,departmentName:'技术部'},{id:'t3',canHandle:false}]}]
+  page.installDetail(detail);page.go('detail');await tick()
+  await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'wi',applicationId:'ca',taskId:'t2'});
+  assert.equal(page.screen.value,'approval');assert.equal(page.reviewTask.value.task.id,'t2','todo selects intended task, not first task');
+  page.go('detail');await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'wi',taskId:'t3'});
+  assert.equal(page.screen.value,'detail');assert.equal(page.reviewTask.value,undefined,'unhandleable todo must not fall back to another task');assert.match(page.error.value,/待办/);
+  page.chosenReviewTaskId.value='';
+  detail.actions.canViewRepairDetail=false;page.installDetail(detail);page.source.value='reports'
+  assert.equal(page.reviewTasks.value.length,2)
+  page.go('approval');assert.equal(page.isCollaborationApproval.value,true);assert.equal(page.approvalFormRows.value.length,0,'collaboration does not render raw fields');assert.equal(page.collaborationApproval.value.entries[0].reason,'支持');page.go('detail')
+  assert.equal(page.footerActions.value[0].text,'办理审批')
+  page.selectReviewTask({detail:{value:1}});assert.equal(page.reviewTask.value.task.id,'t2')
+  api.review=async payload=>{calls.push(['review',payload]);detail.workflows[0].tasks=detail.workflows[0].tasks.filter(t=>t.id!==payload.taskId);return detail}
+  page.review(true);await tick()
+  assert.equal(calls.filter(c=>c[0]==='review').at(-1)[1].taskId,'t2')
+  assert.equal(page.reviewTasks.value.length,1)
+  detail.members[0].memberStatus='ACTIVE';page.installDetail(detail)
+  let uncertainWrites=0
+  api.memberExit=async()=>{uncertainWrites++;throw Object.assign(new Error('network'),{uncertain:true})}
+  assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'结束'}),false)
+  assert.equal(page.mutationBlocked.value,true,'unknown mutation result requires re-open and readback')
+  assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'重复点击'}),false)
+  assert.equal(uncertainWrites,1,'uncertain writes are not automatically retried')
   scope.stop()
   console.log('PASS page list, server permissions, recordId, new work endpoints, checkout routing and quotation/completion payloads')
 }

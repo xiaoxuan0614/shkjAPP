@@ -17,7 +17,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { stockApi, normalizeMaterial, unwrapRecords } from '@/service/shkj'
-import type { RepairMaterial } from './repairWorkflow'
+import type { RepairMaterial } from './repairView'
 const props = defineProps<{ selected: RepairMaterial[] }>()
 const emit = defineEmits<{ close: []; confirm: [materials: RepairMaterial[]] }>()
 const chosen = ref(props.selected.map(m => ({ ...m }))), materials = ref<RepairMaterial[]>([])

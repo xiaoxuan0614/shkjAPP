@@ -29,12 +29,12 @@ export interface MediaAttachment {
   error?: string
 }
 const props = withDefaults(defineProps<{
-  items: MediaAttachment[]; readonly?: boolean; busy?: boolean; maxPhotos?: number; maxVideos?: number; compact?: boolean
+  items: MediaAttachment[]; readonly?: boolean; busy?: boolean; maxPhotos?: number; maxVideos?: number; compact?: boolean; existingPhotos?: number; existingVideos?: number
   hint?: string; error?: string; busyText?: string; resolveUrl?: (path: string) => string
 }>(), { readonly: false, busy: false, maxPhotos: 6, maxVideos: 2, hint: '', error: '', busyText: '正在处理…', resolveUrl: (path: string) => path })
 const emit = defineEmits<{ add: []; remove: [index: number]; preview: [item: MediaAttachment]; retry: [index: number] }>()
-const photoCount = computed(() => props.items.filter(item => item.type === 'image').length)
-const videoCount = computed(() => props.items.filter(item => item.type === 'video').length)
+const photoCount = computed(() => props.items.filter(item => item.type === 'image').length + (props.existingPhotos || 0))
+const videoCount = computed(() => props.items.filter(item => item.type === 'video').length + (props.existingVideos || 0))
 function remove(index: number) { if (!props.readonly && !props.busy && props.items[index]?.status !== 'uploading') emit('remove', index) }
 </script>
 

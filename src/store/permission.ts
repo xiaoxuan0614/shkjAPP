@@ -11,6 +11,7 @@ export interface AuthorizedMenu {
 }
 
 const COMMON_AUTHENTICATED_PAGES = new Set([
+  '/pages/ops/repairDetail', // Task recipients enter by ID; backend validates detail and action access.
   HOME_PAGE,
   '/pages/customer/mine',
   // 首页待办的完整列表，不是独立菜单；登录与后端数据/审批鉴权保持不变。

@@ -18,6 +18,7 @@ assert.equal(permissions.hasPageAccess('/pages/admin/approval'), false)
 assert.equal(permissions.hasPageAccess('/pages/stock/materialApply'), false)
 assert.equal(permissions.hasPermission('project:contract:approve'), false)
 const source = fs.readFileSync('src/components/HomeWorkspace.vue', 'utf8')
+assert.match(source, /import\s*\{\s*repairTodoTarget, repairTodoUrl\s*\}\s*from\s*["']@\/service\/repairCollaboration["']/)
 const backSource = source.slice(source.indexOf('const backToHome ='), source.indexOf('\nimport OpsPreview'))
 const backCalls = []
 vm.runInNewContext(backSource + '\nbackToHome()', {
@@ -29,16 +30,25 @@ vm.runInNewContext(backSource + '\nbackToHome()', {
 assert.deepEqual(backCalls, ['/pages/home/index', '/pages/home/index'])
 assert.ok(source.includes(':type="todoOnly ? \'popup\' : \'page\'"'))
 // 未支持类型必须触发原生确认弹窗，不依赖页面Toast挂载。
-const action = source.slice(source.indexOf('const openTodo = ('), source.indexOf('\nconst refreshAfterContractApproval'))
+const action = source.slice(source.indexOf('const todoOpening = ref(false)'), source.indexOf('\nconst refreshAfterContractApproval'))
 let notice
-vm.runInNewContext(ts.transpileModule(action + '\nopenTodo({ todoType: "UNSUPPORTED_TODO" })', {
+const unsupported = vm.runInNewContext(ts.transpileModule(action + '\nopenTodo({ todoType: "UNSUPPORTED_TODO" })', {
   compilerOptions: { target: ts.ScriptTarget.ES2020 },
 }).outputText, {
+  ref: require('vue').ref,
+  repairTodoTarget: async () => undefined, parseTodoActionParams: () => ({}),
   isMaterialApprovalTodo: () => false, isStockOutExecuteTodo: () => false, isPlanApprovalTodo: () => false,
   uni: { showModal: options => { notice = options } },
 })
-assert.equal(notice.title, '请到 PC 端办理')
-assert.equal(notice.showCancel, false)
+const checkUnsupported = unsupported.then(() => { assert.equal(notice.title, '请到 PC 端办理'); assert.equal(notice.showCancel, false) })
+async function checkDuplicateOpen() {
+  let release,requests=0,navigations=0,now=1000;
+  const state={ref:require('vue').ref,Date:{now:()=>now},repairTodoTarget:()=>{requests++;return new Promise(resolve=>{release=resolve})},repairTodoUrl:target=>{assert.equal(target.taskId,'task2');return '/pages/ops/repairDetail?id=order&view=approval&taskId=task2'},parseTodoActionParams:()=>({}),uni:{navigateTo:async({url})=>{assert.match(url,/taskId=task2/);navigations++}},toast:{warning:()=>{}}};
+  vm.createContext(state);vm.runInContext(ts.transpileModule(action+'\nglobalThis.open = openTodo',{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,state);
+  const first=state.open({});await state.open({});assert.equal(requests,1,'one pending resolution for rapid clicks');release({orderId:'order',view:'approval',taskId:'task2'});await first;
+  await state.open({});assert.equal(navigations,1,'cooldown prevents duplicate navigation after fast response');
+  now+=601;const retry=state.open({});assert.equal(requests,2,'guard releases for subsequent visit');release({orderId:'order',view:'approval',taskId:'task2'});await retry;
+}
 const loader = source.slice(source.indexOf('const loadTodos = async'), source.indexOf('\nconst memberRoleFallback'))
 assert.ok(loader.startsWith('const loadTodos'))
 async function run(todoOnly) {
@@ -62,7 +72,7 @@ async function run(todoOnly) {
     assert.equal(state.todoList.value.length, 20)
   }
 }
-Promise.all([run(false), run(true)]).then(() => {
+Promise.all([run(false), run(true), checkUnsupported, checkDuplicateOpen()]).then(() => {
   assert.ok(source.includes("todoList.value.slice(0, 5)"))
   assert.ok(source.includes("todoOnly ? '刷新' : '查看详情'"))
   assert.ok(!source.includes('showAllTodos'))

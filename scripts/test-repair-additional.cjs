@@ -4,31 +4,30 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/service/repairAdditio
 const {additionalPayload:p,canAdditional:can,additionalCandidates:c}=box.exports
 const d={order:{id:'o',workStatus:'PROCESSING'},actions:{canOwnerApply:true,canStartWork:true,canEditContact:true,canEvaluate:false},members:[{id:'member',userId:'helper',memberStatus:'ACTIVE'}],applications:[{id:'application',applicantUserId:'me',applicationStatus:'PENDING'},{id:'other',applicantUserId:'other',applicationStatus:'PENDING'}],workRecords:[{id:'record',operatorUserId:'me'},{id:'other-record',operatorUserId:'other'}],materialLinks:[{id:'pick',handlerUserId:'me',linkType:'PICK',stockApplyId:'stock'},{id:'other-pick',handlerUserId:'other',linkType:'PICK'}],materialUses:[{id:'use',useStatus:'PENDING_CONFIRM'},{id:'confirmed',useStatus:'CONFIRMED'}]}
 const plain=x=>JSON.parse(JSON.stringify(x))
+d.order.responsibleUserId='me';d.members[0].personType='INTERNAL'
+assert.equal(can('memberExit',d,'other'),false,'contact editing does not confer member removal permission')
+assert.equal(can('memberExit',{...d,members:[{...d.members[0],personType:'EXTERNAL'}]},'me'),false,'external unit removal must not use single-member endpoint')
+assert.equal(c({...d,applications:[...d.applications,{id:'collab',applicationType:'COLLABORATION',applicantUserId:'me',applicationStatus:'PENDING'}]},'me').applications.length,1,'collaboration has one dedicated management entry')
 assert.equal(c(d,'me').applications.length,1)
 assert.deepEqual(plain(p('withdraw',d,'me',{targetId:'application',reason:'补充'})),{applicationId:'application',reason:'补充'})
 assert.throws(()=>p('withdraw',d,'me',{targetId:'other',reason:'错误'}))
 assert.deepEqual(plain(p('memberExit',d,'me',{targetId:'member',reason:'完成协助'})),{orderId:'o',memberId:'member',reason:'完成协助'})
 assert.throws(()=>p('memberExit',d,'me',{targetId:'helper',reason:'错误用户ID'}))
-assert.deepEqual(plain(p('confirmUse',d,'me',{targetId:'use',confirm:true})),{orderId:'o',useId:'use',confirm:true})
-assert.throws(()=>p('confirmUse',d,'me',{targetId:'use',confirm:false,reason:''}))
-assert.throws(()=>p('confirmUse',d,'me',{targetId:'confirmed',confirm:true}))
-assert.equal(p('confirmUse',d,'me',{targetId:'use',confirm:false,reason:'误填'}).reason,'误填')
-assert.deepEqual(plain(p('closeRemainder',d,'me',{targetId:'stock',reason:'不再领用'})),{orderId:'o',stockApplyId:'stock',reason:'不再领用'})
-const row={pickLinkId:'pick',writeoffType:'DAMAGE',quantity:'1.25',reason:'破损'}
-assert.equal(p('writeoff',d,'me',{reason:'核销',items:[row]},['f']).items[0].quantity,1.25)
-for(const quantity of ['0','-1','1.00001','Infinity'])assert.throws(()=>p('writeoff',d,'me',{reason:'核销',items:[{...row,quantity}]}))
-assert.throws(()=>p('writeoff',d,'me',{reason:'核销',items:[row,row]}))
-assert.throws(()=>p('writeoff',d,'me',{reason:'核销',items:[{...row,pickLinkId:'other-pick'}]}))
+for(const kind of ['confirmUse','writeoff','closeRemainder','contact']) {
+  assert.equal(box.exports.repairActionTitles[kind],undefined)
+  assert.equal(can(kind,d,'me'),false)
+  assert.throws(()=>p(kind,d,'me',{reason:'旧入口'}))
+}
 const clock={targetId:'record',startedAt:Date.now()-7200000,endedAt:Date.now()-3600000,reason:'定位异常'}
-assert.equal(p('clockCorrection',d,'me',clock).recordId,'record')
+assert.equal(can('clockCorrection',d,'me'),false)
+assert.throws(()=>p('clockCorrection',d,'me',clock))
 assert.throws(()=>p('clockCorrection',d,'me',{...clock,endedAt:Date.now()+3600000}))
 assert.throws(()=>p('clockCorrection',d,'me',{...clock,endedAt:clock.startedAt-1}))
 assert.throws(()=>p('clockCorrection',d,'me',{...clock,targetId:'other-record'}))
 const missing={activityKind:'INITIAL_INSPECTION',repairMethod:'OFFLINE',repairResult:'REPAIRED',faultLocation:'机房',faultDescription:'异常',repairDescription:'恢复',reason:'定位不可用'}
 assert.throws(()=>p('missingClock',d,'me',missing))
-assert.equal(p('missingClock',d,'me',missing,['file']).afterFileIds[0],'file')
-assert.equal(p('contact',d,'me',{serviceAddress:'地址',contactPerson:'联系人',contactPhone:'123',reason:'变更'}).contactPhone,'123')
-assert.throws(()=>p('contact',d,'me',{serviceAddress:'地址',contactPerson:'联系人',contactPhone:'',reason:'变更'}))
+assert.equal(can('missingClock',d,'me'),false)
+assert.throws(()=>p('missingClock',d,'me',missing,['file']))
 const done={...d,order:{id:'o',workStatus:'COMPLETED'},actions:{canEvaluate:true}}
 assert.equal(can('evaluation',done,'me'),true);assert.equal(can('missingClock',done,'me'),false)
 assert.throws(()=>p('evaluation',done,'me',{}))
@@ -42,10 +41,9 @@ const vue=require('vue'),events=[]
 const componentBox={exports:{},require:n=>n==='vue'?vue:n==='@/service/repairAdditional'?box.exports:{}}
 vm.runInNewContext(ts.transpileModule(sfc.compileScript(descriptor,{id:'additional'}).content,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,componentBox)
 const setup=kind=>componentBox.exports.default.setup({kind,detail:d,actorId:'me',disabled:false},{expose(){},emit:(...e)=>events.push(e)})
-const contactForm=setup('contact');contactForm.submit();assert.equal(events.length,0);assert.ok(contactForm.error.value)
-Object.assign(contactForm.form,{serviceAddress:'地址',contactPerson:'联系人',contactPhone:'123',reason:'更新'})
-contactForm.submit();assert.equal(events[0][0],'submit');assert.equal(events[0][1].contactPerson,'联系人')
+const withdrawForm=setup('withdraw');withdrawForm.submit();assert.equal(events.length,0);assert.ok(withdrawForm.error.value)
+Object.assign(withdrawForm.form,{targetId:'application',reason:'更新'})
+withdrawForm.submit();assert.equal(events[0][0],'submit');assert.equal(events[0][1].applicationId,'application')
 const missingForm=setup('missingClock');Object.assign(missingForm.form,missing);missingForm.photos.value=['local-photo'];missingForm.submit()
-assert.equal(events[1][1].afterFileIds[0],'pending-upload-0');assert.equal(events[1][2][0],'local-photo')
-const writeoffForm=setup('writeoff');assert.equal(writeoffForm.form.items.length,1);writeoffForm.addLine();assert.equal(writeoffForm.form.items.length,2)
-console.log('PASS 9 additional operations: payload whitelist, IDs, ownership, permissions, quantity/time/score validation and Vue compilation')
+assert.equal(events.length,1,'retired missing-clock form cannot submit');assert.ok(missingForm.error.value)
+console.log('PASS active additional operations and retired clock actions: payloads, permissions, validation and Vue compilation')
