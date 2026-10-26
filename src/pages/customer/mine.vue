@@ -105,12 +105,17 @@
           />
         </label>
         <label class="password-field">
-          <text>新密码</text>
+          <view class="password-label">
+            <wd-tooltip v-model="passwordRuleVisible" :content="NEW_PASSWORD_HINT" placement="top-start">
+              <button class="password-rule-trigger" aria-label="查看新密码规则" @click.stop="passwordRuleVisible = !passwordRuleVisible"><wd-icon name="help-circle" size="18px" /></button>
+            </wd-tooltip>
+            <text>新密码</text>
+          </view>
           <input
             v-model="passwordForm.password"
             password
             :disabled="passwordSubmitting"
-            placeholder="请输入至少 6 位新密码"
+            placeholder="请输入8–16位新密码"
             placeholder-style="color:#a4acb8"
           />
         </label>
@@ -146,6 +151,7 @@ import { APP_CONFIG, APP_ROUTE, ROUTE_PARAMS } from '@/common/constants'
 import { authApi } from '@/service/auth'
 import { useUserStore } from '@/store/user'
 import { clearDictionaryCache } from '@/utils/dictionaryCache'
+import { NEW_PASSWORD_HINT, newPasswordError } from '@/utils/newPassword'
 
 const MESSAGE_REMINDER_KEY = 'message_reminder_enabled'
 const CLEARABLE_CACHE_KEYS = [APP_ROUTE, APP_CONFIG, ROUTE_PARAMS]
@@ -155,6 +161,7 @@ const toast = useToast()
 const messageReminder = ref(uni.getStorageSync(MESSAGE_REMINDER_KEY) !== false)
 const cacheSizeLabel = ref('0 B')
 const passwordPopupVisible = ref(false)
+const passwordRuleVisible = ref(false)
 const passwordSubmitting = ref(false)
 const passwordForm = reactive({
   oldpassword: '',
@@ -221,6 +228,7 @@ const clearCache = () => {
 
 const resetPasswordForm = () => {
   if (passwordSubmitting.value) return
+  passwordRuleVisible.value = false
   passwordForm.oldpassword = ''
   passwordForm.password = ''
   passwordForm.confirmpassword = ''
@@ -234,7 +242,8 @@ const openPasswordPopup = () => {
 const submitPassword = async () => {
   if (passwordSubmitting.value) return
   if (!passwordForm.oldpassword) return toast.warning('请输入当前密码')
-  if (passwordForm.password.length < 6) return toast.warning('新密码至少 6 位')
+  const passwordError = newPasswordError(passwordForm.password, passwordForm.oldpassword)
+  if (passwordError) return toast.warning(passwordError)
   if (passwordForm.password === passwordForm.oldpassword) return toast.warning('新密码不能与当前密码相同')
   if (passwordForm.confirmpassword !== passwordForm.password) return toast.warning('两次输入的新密码不一致')
 
@@ -421,6 +430,9 @@ onShow(refreshCacheSize)
   }
 }
 
+.password-label { display: flex; align-items: center; gap: 6px; }
+.password-rule-trigger { display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; width: 32px; height: 32px; background: transparent; color: #475467; line-height: 1; }
+.password-rule-trigger::after { border: 0; }
 .password-field {
   display: block;
   margin-top: 14px;
