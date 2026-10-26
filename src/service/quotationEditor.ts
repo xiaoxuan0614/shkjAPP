@@ -27,11 +27,14 @@ export function decimalInput(value: unknown, label: string, precision = 2, posit
   return number
 }
 
-// The PC percentage is 20 for 20%, not 0.2. Use exact string multiplication and rounding.
+// 与PC一致：成本20、加价25%得到指导价25；比例按百分数输入，不是毛利率。
 export function guidancePrice(cost: unknown, percent: unknown) {
-  decimalInput(cost, '成本价'); decimalInput(percent, '指导比例', 4)
-  const [whole, fraction = ''] = String(percent).split('.')
-  const scaled = (Number(whole) + 100) * 10000 + Number(fraction.padEnd(4, '0'))
+  decimalInput(cost, '成本价')
+  const raw = String(percent ?? '').trim(), negative = raw.startsWith('-')
+  decimalInput(negative ? raw.slice(1) : raw, '加价比例', 4)
+  if (Number(raw) < -100) throw new Error('加价比例不能低于 -100%')
+  const [whole, fraction = ''] = (negative ? raw.slice(1) : raw).split('.')
+  const scaled = 1000000 + (negative ? -1 : 1) * (Number(whole) * 10000 + Number(fraction.padEnd(4, '0')))
   const digits = String(scaled).padStart(7, '0')
   const multiplier = `${digits.slice(0, -6)}.${digits.slice(-6)}`
   const amount = quotationLineTotal(cost, multiplier).replace('¥', '')
@@ -47,7 +50,6 @@ export function materialPayload(row: any, options: { cost: boolean; price: boole
   if (options.cost) result.basePrice = decimalInput(row.basePrice, '成本价')
   if (options.price) {
     if (options.direct || row.finalPrice != null && row.finalPrice !== '') result.finalPrice = decimalInput(row.finalPrice, '报价')
-    if (!options.direct && row.markupRate != null && row.markupRate !== '') result.markupRate = decimalInput(row.markupRate, '指导比例', 4)
   }
   return result
 }
@@ -61,8 +63,7 @@ export function feePayload(row: any, options: { cost: boolean; price: boolean; s
   if (row.taxRate != null && row.taxRate !== '') result.taxRate = decimalInput(row.taxRate, '税率', 6)
   if (options.cost) result.costPrice = decimalInput(row.costPrice, '服务费成本价')
   if (options.price || (!row.id && options.structure && row.serviceFeeId)) {
-    if (!options.direct) result.markupRate = decimalInput(row.markupRate, '指导比例', 4)
-    const guide = !options.direct && !options.price && options.cost && !row.id ? guidancePrice(row.costPrice, row.markupRate) : row.guidePrice
+    const guide = row.guidePrice
     result.guidePrice = decimalInput(guide, '服务费报价')
   }
   return result
@@ -75,8 +76,8 @@ export function pricingPayload(materials: any[], fees: any[]) {
     ids.add(String(row.id)); return row.id
   }
   return {
-    records: materials.map(row => ({ id: identify(row), markupRate: decimalInput(row.markupRate, '指导比例', 4), finalPrice: decimalInput(row.finalPrice, '指导价') })),
-    serviceFees: fees.map(row => ({ id: identify(row), markupRate: decimalInput(row.markupRate, '服务费指导比例', 4), guidePrice: decimalInput(row.guidePrice, '服务费指导价') })),
+    records: materials.map(row => ({ id: identify(row), finalPrice: decimalInput(row.finalPrice, '指导价') })),
+    serviceFees: fees.map(row => ({ id: identify(row), guidePrice: decimalInput(row.guidePrice, '服务费指导价') })),
   }
 }
 

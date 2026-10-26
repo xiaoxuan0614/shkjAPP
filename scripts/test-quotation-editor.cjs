@@ -14,6 +14,10 @@ function evaluate(source, deps, globals = {}) {
 const approval = evaluate(fs.readFileSync('src/service/quotationApproval.ts', 'utf8'), { '@/utils/http': { http: {} } })
 const editor = evaluate(fs.readFileSync('src/service/quotationEditor.ts', 'utf8'), { '@/utils/http': { http: {} }, './quotationApproval': approval })
 const table = evaluate(fs.readFileSync('src/utils/quotationTable.ts', 'utf8'), { '@/service/quotationApproval': approval })
+assert.equal(editor.guidancePrice(20, 25), '25.00')
+assert.equal(table.quotationPercent(20, 25), '25.00%')
+assert.equal(editor.guidancePrice(2, 150), '5.00')
+assert.equal(table.quotationPercent(2, 5), '150.00%')
 const document = evaluate(fs.readFileSync('src/utils/quotationDocument.ts', 'utf8'), { '@/service/quotationApproval': approval })
 const rec = { id: 'q', periodId: 'p', createBy: 'author', status: '-1', adopted: 0, priced: 0, version: 3, approvalRoute: 'TECHNICAL' }
 function caps(record = rec, access = {}, user = { username: 'author' }, has = () => true) { return editor.quotationCapabilities(record, access, user, has) }
@@ -35,11 +39,16 @@ assert.throws(() => editor.decimalInput('0', '数量', 4, true))
 const material = { id: 'm1', materialId: 'material', unitId: 'unit', quantity: 2, basePrice: '100', finalPrice: '120', markupRate: '20', remark: '' }
 const masked = editor.materialPayload(material, { cost: false, price: false, direct: false })
 assert.equal(masked.basePrice, undefined); assert.equal(masked.finalPrice, undefined); assert.equal(masked.markupRate, undefined)
-assert.deepEqual(plain(editor.pricingPayload([material], [])), { records: [{ id: 'm1', markupRate: 20, finalPrice: 120 }], serviceFees: [] })
+assert.deepEqual(plain(editor.pricingPayload([material], [])), { records: [{ id: 'm1', finalPrice: 120 }], serviceFees: [] })
+assert.equal(editor.guidancePrice('100', '-20'), '80.00')
+assert.equal(editor.guidancePrice('100', '-100'), '0.00')
+assert.equal('markupRate' in editor.materialPayload({ ...material, markupRate: -20, finalPrice: 80 }, { cost: true, price: true, direct: false }), false)
 assert.throws(() => editor.pricingPayload([material, material], []), /重复/)
 assert.throws(() => editor.materialPayload({ ...material, unitId: '' }, { cost: true, price: false, direct: false }), /单位/)
 const fee = { serviceFeeId: 's', name: '安装', unit: '项', quantity: 1, costPrice: 100, markupRate: 20, guidePrice: 999 }
-assert.equal(editor.feePayload(fee, { cost: true, price: false, structure: true, direct: false }).guidePrice, 120)
+assert.equal(editor.feePayload(fee, { cost: true, price: false, structure: true, direct: false }).guidePrice, 999)
+assert.equal('markupRate' in editor.feePayload(fee, { cost: true, price: true, structure: true, direct: false }), false)
+assert.deepEqual(plain(editor.pricingPayload([], [{ ...fee, id: 'f', markupRate: null, costPrice: 0, guidePrice: 80 }])), { records: [], serviceFees: [{ id: 'f', guidePrice: 80 }] })
 assert.equal(editor.feePayload({ ...fee, id: 'f' }, { cost: false, price: false, structure: false, direct: false }).guidePrice, undefined)
 
 for (const filename of ['src/pages/home/quotationEdit.vue', 'src/pages/home/quotationDetail.vue', 'src/pages/home/components/QuotationPicker.vue', 'src/pages/home/components/QuotationHistory.vue']) {

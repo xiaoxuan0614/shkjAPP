@@ -49,20 +49,23 @@
 
       <!-- 领料明细 -->
       <SectionCard title="领料明细">
+        <view v-if="isProjectUsage && !reworkId && !requestedReworkId" class="bulk-material">
+          <wd-button plain block :loading="bulkLoading" :disabled="!orderInfo.id || submitting || projectSelecting" @click="fillAllMaterials">
+            一键带入可领物料
+          </wd-button>
+          <text class="bulk-material__hint">按全部可申请数量带入，可继续调整；已选物料及手动数量不变。</text>
+        </view>
         <text v-if="reworkId" class="static-val">本轮返工额外领料；不使用首次施工额度。</text>
-        <view v-for="m in selectedMaterials" :key="m.id" class="request-material">
+        <view v-for="m in selectedMaterials" :key="m.id" class="request-material request-material--compact">
+          <view class="request-material__identity">
           <view class="request-material__heading">
             <text class="request-material__name">{{ m.name }}</text>
-            <text class="request-material__code">{{ materialCode(m) || '暂无编码' }}</text>
           </view>
-          <text class="request-material__spec">规格：{{ m.spec || '暂无规格' }}</text>
-          <view class="request-material__summary">
-            <view><text class="request-material__summary-label">{{ isProjectUsage ? '当前可申请' : '库存数量' }}</text><text class="request-material__value">{{ isProjectUsage ? getAvailableApplyQty(m) : m.stock }}</text><text class="request-material__unit">{{ m.unit }}</text></view>
-            <view><text class="request-material__summary-label">本次领料</text><text class="request-material__value">{{ m.qty === '' ? '—' : m.qty }}</text><text class="request-material__unit">{{ m.unit }}</text></view>
+          <text class="request-material__spec">{{ [m.brand_dictText || m.brand, m.model || m.spec].filter(Boolean).join(' · ') || '品牌型号未提供' }}</text>
           </view>
           <view class="request-material__operation">
             <view class="request-material__operation-row">
-              <text class="request-material__label">本次领料</text>
+              <text class="request-material__label">数量（{{ m.unit || '单位未提供' }}）</text>
             <view class="request-material__control">
                 <button class="request-material__step" :disabled="submitting" :aria-label="`减少${m.name}申请数量`" @click="dec(m)"><wd-icon name="minus-circle" size="18px" /></button>
                 <input
@@ -75,18 +78,20 @@
                   @blur="normalizeMaterialQty(m)"
                 />
                 <button class="request-material__step" :disabled="submitting" :aria-label="`增加${m.name}申请数量`" @click="inc(m)"><wd-icon name="add-circle" size="18px" /></button>
-                <button v-if="isProjectUsage" class="request-material__fill" :disabled="submitting" :aria-label="`申请${m.name}全部可用数量`" @click="m.qty = getAvailableApplyQty(m)">全部</button>
             </view>
-            </view>
-            <view class="request-material__operation-footer">
-              <text class="request-material__hint">{{ isProjectUsage ? `本次最多可申请 ${getAvailableApplyQty(m)} ${m.unit}` : `数量单位：${m.unit}` }}</text>
-              <button class="request-material__remove" :disabled="submitting" :aria-label="`删除${m.name}`" @click="removeMaterial(m)">删除</button>
             </view>
           </view>
+            <view class="request-material__operation-footer">
+              <text class="request-material__hint">{{ isProjectUsage ? `当前可申请 ${getAvailableApplyQty(m)} ${m.unit}` : `库存数量 ${m.stock ?? '—'} ${m.unit}` }}</text>
+              <view class="request-material__actions">
+                <button v-if="isProjectUsage" class="request-material__fill" :disabled="submitting" :aria-label="`申请${m.name}全部可用数量`" @click="m.qty = getAvailableApplyQty(m)">全部</button>
+              <button class="request-material__remove" :disabled="submitting" :aria-label="`删除${m.name}`" @click="removeMaterial(m)">删除</button>
+              </view>
+            </view>
         </view>
         <view
           class="add-material"
-          :class="{ disabled: isProjectUsage && !orderInfo.id }"
+          :class="{ disabled: bulkLoading || (isProjectUsage && !orderInfo.id) }"
           @click="openMaterialPicker"
         >
           {{
@@ -114,7 +119,7 @@
       </SectionCard>
 
       <view class="submit-wrap">
-        <wd-button size="large" type="primary" :loading="submitting" @click="submit">
+        <wd-button size="large" type="primary" :disabled="bulkLoading" :loading="submitting" @click="submit">
           提交领料申请
         </wd-button>
       </view>
@@ -284,7 +289,7 @@
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onHide } from '@dcloudio/uni-app'
 import dayjs from 'dayjs'
 import { useToast, useMessage } from 'wot-design-uni'
 import { useUserStore } from '@/store/user'
@@ -296,8 +301,12 @@ import {
   unwrapRecords,
 } from '@/service/shkj'
 import { MATERIAL_USAGE_TYPE } from '@/types/business'
+import { PROJECT_PICK_STAGES } from '@/service/projectMaterialAccess'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { getReworkMaterials, validateRework } from '@/service/reworkMaterials'
+import { loadPickAllAccounts, missingPickAccounts } from '@/utils/pickAllMaterials'
+import { http } from '@/utils/http'
+import { filterMaterialSearch, materialBrandMap } from '@/utils/materialBrandSearch'
 
 const toast = useToast()
 const message = useMessage()
@@ -320,6 +329,7 @@ const selectedMaterials = ref<any[]>([])
 const pickerSelectedMaterials = ref<any[]>([])
 const showMaterial = ref(false)
 const materialKeyword = ref('')
+const brandNames = ref<Record<string, string>>({})
 const materialsLoading = ref(false)
 const materialsError = ref(false)
 const materialPageNo = ref(1)
@@ -334,28 +344,20 @@ const usageTypeOptions = MATERIAL_USAGE_TYPE
 const usageTypeIndex = ref(0)
 const usageType = computed(() => usageTypeOptions[usageTypeIndex.value].value)
 const isProjectUsage = computed(() => usageType.value === 'PROJECT')
-const projectMaterialPeriodStatus = [
-  'IMPLEMENTING',
-  'DEBUGGING',
-  'DEBUG_COMPLETED',
-  'IMPLEMENT_COMPLETED',
-  'PENDING_ACCEPT',
-  'REWORKING',
-  'INTERNAL_ACCEPTING',
-  'ACCEPTING',
-].join(',')
+const bulkLoading = ref(false)
+let bulkVersion = 0
+const invalidateBulk = () => { bulkVersion++; bulkLoading.value = false }
+watch([() => orderInfo.value.id, usageType, reworkId], invalidateBulk, { flush: 'sync' })
+onHide(invalidateBulk)
+const projectMaterialPeriodStatus = PROJECT_PICK_STAGES.join(',')
 
 const materialCode = (material: any) => material.materialCode || material.code || ''
 const projectOptionText = (project: any) => project.projectLabel || '—'
 const filteredProjectList = computed(() => participatedProjects.value)
 const filteredMaterialList = computed(() => {
-  const keyword = materialKeyword.value.trim().toLowerCase()
-  if (!keyword) return materialList.value
-  return materialList.value.filter((material) =>
-    [materialCode(material), material.name, material.brand, material.spec]
-      .map((value) => String(value || '').toLowerCase())
-      .some((value) => value.includes(keyword)),
-  )
+  // 普通项目已由总账接口跨页搜索，不能再用品牌编码过滤服务端结果。
+  if (isProjectUsage.value && !reworkId.value) return materialList.value
+  return filterMaterialSearch(materialList.value, materialKeyword.value, brandNames.value)
 })
 const allLoadedMaterialsSelected = computed(
   () =>
@@ -384,6 +386,28 @@ const normalizeAvailableMaterial = (account: any) => ({
   }),
   availableApplyQty: Math.max(Number(account.availableApplyQty) || 0, 0),
 })
+
+const fillAllMaterials = async () => {
+  if (bulkLoading.value || submitting.value || projectSelecting.value || !isProjectUsage.value || reworkId.value || requestedReworkId.value) return
+  const periodId = String(orderInfo.value.id || '')
+  if (!periodId) return toast.warning('请先选择关联项目')
+  const version = ++bulkVersion, token = userStore.userInfo.token
+  const isCurrent = () => version === bulkVersion && token === userStore.userInfo.token && periodId === String(orderInfo.value.id) && isProjectUsage.value && !reworkId.value
+  bulkLoading.value = true
+  try {
+    const accounts = await loadPickAllAccounts(({ periodId, pageNo, pageSize }) => projectApi.materialAccounts(periodId, { pageNo, pageSize }), periodId, isCurrent)
+    if (!isCurrent()) return
+    const missing = missingPickAccounts(accounts, selectedMaterials.value)
+    if (!missing.length) return toast.info(accounts.some(row => Number(row.availableApplyQty) > 0) ? '可领物料已全部加入，已保留当前数量' : '当前项目暂无可申请的物料')
+    const added = missing.map(row => ({ ...normalizeAvailableMaterial(row), unit: String(row.baseUnitName).trim(), qty: Number(row.availableApplyQty) }))
+    selectedMaterials.value = [...selectedMaterials.value, ...added]
+    toast.success(`已带入 ${added.length} 项物料，可继续调整数量`)
+  } catch (error: any) {
+    if (isCurrent()) toast.error(error?.message || '可申请物料加载失败，请重试')
+  } finally {
+    if (version === bulkVersion) bulkLoading.value = false
+  }
+}
 
 const resetMaterialSource = () => {
   materialRequestVersion += 1
@@ -554,6 +578,7 @@ const openProjectPicker = async () => {
 
 const selectProject = async (project: any) => {
   if (submitting.value || projectSelecting.value) return
+  invalidateBulk()
   projectSelecting.value = true
   try {
     const response: any = await projectApi.detail(String(project.id))
@@ -669,7 +694,7 @@ const dec = (m: any) => {
 }
 
 const submit = async () => {
-  if (submitting.value || projectSelecting.value) return
+  if (submitting.value || projectSelecting.value || bulkLoading.value) return
   if (isProjectUsage.value && !orderInfo.value.id) return toast.warning('请选择关联单号')
   if (!selectedMaterials.value.length) return toast.warning('请选择物料')
   const invalid = selectedMaterials.value.find((m) => !Number(m.qty) || Number(m.qty) <= 0)
@@ -725,10 +750,16 @@ const submit = async () => {
 }
 
 const openMaterialPicker = async () => {
-  if (projectSelecting.value || submitting.value) return
+  if (projectSelecting.value || submitting.value || bulkLoading.value) return
   if (isProjectUsage.value && !orderInfo.value.id) return toast.warning('请先选择关联单号')
   pickerSelectedMaterials.value = selectedMaterials.value.map((item) => ({ ...item }))
   showMaterial.value = true
+  if (!isProjectUsage.value || reworkId.value) {
+    // 完整字典由公共 http 字典缓存去重，不从当前物料页收集品牌。
+    void http.get('/sys/dict/getDictItems/material_brand').then((response) => {
+      brandNames.value = materialBrandMap(response)
+    }).catch(() => toast.warning('品牌字典加载失败，请重新打开选料重试'))
+  }
   if (isProjectUsage.value) await loadProjectMaterials(true)
   else if (!materialList.value.length) await loadAllMaterials()
 }
@@ -749,6 +780,7 @@ watch(materialKeyword, () => {
 })
 
 onBeforeUnmount(() => {
+  invalidateBulk()
   projectRequestVersion++
   if (projectSearchTimer) clearTimeout(projectSearchTimer)
   if (materialSearchTimer) clearTimeout(materialSearchTimer)
@@ -757,6 +789,9 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 @import './components/materialRequest.scss';
+
+.bulk-material { margin-bottom: 16px; }
+.bulk-material__hint { display: block; margin-top: 8px; color: #667085; font-size: 14px; line-height: 1.5; }
 .page {
   min-height: 0;
 }

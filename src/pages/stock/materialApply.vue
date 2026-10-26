@@ -13,13 +13,16 @@
     </view>
 
     <view class="stock-filters">
+      <picker :range="approvalOptions" range-key="label" :value="approvalIndex" @change="changeApproval">
+        <view class="stock-filter"><text>审批状态</text><view>{{ approvalOptions[approvalIndex]?.label }} <wd-icon name="arrow-down" size="14px" /></view></view>
+      </picker>
       <picker :range="executeOptions" range-key="label" :value="executeIndex" @change="changeExecute">
         <view class="stock-filter"><text>执行状态</text><view>{{ executeOptions[executeIndex]?.label }} <wd-icon name="arrow-down" size="14px" /></view></view>
       </picker>
       <picker :range="usageOptions" range-key="label" :value="usageIndex" @change="changeUsage">
         <view class="stock-filter"><text>用料类型</text><view>{{ usageOptions[usageIndex].label }} <wd-icon name="arrow-down" size="14px" /></view></view>
       </picker>
-      <button class="stock-filter-reset" :disabled="!executeFilter && !usageFilter && !selectedProject.id" @click="resetFilters">重置</button>
+      <button class="stock-filter-reset" :disabled="!approvalFilter && !executeFilter && !usageFilter && !selectedProject.id" @click="resetFilters">重置</button>
     </view>
     <view class="stock-project-filter">
       <button @click="showProjectSearch = true">{{ selectedProject.label || '输入主项目或分期项目名称查询' }} <wd-icon name="search" size="16px" /></button>
@@ -39,6 +42,10 @@
         <view class="row">
           <text class="label">关联单号</text>
           <text class="val">{{ a.orderNo }}</text>
+        </view>
+        <view class="row">
+          <text class="label">审批状态</text>
+          <StatusBadge :value="String(a.status ?? '')" :dict="approvalDict" />
         </view>
         <view class="row">
           <text class="label">用料类型</text>
@@ -72,6 +79,17 @@ import StockProjectSearch from './components/StockProjectSearch.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
 
 const active = ref(0)
+const approvalDict = [
+  { value: '-1', label: '待提交', color: '#909399' },
+  { value: '0', label: '驳回', color: '#f56c6c' },
+  { value: '1', label: '审核通过', color: '#67c23a' },
+  { value: '2', label: '待审批', color: '#e6a23c' },
+  { value: '3', label: '已撤回', color: '#909399' },
+]
+const approvalFilter = ref('')
+const approvalOptions = [{ value: '', label: '全部状态' }, ...approvalDict]
+const approvalIndex = computed(() => Math.max(0, approvalOptions.findIndex(item => item.value === approvalFilter.value)))
+const changeApproval = (event: any) => { approvalFilter.value = approvalOptions[Number(event.detail.value)].value; void load(1) }
 const list = ref<any[]>([])
 const statusDict = ref([
   { value: 'PENDING', label: '待执行', color: '#e6a23c' },
@@ -99,7 +117,7 @@ const executeIndex = computed(() => Math.max(0, executeOptions.value.findIndex(i
 const usageIndex = computed(() => Math.max(0, usageOptions.findIndex(item => item.value === usageFilter.value)))
 const changeExecute = (event: any) => { executeFilter.value = executeOptions.value[Number(event.detail.value)].value; void load(1) }
 const changeUsage = (event: any) => { usageFilter.value = usageOptions[Number(event.detail.value)].value; void load(1) }
-const resetFilters = () => { executeFilter.value = ''; usageFilter.value = ''; selectedProject.value = { id: '', label: '' }; void load(1) }
+const resetFilters = () => { approvalFilter.value = ''; executeFilter.value = ''; usageFilter.value = ''; selectedProject.value = { id: '', label: '' }; void load(1) }
 const loadStatusDictionary = async () => {
   try {
     const rows = unwrapRecords(await http.get('/sys/dict/getDictItems/stock_execute_status'))
@@ -138,6 +156,7 @@ const load = async (nextPage = 1) => {
     const applyType = active.value === 0 ? 'OUT' : 'IN'
     const res: any = await stockApi.applies({
       applyType, pageNo: nextPage, pageSize: 20,
+      ...(approvalFilter.value ? { status: approvalFilter.value } : {}),
       ...(executeFilter.value ? { executeStatus: executeFilter.value } : {}),
       ...(usageFilter.value ? { usageType: usageFilter.value } : {}),
       ...(selectedProject.value.id ? { periodId: selectedProject.value.id } : {}),
@@ -214,8 +233,8 @@ onShow(() => { void loadStatusDictionary(); void load(1) })
 .stock-project-filter button { min-width: 0; margin: 0; min-height: 44px; padding: 10px; line-height: 24px; font-size: 14px; color: #596574; }
 .stock-project-filter button:first-child { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; overflow-wrap: anywhere; }
 
-.stock-filters { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-top: 1px solid #edf0f4; }
-.stock-filters picker { flex: 1; min-width: 0; }
+.stock-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-top: 1px solid #edf0f4; }
+.stock-filters picker { flex: 1 1 100px; min-width: 0; }
 .stock-filter { min-height: 52px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
 .stock-filter > text { font-size: 12px; color: #596574; }
 .stock-filter > view { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; color: #253247; }

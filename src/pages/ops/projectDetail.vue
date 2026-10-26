@@ -479,6 +479,8 @@
 
 <script lang="ts" setup>
 import { onLoad } from "@dcloudio/uni-app";
+import { canReturnAtStage } from '@/service/materialReturnAccess';
+import { canPickProjectMaterial } from '@/service/projectMaterialAccess';
 import { ref, computed } from "vue";
 import dayjs from "dayjs";
 import { useToast } from "wot-design-uni";
@@ -690,6 +692,7 @@ const delayLoading = ref(false),
 const delayProcessRows = ref<any[]>([]);
 const delayIsProjectManager = ref(false);
 const isProjectParticipant = ref(false);
+const isProjectManager = ref(false);
 const hasUnfinishedParticipation = ref(false);
 const currentUserId = computed(() =>
   String(userStore.userInfo.userid || (userStore.userInfo as any).id || ""),
@@ -785,6 +788,7 @@ const arrivalMaterialFile = ref<any>({});
 
 const canConfirmArrival = computed(
   () =>
+    isProjectManager.value &&
     (permissionStore.fullAccess ||
       permissionStore.hasPermission("project:arrival:confirm")) &&
     hasArrivalPayment.value &&
@@ -884,18 +888,6 @@ const ops = computed(() => {
         },
       });
     if (
-      isProjectParticipant.value &&
-      permissionStore.hasPageAccess("/pages/ops/materialApply")
-    )
-      list.push({
-        text: "领料申请",
-        type: "",
-        action: () =>
-          uni.navigateTo({
-            url: `/pages/ops/materialApply?periodId=${encodeURIComponent(id.value)}${detail.value.currentReworkId ? `&reworkId=${encodeURIComponent(detail.value.currentReworkId)}` : ""}`,
-          }),
-      });
-    if (
       (s === "implementing" || detail.value.rawStatus === "REWORKING") &&
       delayProcesses.value.length > 0
     )
@@ -922,6 +914,21 @@ const ops = computed(() => {
   }
   if (
     isProjectParticipant.value &&
+    canPickProjectMaterial(detail.value.rawStatus, detail.value.planStatus) &&
+    permissionStore.hasPageAccess("/pages/ops/materialApply")
+  )
+    list.push({
+      text: "领料申请",
+      type: "",
+      action: () =>
+        uni.navigateTo({
+          url: `/pages/ops/materialApply?periodId=${encodeURIComponent(id.value)}${detail.value.rawStatus === 'REWORKING' && detail.value.currentReworkId ? `&reworkId=${encodeURIComponent(detail.value.currentReworkId)}` : ""}`,
+        }),
+    });
+  if (
+    isProjectParticipant.value &&
+    String(detail.value.planStatus) === '1' &&
+    canReturnAtStage(detail.value.rawStatus) &&
     permissionStore.hasPageAccess("/pages/ops/materialReturn")
   )
     list.push({
@@ -943,8 +950,9 @@ const primaryOps = computed(() =>
   ops.value.filter(
     (op) =>
       op.type === "primary" ||
+      op.text === "申请还料" ||
       op.text === "确认到货" ||
-      (op.text === "领料申请" && !canConfirmArrival.value),
+      op.text === "领料申请",
   ),
 );
 const moreGroups = computed(() =>
@@ -1017,20 +1025,21 @@ const confirmArrival = async () => {
     return;
   arrivalSubmitting.value = true;
   try {
-    const [latest, latestContract]: any[] = await Promise.all([
+    const [latest, latestContract, membership]: any[] = await Promise.all([
       projectApi.detail(id.value),
       projectApi.contractDetail(id.value),
+      readProjectMembership(id.value, currentUserId.value),
     ]);
     const record = latest?.result;
     if (
-      !record ||
+      !membership.manager || !record ||
       !isArrivalStage({
         ...record,
         status: record.periodStatus ?? record.status,
       }) ||
       !findArrivalPayment((latestContract?.result ?? latestContract)?.records)
     ) {
-      toast.warning("到货状态或合同回款计划已变化，请刷新后操作");
+      toast.warning("项目经理身份、到货状态或合同回款计划已变化，请刷新后操作");
       showArrival.value = false;
       await load();
       return;
@@ -1053,6 +1062,7 @@ const load = async () => {
   hasArrivalPayment.value = false;
   isProjectParticipant.value = false;
   delayIsProjectManager.value = false;
+  isProjectManager.value = false;
   try {
     const detailRes: any = await projectApi.detail(id.value);
     if (request !== detailRequest || periodId !== id.value) return;
@@ -1096,6 +1106,7 @@ const load = async () => {
       toast.warning("实施资格查询失败，请重新打开项目详情重试");
     delayIsProjectManager.value =
       results[5].status === "fulfilled" && results[5].value === true;
+    isProjectManager.value = delayIsProjectManager.value;
     const contractResult =
       results[4].status === "fulfilled"
         ? (results[4].value as any)?.result?.contract
@@ -1632,7 +1643,7 @@ onLoad((query) => {
   display: flex;
   flex-shrink: 0;
   box-sizing: border-box;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: #fff;
@@ -1641,7 +1652,7 @@ onLoad((query) => {
   .btn {
     box-sizing: border-box;
     flex: 1;
-    min-width: 0;
+    min-width: 92px;
     min-height: 44px;
     margin: 0;
     line-height: 22px;

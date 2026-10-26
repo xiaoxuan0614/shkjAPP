@@ -13,7 +13,7 @@
             <button v-if="!record.id" class="project-choice" :disabled="busy" @click="openPicker('project')">{{ projectLabel || '选择主项目及分期' }}<wd-icon name="arrow-right" size="16px" /></button>
             <view v-else class="project-name">{{ projectLabel }}</view>
             <label class="field"><text>报价单名称</text><input v-model="name" :disabled="!!record.id || busy" :maxlength="100" placeholder="请输入报价单名称" @input="dirty = true" /></label>
-            <view class="notice">{{ pricing ? '仅维护指导比例与指导价，成本及明细结构不可改。' : direct ? '填写成本价和报价，保存草稿后提交审批。' : '填写成本价及明细，技术审批通过后再进行市场定价。' }}</view>
+            <view class="notice">{{ pricing ? '仅维护加价比例与指导价，成本及明细结构不可改。指导价=成本×（1+加价比例÷100），修改指导价自动反算比例。' : direct ? '填写成本价和报价，保存草稿后提交审批。' : '填写成本价及明细，技术审批通过后再进行市场定价。' }}</view>
             <view v-if="record.id && String(record.adopted) === '1'" class="notice">此报价已采用，物料、单位、数量和成本价已锁定。</view>
           </view>
           <view class="section">
@@ -46,9 +46,9 @@
                 <label class="field"><text>数量</text><input v-model="item.row.quantity" type="digit" :disabled="!canStructure || busy" /></label>
                 <label v-if="item.fee" class="field"><text>单位</text><input v-model="item.row.unit" :maxlength="50" :disabled="!canStructure || busy" /></label>
                 <view v-else class="field"><text>单位</text><picker :disabled="!canStructure || busy || itemLoading || !!unitError" :range="item.row._units || []" range-key="label" @change="changeUnit(item.row, $event)"><view class="select-control">{{ itemLoading ? '正在加载…' : item.row.unit || '请选择单位' }}<wd-icon v-if="canStructure" name="arrow-down" size="14px" /></view></picker><button v-if="unitError" class="text-button" @click="loadItemUnits">单位加载失败，重试</button></view>
-                <label v-if="showCost" class="field"><text>成本单价（元）</text><input v-model="item.row[item.fee ? 'costPrice' : 'basePrice']" type="digit" :disabled="!canCost || busy" /></label>
-                <label v-if="showRate && !direct" class="field"><text>指导比例（%）</text><input v-model="item.row.markupRate" type="digit" :disabled="!canPrice || busy" @input="changeRate(item)" /></label>
-                <label v-if="showQuote" class="field"><text>{{ direct ? '报价' : '指导价' }}（元）</text><input v-model="item.row[item.fee ? 'guidePrice' : 'finalPrice']" type="digit" :disabled="!canPrice || busy" /></label>
+                <label v-if="showCost" class="field"><text>成本单价（元）</text><input v-model="item.row[item.fee ? 'costPrice' : 'basePrice']" type="digit" :disabled="!canCost || busy" @input="syncRate(item)" /></label>
+                <label v-if="showRate && !direct" class="field"><text>加价比例（%）</text><input v-model="item.row.markupRate" type="text" placeholder="—" :disabled="!canPrice || busy" @input="changeRate(item)" /></label>
+                <label v-if="showQuote" class="field"><text>{{ direct ? '报价' : '指导价' }}（元）</text><input v-model="item.row[item.fee ? 'guidePrice' : 'finalPrice']" type="digit" :disabled="!canPrice || busy" @input="syncRate(item)" /></label>
               </view>
               <view v-if="item.row._error" class="error" role="alert">{{ item.row._error }}</view>
               <label class="field"><text>备注</text><input v-model="item.row.remark" :disabled="pricing || busy" :maxlength="500" placeholder="选填" /></label>
@@ -69,7 +69,7 @@ import { onLoad, onUnload, onBackPress } from '@dcloudio/uni-app'
 import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
 import { usePermissionStore } from '@/store/permission'
-import { quotationPersonnelRoute } from '@/utils/quotationTable'
+import { quotationPersonnelRoute, quotationPercent } from '@/utils/quotationTable'
 import { quotationDocumentTotal } from '@/utils/quotationDocument'
 import { quotationPages, quotationVersion, getQuotationAccess, getQuotationRecord, unwrapQuotation } from '@/service/quotationApproval'
 import { quotationCapabilities, materialPayload, feePayload, pricingPayload, guidancePrice, candidateAction } from '@/service/quotationEditor'
@@ -159,13 +159,7 @@ async function load() {
       projectLabel.value = [record.value.projectName, record.value.periodName].filter(Boolean).join('-')
       materials.value = data.rows.map(row => ({ ...row, _units: row.unitId ? [{ value: String(row.unitId), label: row.unit || '原单位' }] : [] }))
       fees.value = data.serviceFees.map(row => ({ ...row }))
-      if (pricing.value) for (const item of [...materials.value.map(row => ({ row, fee: false })), ...fees.value.map(row => ({ row, fee: true }))]) {
-        const row = item.row, field = item.fee ? 'guidePrice' : 'finalPrice'
-        if (row.markupRate == null || row.markupRate === '') row.markupRate = row.guideMarkupRate ?? ''
-        if ((row[field] == null || row[field] === '') && row.markupRate !== '') {
-          try { row[field] = guidancePrice(row[item.fee ? 'costPrice' : 'basePrice'], row.markupRate) } catch { /* Missing price remains visible and blocks confirmation. */ }
-        }
-      }
+      for (const item of [...materials.value.map(row => ({ row, fee: false })), ...fees.value.map(row => ({ row, fee: true }))]) syncRate(item)
     } else if (!personnelRoute.value) throw new Error('无法确认报价所属部门，请确认市场部或技术部归属后重试')
     if (!allowed.value) throw new Error('当前状态或账号权限不允许此操作')
     page.value = 1; dirty.value = false; writeUncertain = false
@@ -217,7 +211,12 @@ async function populateUnits(row: any) {
   }
 }
 function changeUnit(row: any, event: any) { if (!canStructure.value || busy.value) return; const unit = row._units[Number(event.detail.value)]; if (unit) { row.unitId = unit.value; row.unit = unit.label } }
-function changeRate(item: any) { try { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = guidancePrice(item.row[item.fee ? 'costPrice' : 'basePrice'], item.row.markupRate); item.row._error = '' } catch (e: any) { item.row._error = e.message } }
+function syncRate(item: any) {
+  const rate = quotationPercent(item.row[item.fee ? 'costPrice' : 'basePrice'], item.row[item.fee ? 'guidePrice' : 'finalPrice'])
+  item.row.markupRate = rate === '—' ? '' : rate.replace('%', '')
+  item.row._error = ''
+}
+function changeRate(item: any) { try { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = guidancePrice(item.row[item.fee ? 'costPrice' : 'basePrice'], item.row.markupRate); item.row._error = '' } catch (e: any) { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = ''; item.row._error = e.message } }
 function remove(item: any) { if (!canStructure.value || busy.value || !originalItem) return; const source = originalItem.row; if (item.fee) fees.value = fees.value.filter(row => row !== source); else materials.value = materials.value.filter(row => row !== source); page.value = Math.min(page.value, pages.value); dirty.value = true; closeItem() }
 async function save() {
   if (busy.value || loading.value || fatal.value || !allowed.value || itemOpen.value) return
@@ -227,7 +226,7 @@ async function save() {
   let attempted = false
   try {
     if (pricing.value) {
-      const confirmed = await new Promise<boolean>(resolve => uni.showModal({ title: '确认整单定价', content: '按当前全部物料和服务费的指导比例、指导价保存定价结果？', success: result => resolve(!!result.confirm), fail: () => resolve(false) }))
+      const confirmed = await new Promise<boolean>(resolve => uni.showModal({ title: '确认整单定价', content: '按当前全部物料和服务费的加价比例、指导价保存定价结果？', success: result => resolve(!!result.confirm), fail: () => resolve(false) }))
       if (!confirmed) return
     }
     if (!periodId.value || !name.value.trim()) throw new Error('请选择项目并填写报价单名称')

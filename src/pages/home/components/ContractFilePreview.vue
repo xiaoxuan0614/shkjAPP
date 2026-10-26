@@ -18,7 +18,8 @@
           <wd-icon name="close" size="18px" />
         </button>
       </view>
-      <FilePreviewContent v-if="visible && selected" :file="selected" />
+      <view class="file-preview__hint">支持 DOCX、PDF、XLSX 和图片，最大 20 MB；表格可横向滚动。</view>
+      <FilePreviewContent v-if="visible && selected" :key="selected.path + selected.name" :file="selected" />
     </view>
   </wd-popup>
   <!-- #endif -->
@@ -83,6 +84,13 @@ defineExpose({ open })
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid #edf0f3;
+}
+.file-preview__hint {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #596574;
+  background: #f4f6f8;
+  line-height: 1.6;
 }
 .file-preview__heading {
   flex: 1;

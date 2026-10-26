@@ -1,6 +1,6 @@
 <template>
   <div class="preview-content">
-    <div v-if="loading" class="preview-state" aria-live="polite">正在读取文件内容…</div>
+    <div v-if="loading" class="preview-state" aria-live="polite">{{ loadingText }}</div>
     <div v-else-if="errorMessage" class="preview-state" role="alert">
       <span>{{ errorMessage }}</span>
       <button @click="load">重新加载</button>
@@ -57,8 +57,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { contractFileRequest, fileExtension, type ContractFile } from '@/utils/contractFile'
+import { readPreviewBuffer, checkPreviewSignature } from '@/utils/filePreviewRead'
 
 const props = defineProps<{ file: ContractFile }>()
 type SheetCell = {
@@ -70,6 +71,7 @@ type SheetCell = {
 }
 type Sheet = { name: string; rows: SheetCell[][]; limited: boolean }
 const loading = ref(true)
+const loadingText = ref('正在读取文件内容…')
 const errorMessage = ref('')
 const rendering = ref(false)
 const pdfHost = ref<any>()
@@ -81,8 +83,8 @@ const zoom = ref(1)
 const sheets = ref<Sheet[]>([])
 const sheetIndex = ref(0)
 const activeSheet = computed(() => sheets.value[sheetIndex.value])
-const extension = fileExtension(props.file)
-const kind = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(extension) ? 'image' : extension
+const extension = computed(() => fileExtension(props.file))
+const kind = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(extension.value) ? 'image' : extension.value)
 let controller: AbortController | undefined
 let pdfTask: any
 let pdf: any
@@ -92,7 +94,7 @@ let sequence = 0
 const dispose = () => {
   controller?.abort()
   renderTask?.cancel()
-  pdfTask?.destroy()
+  void pdfTask?.destroy()?.catch(() => {})
   pdfTask = undefined
   pdf = undefined
   if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
@@ -132,10 +134,12 @@ const drawPage = async () => {
   }
 }
 const turnPage = async (step: number) => {
-  pageNo.value += step
+  if (rendering.value) return
+  pageNo.value = Math.max(1, Math.min(pageCount.value, pageNo.value + step))
   await drawPage()
 }
 const toggleZoom = async () => {
+  if (rendering.value) return
   zoom.value = zoom.value === 1 ? 1.8 : 1
   await drawPage()
 }
@@ -205,32 +209,34 @@ const load = async () => {
   const current = ++sequence
   dispose()
   loading.value = true
+  loadingText.value = '正在读取文件内容…'
   rendering.value = false
   errorMessage.value = ''
   sheets.value = []
   sheetIndex.value = 0
   pageNo.value = 1
   zoom.value = 1
-  controller = new AbortController()
-  const timer = setTimeout(() => controller?.abort(), 30000)
+  const request = new AbortController()
+  controller = request
+  const timer = setTimeout(() => request.abort(), 30000)
   try {
-    if (!['image', 'pdf', 'xlsx', 'docx', 'doc'].includes(kind))
-      throw new Error('网页预览支持 DOCX、PDF、XLSX 和图片；其他格式请在小程序中打开')
+    if (kind.value === 'xls') throw new Error('旧版 XLS 暂不支持网页预览，请另存为 XLSX，或在微信小程序中使用原生预览')
+    if (!['image', 'pdf', 'xlsx', 'docx', 'doc'].includes(kind.value))
+      throw new Error('网页预览支持 DOCX、PDF、XLSX 和图片，请转换为支持的格式')
     const { url, header, trusted } = contractFileRequest(props.file.path)
     const response = await fetch(url, {
       headers: header,
       credentials: trusted ? 'same-origin' : 'omit',
       redirect: 'error',
-      signal: controller.signal,
+      signal: request.signal,
     })
     if (!response.ok) throw new Error(`附件读取失败（${response.status}），请重试或检查文件权限`)
-    if (Number(response.headers.get('content-length')) > 20 * 1024 * 1024)
-      throw new Error('文件超过 20 MB，请在电脑端查看')
-    const buffer = await response.arrayBuffer()
-    if (buffer.byteLength > 20 * 1024 * 1024) throw new Error('文件超过 20 MB，请在电脑端查看')
+    const buffer = await readPreviewBuffer(response)
     clearTimeout(timer)
     if (current !== sequence) return
-    if (kind === 'pdf') {
+    checkPreviewSignature(buffer, extension.value)
+    loadingText.value = '正在解析文件，请稍候…'
+    if (kind.value === 'pdf') {
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
       const worker = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')
       if (current !== sequence) return
@@ -244,11 +250,16 @@ const load = async () => {
         standardFontDataUrl: `${resourceBase}standard_fonts/`,
         wasmUrl: `${resourceBase}wasm/`,
       })
-      const document = await pdfTask.promise
+      const task = pdfTask
+      task.onPassword = () => {
+        if (current === sequence) errorMessage.value = '此 PDF 需要密码，请上传无密码版本后预览'
+        void task.destroy()?.catch(() => {})
+      }
+      const document = await task.promise
       if (current !== sequence) return
       pdf = document
       pageCount.value = pdf.numPages
-    } else if (kind === 'docx') {
+    } else if (kind.value === 'docx') {
       const { renderAsync } = await import('docx-preview')
       if (current !== sequence) return
       const host = document.createElement('div')
@@ -259,20 +270,20 @@ const load = async () => {
       if (current !== sequence) return
       // 文件内容放入无脚本、无外部请求权限的沙箱，文档样式不影响审批页面。
       wordHtml.value = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline';"><style>body{margin:0;color:#27364a;background:white} .docx-wrapper{padding:12px!important;background:white!important}section.docx{padding:12px!important;box-shadow:none!important;max-width:100%;box-sizing:border-box}img{max-width:100%;height:auto}table{max-width:100%}p{overflow-wrap:anywhere}</style></head><body>${host.innerHTML}</body></html>`
-    } else if (kind === 'doc') {
+    } else if (kind.value === 'doc') {
       imageUrl.value = URL.createObjectURL(new Blob([buffer], { type: 'application/msword' }))
-    } else if (kind === 'xlsx') {
+    } else if (kind.value === 'xlsx') {
       const parsed = await parseWorkbook(buffer)
       if (current !== sequence) return
       sheets.value = parsed
       if (!parsed.length) throw new Error('文件中没有可见的工作表')
     } else {
       imageUrl.value = URL.createObjectURL(
-        new Blob([buffer], { type: `image/${extension === 'jpg' ? 'jpeg' : extension}` }),
+        new Blob([buffer], { type: `image/${extension.value === 'jpg' ? 'jpeg' : extension.value}` }),
       )
     }
   } catch (error: any) {
-    if (current === sequence)
+    if (current === sequence && !errorMessage.value)
       errorMessage.value =
         error?.name === 'AbortError'
           ? '文件读取超时，请检查网络后重试'
@@ -281,11 +292,11 @@ const load = async () => {
     clearTimeout(timer)
     if (current === sequence) {
       loading.value = false
-      if (kind === 'pdf' && !errorMessage.value) await drawPage()
+      if (kind.value === 'pdf' && !errorMessage.value) await drawPage()
     }
   }
 }
-onMounted(load)
+watch(() => [props.file.path, props.file.name], load, { immediate: true })
 onBeforeUnmount(() => {
   sequence++
   dispose()
