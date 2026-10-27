@@ -40,10 +40,6 @@
           <StatusBadge :value="a.executeStatus" :dict="statusDict" />
         </view>
         <view class="row">
-          <text class="label">关联单号</text>
-          <text class="val">{{ a.orderNo }}</text>
-        </view>
-        <view class="row">
           <text class="label">审批状态</text>
           <StatusBadge :value="String(a.status ?? '')" :dict="approvalDict" />
         </view>

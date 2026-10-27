@@ -77,6 +77,14 @@ export const repairOrderApi = {
   async missingClock(payload: Record<string, unknown>) { return mutate('/repair/work/missingClock',payload) },
   async evaluation(payload: Record<string, unknown>) { return mutate('/repair/evaluation/submit',payload) },
   async materialApply(payload: Record<string, unknown>) { return mutate('/stock/apply/add', payload) },
+  async materialAccounts(orderId: string, handlerUserId: string, pageNo = 1, pageSize = 10, keyword = '') {
+    if (!orderId || !handlerUserId) throw new Error('缺少维修单或领料人信息')
+    return result<any>(await http.get('/repair/materialAccount/page', { orderId, handlerUserId, pageNo, pageSize, ...(keyword ? { keyword } : {}) }))
+  },
+  async materialStatistics(orderId: string, pageNo = 1, pageSize = 5) {
+    if (!orderId) throw new Error('缺少维修单信息')
+    return result<any>(await http.get('/repair/materialAccount/page', {orderId,pageNo,pageSize}))
+  },
   async options(type: 'vehicles' | 'internal' | 'external' | 'roles' | 'collaborationMembers', sourcePersonId?: string) {
     return result<{value: string; label: string; departmentId?: string; departmentName?: string}[]>(await http.get('/repair/options', { type, ...(sourcePersonId ? { sourcePersonId } : {}) }))
   },
@@ -107,6 +115,7 @@ export const repairOrderApi = {
     return response.result
   },
   async collaboration(payload: Record<string, unknown>) { return mutate('/repair/collaboration/submit', payload) },
+  async approvalCandidates(applicationId:string,taskId:string) { return result<any>(await http.get('/repair/collaboration/assignmentOptions',{applicationId,taskId})) },
   async review(payload: Record<string, unknown>) { return mutate('/repair/application/review', payload) },
   async reportOptions(query: { keyword?: string; customerId?: string; periodId?: string } = {}) {
     return result<{ customers: Record<string, any>[]; projects: Record<string, any>[]; products: Record<string, any>[] }>(

@@ -36,8 +36,6 @@ const groups = [
     pages: [
       { label: '运维工作台', path: '/pages/home/index' },
       { label: '线下预约', path: '/pages/ops/reservation' },
-      { label: '领料申请', path: '/pages/ops/materialApply' },
-      { label: '还料申请', path: '/pages/ops/materialReturn' },
       { label: '维修记录', path: '/pages/ops/repairRecord' },
       { label: '车辆管理', path: '/pages/ops/vehicle' },
       { label: '项目实施', path: '/pages/ops/implementLog' },

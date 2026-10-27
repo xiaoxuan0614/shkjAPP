@@ -42,12 +42,13 @@ const unsupported = vm.runInNewContext(ts.transpileModule(action + '\nopenTodo({
 })
 const checkUnsupported = unsupported.then(() => { assert.equal(notice.title, '请到 PC 端办理'); assert.equal(notice.showCancel, false) })
 async function checkDuplicateOpen() {
-  let release,requests=0,navigations=0,now=1000;
+  let release,requests=0,navigations=0,now=1000,popups=0;
   const state={ref:require('vue').ref,Date:{now:()=>now},repairTodoTarget:()=>{requests++;return new Promise(resolve=>{release=resolve})},repairTodoUrl:target=>{assert.equal(target.taskId,'task2');return '/pages/ops/repairDetail?id=order&view=approval&taskId=task2'},parseTodoActionParams:()=>({}),uni:{navigateTo:async({url})=>{assert.match(url,/taskId=task2/);navigations++}},toast:{warning:()=>{}}};
+  state.repairApproval={value:{open:async(id,params,initial)=>{assert.equal(id,'instance');assert.equal(params.taskId,'task2');popups++}}};
   vm.createContext(state);vm.runInContext(ts.transpileModule(action+'\nglobalThis.open = openTodo',{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,state);
-  const first=state.open({});await state.open({});assert.equal(requests,1,'one pending resolution for rapid clicks');release({orderId:'order',view:'approval',taskId:'task2'});await first;
-  await state.open({});assert.equal(navigations,1,'cooldown prevents duplicate navigation after fast response');
-  now+=601;const retry=state.open({});assert.equal(requests,2,'guard releases for subsequent visit');release({orderId:'order',view:'approval',taskId:'task2'});await retry;
+  const first=state.open({});await state.open({});assert.equal(requests,1,'one pending resolution for rapid clicks');release({orderId:'order',view:'approval',taskId:'task2',instanceId:'instance'});await first;
+  await state.open({});assert.equal(popups,1,'cooldown prevents duplicate popup after fast response');assert.equal(navigations,0,'approval no longer navigates to order');
+  now+=601;state.parseTodoActionParams=()=>({instanceId:'instance',taskId:'task2'});await state.open({actionKey:'WORKFLOW_APPROVAL',bizModule:'REPAIR'});assert.equal(popups,2);assert.equal(requests,1,'known repair opens popup without preliminary duplicate detail');
 }
 const loader = source.slice(source.indexOf('const loadTodos = async'), source.indexOf('\nconst memberRoleFallback'))
 assert.ok(loader.startsWith('const loadTodos'))
@@ -76,5 +77,10 @@ Promise.all([run(false), run(true), checkUnsupported, checkDuplicateOpen()]).the
   assert.ok(source.includes("todoList.value.slice(0, 5)"))
   assert.ok(source.includes("todoOnly ? '刷新' : '查看详情'"))
   assert.ok(!source.includes('showAllTodos'))
+  assert.ok(source.includes('ref="repairAssignment" standalone'))
+  assert.ok(source.includes("target?.view === 'assignment'"))
+  assert.ok(source.indexOf("target?.view === 'assignment'") < source.indexOf('repairTodoUrl(target)'))
+  assert.ok(source.includes("displayTitle: item.title?.trim() || '未命名待办'"))
+  assert.ok(source.includes('{{ item.summary }}'))
   console.log('首页5条、独立列表分页、刷新和无更多请求回归通过')
 }).catch(error => { console.error(error); process.exitCode = 1 })

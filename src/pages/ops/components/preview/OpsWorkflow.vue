@@ -114,7 +114,7 @@
               <SectionCard title="报价管理">
                 <template #extra><button v-if="quotationEntryText" class="quotation-entry" :disabled="submitting" @click.stop="openQuotationEntry">{{ quotationEntryText }}</button></template>
                 <view class="kv"><text>报价状态</text><text>{{ quotationText(selected.quotationStatus) }}</text></view>
-                <text v-if="selected.quotationStatus === 'CONFIRMED'" class="muted">客户已确认报价，是否需要报价不可再修改。</text>
+                <text v-if="quotationLockedMessage" class="muted">{{ quotationLockedMessage }}</text>
                 <text v-else-if="selected.quotationStatus === 'UNDETERMINED'" class="muted">请选择是否需要报价；需要报价时一并填写报价明细。</text>
               </SectionCard>
               <SectionCard title="维修汇总">
@@ -128,12 +128,13 @@
                   <text>人员日志分页：支持按维修单、人员查询；返回总条数、人员候选和每次日志摘要。</text>
                 </view>
               </SectionCard>
+              <RepairMaterialStatistics :key="selected.id" :order-id="selected.id" />
               <SectionCard v-if="selected.finalPrice != null" title="完工信息">
                 <view v-if="selected.finalPrice != null" class="kv"><text>最终维修价</text><text>¥{{ selected.finalPrice.toFixed(2) }}</text></view>
                 <text v-if="selected.completionReason" class="muted">审批意见：{{ selected.completionReason }}</text>
               </SectionCard>
             </template>
-            <view class="panel"><button class="fold-button" :aria-expanded="showEvents" @click="toggleEvents">处理日志<wd-icon :name="showEvents ? 'arrow-up' : 'arrow-down'" size="14px" /></button><template v-if="showEvents"><view class="event-timeline"><view v-for="(event, i) in events" :key="event.id || i" class="event-item"><view class="event-heading"><text class="event-operator">{{ event.operator }}</text><text class="event-time">{{ event.time }}</text></view><text class="event-action">{{ event.action }}</text><text v-if="event.content && event.content !== event.action" class="event-content">{{ event.content }}</text></view></view><text v-if="eventLoading" class="muted" role="status">正在加载处理日志…</text><button v-else-if="eventError" class="btn" @click="loadEvents">{{ eventError }}，点击重试</button><button v-else-if="events.length < eventTotal" class="btn" @click="loadEvents">加载更多</button><text v-else-if="!events.length" class="muted">暂无处理日志</text></template></view>
+            <SectionCard title="处理日志" @header-click="toggleEvents"><template #extra><button class="event-toggle" :aria-expanded="showEvents" aria-label="展开或收起处理日志" @click.stop="toggleEvents"><text>{{ showEvents ? '收起' : '展开' }}</text><wd-icon :name="showEvents ? 'arrow-up' : 'arrow-down'" size="14px" /></button></template><template v-if="showEvents"><view class="event-timeline"><view v-for="(event, i) in events" :key="event.id || i" class="event-item"><view class="event-heading"><text class="event-operator">{{ event.operator }}</text><text class="event-time">{{ event.time }}</text></view><text class="event-action">{{ event.action }}</text><text v-if="event.content && event.content !== event.action" class="event-content">{{ event.content }}</text></view></view><text v-if="eventLoading" class="muted" role="status">正在加载处理日志…</text><button v-else-if="eventError" class="btn" @click="loadEvents">{{ eventError }}，点击重试</button><button v-else-if="events.length < eventTotal" class="btn" @click="loadEvents">加载更多</button><text v-else-if="!events.length" class="muted">暂无处理日志</text></template></SectionCard>
             <text v-if="source === 'reports' && !selected.actions.canViewRepairDetail" class="muted">维修负责人正在跟进，您可以在这里查看处理进度。</text>
           </template>
 
@@ -152,6 +153,7 @@
               <text class="muted">选择提交完成：签退成功后填写完工申请，确认后再提交审批。选择需要复修：签退后返回维修详情。</text>
             </SectionCard>
             <SectionCard title="签退定位"><LocationPanel :location="clockLocation" :locating="locating" :status-label="clockLocation.status === 'NORMAL' ? '已定位' : ''" @refresh="refreshClockLocation" /></SectionCard>
+            <SectionCard title="忘记签退？"><text class="muted">已离开现场，可填写实际结束时间和原因办理补签退。</text><button class="btn" :disabled="submitting || workDetail?.actions?.canEnd !== true" @click="openBackfillCheckout">补签退</button></SectionCard>
           </template>
           <template v-else-if="screen === 'logList' && selected">
             <view class="personnel-records">
@@ -161,9 +163,9 @@
                   <button class="repair-log-toggle" @click="toggleLog(log.id)">
                     <view class="repair-log-heading"><text class="repair-log-person">{{ log.people || '维修人员' }}</text><text class="repair-log-state" :class="{ 'is-active': !log.endedAt }">{{ logState(log.id) }}</text></view>
                     <text v-if="log.mode" class="repair-log-mode">{{ log.mode }}维修</text>
-                    <view class="repair-log-clock"><view><text>签到</text><text>{{ formatTime(log.startedAt) }}</text></view><view><text>签退</text><text>{{ log.endedAt ? formatTime(log.endedAt) : '未签退' }}</text></view></view>
-                    <text class="repair-log-summary">{{ log.description || '尚未填写维修内容' }}</text>
-                    <view class="repair-log-bottom"><text class="repair-log-duration">{{ log.endedAt ? selected.raw.workRecords?.find(r => r.id === log.id)?.durationSeconds != null ? (Number(selected.raw.workRecords.find(r => r.id === log.id).durationSeconds) / 3600).toFixed(2) + 'h' : '时长未返回' : '本次维修进行中' }}</text><view class="repair-log-link"><text>查看详情</text><wd-icon name="arrow-right" size="14px" /></view></view>
+                    <view class="repair-log-clock"><view><text>打卡时间</text><text>{{ log.startedAt ? formatTime(log.startedAt) : '未记录' }} - {{ log.endedAt ? formatTime(log.endedAt) : '未签退' }}</text></view><view><text>维修时长</text><text>{{ repairLogDuration(log) }}</text></view></view>
+                    <view class="repair-log-description"><text class="repair-log-description-label">维修内容</text><text class="repair-log-summary">{{ log.description || '尚未填写维修内容' }}</text></view>
+                    <view class="repair-log-bottom"><view class="repair-log-link"><text>查看详情</text><wd-icon name="arrow-right" size="14px" /></view></view>
                   </button>
                 </view>
 
@@ -231,7 +233,7 @@
               <view class="quotation-switch"><button :class="{active: quoteRequired}" :aria-pressed="quoteRequired" :disabled="quotationDecisionOnly" @click="quoteRequired = true">需要报价</button><button :class="{active: !quoteRequired}" :aria-pressed="!quoteRequired" @click="quoteRequired = false">无需报价</button></view>
               <view class="quotation-field" v-if="!quoteRequired"><label for="no-quote-reason" class="field-label">无需报价原因<text class="required"> *</text></label><textarea id="no-quote-reason" v-model="noQuoteReason" class="textarea quotation-textarea" placeholder="请说明无需报价的原因" maxlength="500" /></view>
               <view class="quotation-field" v-else><label for="quote-scope" class="field-label">故障及维修范围<text class="required"> *</text></label><textarea id="quote-scope" v-model="faultScope" class="textarea quotation-textarea" placeholder="请描述本次报价包含的故障与维修工作" maxlength="10000" /></view>
-              <text class="quotation-note">{{ quoteRequired ? '提交后由运维主管、总经理依次审批。' : '登记后，已有未完成的报价流程将终止，历史记录保留。' }}</text>
+              <text class="quotation-note">{{ quoteRequired ? '提交后由负责人所属部门主管、市场主管依次审批，通过后登记客户确认。' : '登记后，已有未完成的报价流程将终止，历史记录保留。' }}</text>
             </SectionCard>
             <SectionCard v-if="quoteRequired" title="报价明细">
               <template #extra><text class="quotation-count">共 {{ quoteDraft.length }} 项</text></template>
@@ -248,7 +250,7 @@
 
           <template v-else-if="['customer', 'completion', 'approval'].includes(screen) && selected && (selected.actions.canViewRepairDetail || (screen === 'approval' && reviewTasks.length))">
             <SectionCard :title="title">
-              <picker v-if="screen === 'approval' && reviewTaskOptions.length > 1" :range="reviewTaskOptions" range-key="label" :disabled="submitting" @change="selectReviewTask"><view class="picker-value">{{ reviewTask ? (reviewTask.task.departmentName || reviewTask.task.name) : '请选择待办审批任务' }} · 共 {{ reviewTaskOptions.length }} 项</view></picker>
+              <picker v-if="screen === 'approval' && reviewTaskOptions.length > 1" :range="reviewTaskOptions" range-key="label" :disabled="submitting || !!mergedPending" @change="selectReviewTask"><view class="picker-value">{{ reviewTask ? (reviewTask.task.departmentName || reviewTask.task.name) : '请选择待办审批任务' }} · 共 {{ reviewTaskOptions.length }} 项</view></picker>
               <template v-if="isCollaborationApproval">
                 <text class="assist-approval-type">{{ isInternalCollaborationApproval ? '受邀部门及协助原因' : collaborationApproval.typeLabel }}</text>
                 <view v-for="(entry,index) in collaborationApproval.entries" :key="index" class="assist-approval-entry">
@@ -278,11 +280,28 @@
               </template>
               <template v-if="screen === 'customer' || (screen === 'completion' && completionNeedsPrice)"><label for="repair-price" class="field-label spaced">{{ screen === 'customer' ? '客户确认维修价格' : '最终维修价格' }}（元）<text class="required">*</text></label><input id="repair-price" v-model="priceInput" class="input" type="digit" placeholder="请输入价格，允许 0 元" /></template>
               <template v-if="screen === 'completion'">
+                <template v-if="completionMissingQuotation">
+                  <text class="field-label spaced">是否需要报价<text class="required"> *</text></text>
+                  <view class="choices"><button class="choice" :class="{on:completionQuotationChoice === true}" :disabled="submitting || !canFillQuotation" @click="completionQuotationChoice = true">需要报价</button><button class="choice" :class="{on:completionQuotationChoice === false}" :disabled="submitting || !canFillQuotation" @click="completionQuotationChoice = false">无需报价</button></view>
+                  <text class="muted">{{ completionQuotationChoice === true ? '请先填写报价单，完成审批及客户确认后再提交完工。' : '无需报价时，仅填写完工说明；该说明同时作为无需报价原因保存。' }}</text>
+                </template>
                 <label for="completion-description" class="field-label spaced">完工说明<text class="required"> *</text></label><textarea id="completion-description" v-model="completionDescription" class="textarea" placeholder="说明维修完成情况" />
                 <template v-if="completionPriceChanged"><label for="amount-change-reason" class="field-label spaced">价格变更原因<text class="required"> *</text></label><textarea id="amount-change-reason" v-model="amountChangeReason" class="textarea" placeholder="说明与客户确认价不一致的原因" /></template>
               </template>
               <picker v-if="screen === 'approval' && reviewTask?.application.applicationType === 'COMPLETION'" :range="returnTypes" range-key="label" @change="returnType = returnTypes[Number($event.detail.value)].value"><view class="picker-value">完工驳回方式：{{ returnTypes.find(v => v.value === returnType)?.label }}<wd-icon name="arrow-down" /></view></picker>
-              <template v-if="screen === 'approval'"><view v-if="!isCollaborationApproval && selected.finalPrice != null" class="kv"><text>最终维修价</text><text>¥{{ selected.finalPrice.toFixed(2) }}</text></view><label for="approval-reason" class="field-label spaced">审批意见（驳回必填）</label><textarea id="approval-reason" v-model="approvalReason" class="textarea" maxlength="1000" placeholder="填写审批意见" /></template>
+              <view v-if="mergedApproval && approvalDecision === 'approve'" class="approval-assignees">
+                <text v-if="candidateLoading" class="muted">正在加载候选人员…</text>
+                <view v-if="candidateError"><text>{{ candidateError }}</text><button :disabled="!!mergedPending" @click="loadReviewCandidates">重新加载</button></view>
+                <view v-for="department in reviewCandidates?.departments || []" :key="department.departmentId" class="approval-assignees__department">
+                  <text class="field-label">{{ department.departmentName }} · 指定内协人员</text>
+                  <text v-if="department.reason" class="muted">{{ department.reason }}</text>
+                  <text v-if="!department.members.length" class="muted">该部门暂无可选人员，不能直接通过</text>
+                  <view class="approval-assignees__members">
+                    <button v-for="member in department.members" :key="member.value" :disabled="!!mergedPending" :class="{ 'is-selected': (reviewChosen[department.departmentId] || []).includes(member.value) }" @click="toggleReviewMember(department.departmentId,member.value)">{{ (reviewChosen[department.departmentId] || []).includes(member.value) ? '✓ ' : '' }}{{ member.label }}</button>
+                  </view>
+                </view>
+              </view>
+              <template v-if="screen === 'approval'"><view v-if="!isCollaborationApproval && selected.finalPrice != null" class="kv"><text>最终维修价</text><text>¥{{ selected.finalPrice.toFixed(2) }}</text></view><label v-if="!isInternalCollaborationApproval || approvalDecision" for="approval-reason" class="field-label spaced">{{ approvalDecision === 'reject' ? '驳回原因（必填）' : '审批意见（选填）' }}</label><textarea v-if="!isInternalCollaborationApproval || approvalDecision" id="approval-reason" :disabled="!!mergedPending" v-model="approvalReason" class="textarea" maxlength="1000" placeholder="填写审批意见" /></template>
             </SectionCard>
           </template>
 
@@ -311,7 +330,7 @@
             <view class="application-notice"><wd-icon name="info-circle" size="18px" /><text>提交后由主管审批，审批通过后才会{{ exceptionType === '关闭' ? '关闭维修单' : '变更负责人' }}。</text></view>
           </template>
           <RepairAssistanceForm v-else-if="screen === 'assistance' && selected && owner" ref="assistanceForm" :initial="assistanceInitial" @submit="submitAssistance" />
-          <RepairMaterialForm v-else-if="screen === 'materials' && selected && owner" ref="materialForm" :key="materialType" :repair="selected" :type="materialType" @submit="submitMaterials" />
+          <RepairMaterialForm v-else-if="screen === 'materials' && selected && owner" ref="materialForm" :key="materialType" :repair="selected" :type="materialType" :actor-id="actor.id" @submit="submitMaterials" />
           <RepairAdditionalForm v-else-if="screen === 'additional' && selected" :key="`${selected.id}:${additionalKind}`" ref="additionalForm" :kind="additionalKind" :detail="selected.raw" :actor-id="actor.id" :disabled="submitting || mediaBusy || mutationBlocked" @busy="mediaBusy=$event" @submit="submitAdditional" />
           <OpsPreviewInspection v-else-if="screen === 'inspection'" />
           <view v-else class="empty">当前身份无权查看此内容<button class="btn" @click="go('reports')">返回报修列表</button></view>
@@ -321,6 +340,19 @@
         <view class="workflow-bottom__inner"><button v-for="op in footerActions" :key="op.text" class="footer-btn" :class="{ primary: op.primary }" :disabled="mediaBusy || submitting || op.disabled" @click="op.action">{{ submitting ? '正在提交…' : op.text }}</button><button v-if="canShowMore" class="footer-btn footer-more" :aria-expanded="showMore" @click="showMore = true">更多 <wd-icon name="arrow-up" size="14px" /></button></view>
       </view>
     </PageLayout>
+    <wd-popup v-model="showBackfillCheckout" position="bottom" :z-index="12000" :close-on-click-modal="false" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;">
+      <view class="more-sheet contact-sheet">
+        <view class="sheet-head"><text>补签退</text><button aria-label="关闭补签退" @click="showBackfillCheckout = false"><wd-icon name="close" size="18px" /></button></view>
+        <text class="muted">填写实际签退时间和未及时签退原因</text>
+        <view class="kv"><text>签到时间</text><text>{{ formatTime(backfillCheckoutMin) }}</text></view>
+        <wd-datetime-picker v-model="backfillCheckoutTime" label="实际签退时间" type="datetime" :min-date="backfillCheckoutMin" :max-date="backfillCheckoutMax" :use-second="true" required :z-index="13000" :root-portal="true" :safe-area-inset-bottom="true" />
+        <label for="repair-backfill-reason" class="field-label spaced">未及时签退原因<text class="required"> *</text></label>
+        <textarea id="repair-backfill-reason" v-model="backfillCheckoutReason" class="textarea" maxlength="500" placeholder="请如实填写未及时签退的原因" />
+        <text class="muted spaced">补签退不走审批。新接口尚未接通，当前仅可填写，暂不能提交生效。</text>
+        <text v-if="backfillCheckoutError" class="backfill-error" role="alert">{{ backfillCheckoutError }}</text>
+        <view class="backfill-actions"><button class="btn" @click="showBackfillCheckout = false">取消</button><button class="btn" @click="submitBackfillCheckout">确认补签退</button></view>
+      </view>
+    </wd-popup>
     <wd-popup v-model="showQuoteDetails" position="bottom" :z-index="12000" :close-on-click-modal="!submitting" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;">
       <view v-if="selected && latestQuotation" class="more-sheet contact-sheet">
         <view class="sheet-head"><text>报价详情</text><button :disabled="submitting" @click="showQuoteDetails = false"><wd-icon name="close" size="18px" /></button></view>
@@ -361,6 +393,9 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/store/user'
+import RepairMaterialStatistics from './RepairMaterialStatistics.vue'
+import { canChangeRepairQuotation, quotationLockReason } from '@/service/repairQuotationAccess'
+import { readOperationsUsers } from '@/service/operationsMembership'
 import { repairOrderApi, repairCaseView, repairReportPayload, uploadRepairAttachment } from '@/service/repairOrder'
 import PageLayout from '@/components/PageLayout/PageLayout.vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
@@ -379,7 +414,8 @@ import { type MaterialLine } from './repairView'
 import RepairCollaborationProgress from './RepairCollaborationProgress.vue'
 import ApprovalReuseInfo from './ApprovalReuseInfo.vue'
 import type { RepairTodoTarget } from '@/service/repairCollaboration'
-import { collaborationPayload, repairReviewTasks, collaborationStatusText, collaborationApprovalSummary, canInviteCollaboration, canReapplyCollaboration, collaborationPrefill, collaborationManagementPayload, type CollaborationDraft, type CollaborationPrefill, type CollaborationManagementAction } from '@/service/repairCollaboration'
+import { parseApprovalCandidates, approvalAssignments, type ApprovalCandidates } from '@/service/collaborationApproval'
+import { availableAssignments, collaborationPayload, repairReviewTasks, collaborationStatusText, collaborationApprovalSummary, canInviteCollaboration, canReapplyCollaboration, collaborationPrefill, collaborationManagementPayload, type CollaborationDraft, type CollaborationPrefill, type CollaborationManagementAction } from '@/service/repairCollaboration'
 import { loadRepairQuotationDictionary, repairQuotationText } from '@/service/repairQuotationDictionary'
 import { isOwner, quoteTotal, waitText, type RepairRole, type RepairCase, type ReportDraft, type QuoteLine } from './repairView'
 const quotationOptions = ref<any[]>([])
@@ -434,13 +470,24 @@ function submitAssistance(draft: CollaborationDraft) {
     return repairOrderApi.collaboration(collaborationPayload(selectedId.value,draft))
   })
 }
-function submitMaterials(lines: MaterialLine[], remark: string) { void transact(async () => {
-  if (!lines.length || lines.some(l => !Number.isFinite(l.qty) || l.qty <= 0 || !/^\d+(\.\d{1,4})?$/.test(String(l.qty)))) throw new Error('请填写大于 0、最多 4 位小数的申请数量；不申请的行请移除')
+function submitMaterials(lines: MaterialLine[], remark: string, useDate?: string) { void transact(async () => {
+  if (materialType.value === '领料' && (!useDate || !/^\d{4}-\d{2}-\d{2}$/.test(useDate) || !dayjs(useDate).isValid() || dayjs(useDate).format('YYYY-MM-DD') !== useDate)) throw new Error('请选择有效的使用时间')
+  if (!lines.length || lines.some(l => !Number.isFinite(l.qty) || (materialType.value === '还料' ? l.qty < 0 : l.qty <= 0) || !/^\d+(\.\d{1,4})?$/.test(String(l.qty)))) throw new Error('请填写大于 0、最多 4 位小数的申请数量；不申请的行请移除')
+  if (materialType.value === '还料') {
+    if (!lines.some(l => l.qty > 0)) throw new Error('请至少填写一项大于 0 的还料数量')
+    const ids = new Set<string>()
+    for (const line of lines) {
+      const m = line.material
+      if (!m?.materialId || !m.unit || m.availableReturnQty == null || !Number.isFinite(m.availableReturnQty) || line.qty > m.availableReturnQty) throw new Error('还料数量超出可还量或物料信息不完整，请重新选择')
+      if (line.qty !== m.availableReturnQty && !line.reason?.trim()) throw new Error('请填写还料差异原因')
+      if (ids.has(m.materialId)) throw new Error('同一物料存在不同历史单位，请分别申请，勿合并数量')
+      ids.add(m.materialId)
+    }
+  }
   const itemList = lines.map(l => {
-    if (materialType.value === '还料' && (l.unitPrice == null || !Number.isFinite(l.unitPrice) || l.unitPrice < 0)) throw new Error('请填写非负的还料单价')
-    return {materialId:l.id,applyQty:l.qty,...(materialType.value === '还料' ? {unitPrice:l.unitPrice} : {}),...(l.reason?.trim() ? {remark:l.reason.trim()} : {})}
+    return {materialId:l.material?.materialId || l.id,...(materialType.value === '还料' ? {unitName:l.material!.unit,unitQty:l.qty} : {applyQty:l.qty}),...(l.reason?.trim() ? {remark:l.reason.trim()} : {})}
   })
-  await repairOrderApi.materialApply({repairOrderId:selectedId.value,periodId:selected.value!.raw.order.periodId,usageType:'MAINTENANCE',applyType:materialType.value === '领料' ? 'OUT' : 'IN',itemList,...(remark.trim() ? {remark:remark.trim()} : {})})
+  await repairOrderApi.materialApply({repairOrderId:selectedId.value,periodId:selected.value!.raw.order.periodId,usageType:'MAINTENANCE',applyType:materialType.value === '领料' ? 'OUT' : 'IN',...(materialType.value === '领料' ? {useDate} : {}),itemList,...(remark.trim() ? {remark:remark.trim()} : {})})
 }) }
 function openMaterials(type: '领料' | '还料') { materialType.value = type; go('materials') }
 const screen = ref<Screen>('reports'), source = ref<Screen>('reports')
@@ -579,8 +626,33 @@ const mainFilters = ['全部', '待处理', '进行中', '已完成', '已关闭
 const relations = ['我负责的', '我协助的', '历史负责', '全部可见']
 const repairModes = ['线上', '线下', '检修'] as const
 const checkoutNext = ref<'completion' | 'detail' | ''>('')
+const showBackfillCheckout = ref(false)
+const backfillCheckoutTime = ref(Date.now()), backfillCheckoutMin = ref(0), backfillCheckoutMax = ref(Date.now())
+const backfillCheckoutReason = ref(''), backfillCheckoutError = ref('')
+function openBackfillCheckout() {
+  if (submitting.value || screen.value !== 'checkout' || !currentLog.value || workDetail.value?.actions?.canEnd !== true) return
+  const start = currentLog.value.startedAt, now = Date.now()
+  if (!Number.isFinite(start) || start > now) { error.value = '签到时间异常，请重新加载本次日志'; return }
+  backfillCheckoutMin.value = start; backfillCheckoutMax.value = now; backfillCheckoutTime.value = now
+  backfillCheckoutReason.value = ''; backfillCheckoutError.value = ''; showBackfillCheckout.value = true
+}
+function submitBackfillCheckout() {
+  if (!showBackfillCheckout.value || submitting.value) return
+  if (screen.value !== 'checkout' || !currentLog.value || workDetail.value?.actions?.canEnd !== true) { backfillCheckoutError.value = '当前记录不可补签退，请重新查看日志'; return }
+  const time = Number(backfillCheckoutTime.value)
+  if (!Number.isFinite(time) || time < backfillCheckoutMin.value || time > Date.now()) { backfillCheckoutError.value = '实际签退时间须在签到时间至当前时间之间'; return }
+  if (!backfillCheckoutReason.value.trim()) { backfillCheckoutError.value = '请填写未及时签退原因'; return }
+  // 待后端提供直接补签退契约；禁止以普通签退或补卡审批接口代替。
+  backfillCheckoutError.value = '补签退接口尚未接通，填写内容尚未提交，也未改变签退状态。'
+}
+watch(() => [screen.value, selectedId.value, currentLog.value?.id], () => { showBackfillCheckout.value = false; backfillCheckoutError.value = '' })
 watch(() => currentLog.value?.id, () => { checkoutNext.value = '' })
 const clockNow = ref(Date.now())
+function repairLogDuration(log: { id: string; endedAt?: number }) {
+  if (!log.endedAt) return '进行中'
+  const seconds = selected.value?.raw.workRecords?.find((record: any) => record.id === log.id)?.durationSeconds
+  return seconds != null && seconds !== '' && Number.isFinite(Number(seconds)) && Number(seconds) >= 0 ? `${(Number(seconds) / 3600).toFixed(2)}h` : '未提供'
+}
 const timer = setInterval(() => { clockNow.value = Date.now() }, 60000)
 onBeforeUnmount(() => clearInterval(timer))
 const scopeText = computed(() => screen.value === 'reports' ? '我提交的报修单' : '当前账号可见的维修任务')
@@ -629,22 +701,51 @@ const beginMode = ref<typeof repairModes[number]>('线下')
 const transferOptions = ref<{ value: string; label: string }[]>([]), targetUserId = ref('')
 const quoteRequired = ref(true), noQuoteReason = ref(''), faultScope = ref('')
 const completionDescription = ref(''), amountChangeReason = ref('')
-const completionNeedsPrice = computed(() => typeof selected.value?.raw.order.quotationRequired === 'boolean' ? selected.value.raw.order.quotationRequired : selected.value?.quotationStatus !== 'NOT_REQUIRED')
+const completionMissingQuotation = computed(() => typeof selected.value?.raw.order.quotationRequired !== 'boolean')
+const completionQuotationChoice = ref<boolean | null>(null)
+watch(selectedId, () => { completionQuotationChoice.value = null })
+const completionNeedsPrice = computed(() => selected.value?.raw.order.quotationRequired === true)
 const completionPriceChanged = computed(() => completionNeedsPrice.value && selected.value?.confirmedPrice != null && priceInput.value.trim() !== '' && Math.round(Number(priceInput.value) * 100) !== Math.round(selected.value.confirmedPrice * 100))
 const returnType = ref('MATERIAL_SUPPLEMENT')
 const returnTypes = [{value: 'MATERIAL_SUPPLEMENT', label: '补充资料'}, {value: 'REWORK', label: '重新维修'}]
 const applicationNames: Record<string,string> = {QUOTATION:'报价审批',COLLABORATION:'协助申请',TRANSFER:'转单申请',CLOSE:'关闭申请',COMPLETION:'完工申请',CLOCK_CORRECTION:'补卡申请',MATERIAL_WRITEOFF:'物料核销'}
+const approvalDecision = ref<'approve'|'reject'|''>('')
 const chosenReviewTaskId = ref('')
 const reviewTasks = computed(() => repairReviewTasks(selected.value?.raw || {}))
 const reviewTask = computed(() => chosenReviewTaskId.value ? reviewTasks.value.find((r:any)=>r.task.id===chosenReviewTaskId.value) : reviewTasks.value[0])
 const isCollaborationApproval = computed(() => screen.value === 'approval' && reviewTask.value?.application.applicationType === 'COLLABORATION')
 const isInternalCollaborationApproval = computed(() => isCollaborationApproval.value && Array.isArray(reviewTask.value?.application.formData?.departments) && reviewTask.value?.application.formData?.personType !== 'EXTERNAL')
 const collaborationApproval = computed(() => collaborationApprovalSummary(reviewTask.value?.application,selected.value?.raw || {}))
+const mergedApproval = computed(() => isInternalCollaborationApproval.value && reviewTask.value?.application.formData?.assignmentMode === 'WITH_APPROVAL')
+const reviewCandidates = ref<ApprovalCandidates>(), reviewChosen = ref<Record<string,string[]>>({})
+const candidateLoading = ref(false), candidateError = ref('')
+const mergedPending = ref<Record<string,unknown>>()
+let candidateGeneration=0
+async function loadReviewCandidates(){
+  const current=++candidateGeneration, task=reviewTask.value
+  reviewCandidates.value=undefined;candidateError.value=''
+  if(!mergedApproval.value || !task){candidateLoading.value=false;return}
+  candidateLoading.value=true
+  try{
+    const data=await repairOrderApi.approvalCandidates(task.application.id,task.task.id)
+    if(current===candidateGeneration)reviewCandidates.value=parseApprovalCandidates(data,task.task.id)
+  }catch(e:any){if(current===candidateGeneration)candidateError.value=e.message || '候选人员读取失败'}
+  finally{if(current===candidateGeneration)candidateLoading.value=false}
+}
+watch(()=>[screen.value,reviewTask.value?.task.id,mergedApproval.value],()=>{
+  reviewChosen.value={};mergedPending.value=undefined;approvalDecision.value=''
+  void loadReviewCandidates()
+})
+function toggleReviewMember(departmentId:string,userId:string){
+  if(mergedPending.value)return
+  const ids=reviewChosen.value[departmentId] || []
+  reviewChosen.value={...reviewChosen.value,[departmentId]:ids.includes(userId)?ids.filter(id=>id!==userId):[...ids,userId]}
+}
 const reviewTaskOptions = computed(() => reviewTasks.value.map((r:any)=>({...r,label:`${applicationNames[r.application.applicationType] || '审批'} · ${r.task.departmentName || r.task.name}`})))
-function selectReviewTask(event:any){ chosenReviewTaskId.value=reviewTaskOptions.value[Number(event.detail.value)]?.task.id || '';approvalReason.value='' }
-watch(selectedId,()=>{chosenReviewTaskId.value='';approvalReason.value=''})
+function selectReviewTask(event:any){ chosenReviewTaskId.value=reviewTaskOptions.value[Number(event.detail.value)]?.task.id || '';approvalReason.value='';approvalDecision.value='' }
+watch(selectedId,()=>{chosenReviewTaskId.value='';approvalReason.value='';approvalDecision.value=''})
 const reviewDepartments = computed(() => Array.isArray(reviewTask.value?.application.formData?.departments) ? reviewTask.value!.application.formData.departments : [])
-async function collaborationChanged(){try{await refreshSelected();message.value='内协人员已指定入组'}catch(e:any){error.value='人员已指定，详情刷新失败，请重新打开详情核对'}}
+async function collaborationChanged(){try{await refreshSelected();message.value='内协人员已指定入组';uni.showToast({title:'人员指定成功',icon:'success',duration:2000})}catch(e:any){error.value='人员已指定，详情刷新失败，请重新打开详情核对'}}
 const approvalFormRows = computed(() => {
   if (reviewTask.value?.application.applicationType === 'COLLABORATION') return []
   const form = reviewTask.value?.application.formData
@@ -829,6 +930,7 @@ async function createReport() {
     cases.value.unshift(row); selectedId.value = row.id; source.value = 'reports'
     Object.assign(draft, emptyDraft()); selectedProducts.value = []; customer.value = undefined; project.value = undefined; projects.value = []; productOptions.value = []; uploadedFiles.clear(); go('detail')
     message.value = '报修已提交，已由系统自动派单。'
+    uni.showToast({title:'报修提交成功',icon:'success',duration:2000})
   } catch (e: any) {
     if (posting && e?.success !== false && e?.code == null) { submitUncertain.value = true; uni.setStorageSync(uncertainKey,true) }
     error.value = submitUncertain.value ? '提交结果暂未确认，请先返回报修列表核对，勿重复提交。' : e.message || '提交失败，请检查填写内容'
@@ -872,6 +974,7 @@ async function transact(action: () => Promise<unknown>, target: Screen = 'detail
     if (!installDetail(detail)) await refreshSelected()
     events.value = []; eventPage = 0; eventTotal.value = 0; showEvents.value = false
     go(target); message.value = '操作已提交成功'
+    uni.showToast({title:'提交成功',icon:'success',duration:2000})
     return true
   } catch (e: any) { mutationBlocked.value = saved || e.uncertain === true; error.value = saved ? '操作已成功，但详情刷新失败。请返回列表重新查看，勿重复提交。' : e.uncertain ? '操作结果不确定，已暂停提交。请返回列表重新打开详情核对，勿直接重试。' : e.message || e.errMsg || '请求失败，请刷新核对后重试'; scrollToTop() }
   finally { submitting.value = false }
@@ -979,7 +1082,7 @@ function openForm(target: Screen) {
   if (target === 'completion') { completionDescription.value = ''; amountChangeReason.value = '' }
   quoteDraft.value = selected.value?.quoteItems.length ? selected.value.quoteItems.map(i => ({ ...i })) : [{ name: '', qty: 1, price: 0 }]
   priceInput.value = target === 'customer' ? '' : selected.value?.confirmedPrice == null ? '' : String(selected.value.confirmedPrice)
-  approvalReason.value = ''; go(target)
+  approvalReason.value = ''; approvalDecision.value=''; go(target)
   faultScope.value = selected.value?.fault || ''
 }
 function amount() { if (!/^\d+(\.\d{1,2})?$/.test(priceInput.value.trim())) throw new Error('请输入非负金额，最多两位小数'); return Number(priceInput.value) }
@@ -989,22 +1092,57 @@ function confirmPrice() { void transact(async () => {
   return repairOrderApi.customerPrice({orderId:selectedId.value,quotationId:quotation.id,amount:amount()})
 }) }
 function complete() { void transact(async () => {
-  if (typeof selected.value?.raw.order.quotationRequired !== 'boolean') throw new Error('请先在报价管理中明确是否需要报价')
+  if (completionMissingQuotation.value && completionQuotationChoice.value !== false) throw new Error('请选择是否需要报价；需要报价请先填写报价单')
   if (!completionDescription.value.trim()) throw new Error('请填写完工说明')
+  if (completionMissingQuotation.value) {
+    if (!canFillQuotation.value) throw new Error('当前不可修改报价决定，请刷新核对')
+    const decided = await repairOrderApi.quotation({orderId:selectedId.value,quotationRequired:false,reason:completionDescription.value.trim()})
+    try {
+      if (!installDetail(decided)) await refreshSelected()
+      if (selected.value?.raw.order.quotationRequired !== false) throw new Error('无需报价决定尚未确认，请重新打开详情核对')
+    } catch (e:any) { e.uncertain = true; throw e }
+  }
   if (completionNeedsPrice.value && selected.value?.confirmedPrice == null) throw new Error('缺少已审批并经客户确认的价格，请先刷新核对报价')
   if (completionPriceChanged.value && !amountChangeReason.value.trim()) throw new Error('请填写价格变更原因')
-  const data = {orderId:selectedId.value, description:completionDescription.value.trim(),...(completionNeedsPrice.value ? {finalAmount:amount()} : {}),...(completionPriceChanged.value ? {amountChangeReason:amountChangeReason.value.trim()} : {})}
+  const data = {orderId:selectedId.value, description:completionDescription.value.trim(),finalAmount:completionNeedsPrice.value ? amount() : 0,...(completionPriceChanged.value ? {amountChangeReason:amountChangeReason.value.trim()} : {})}
   return repairOrderApi.completion(data)
 }) }
-function review(approved: boolean) { void transact(async () => {
+async function review(approved: boolean) {
+  const originalTask=reviewTask.value
+  const orderId=selectedId.value
+  const applicationId=originalTask?.application.id || ''
+  const wasMerged=mergedApproval.value
+  const previous=new Set(availableAssignments(selected.value?.raw || {},actor.value.id,applicationId).map((d:any)=>d.departmentId))
+  const saved=await transact(async () => {
   const task = reviewTask.value
   if (!task) throw new Error('没有可办理的审批任务，请刷新')
   if (!approved && !approvalReason.value.trim()) throw new Error('请填写驳回原因')
   const data = {applicationId:task.application.id,instanceId:task.workflow.id,taskId:task.task.id,approve:approved,comment:approvalReason.value.trim(),...(!approved && task.application.applicationType === 'COMPLETION' ? {returnType:returnType.value} : {})}
-  const result = await repairOrderApi.review(data)
+  if(wasMerged && !mergedPending.value){
+    if(approved && (candidateLoading.value || candidateError.value))throw new Error(candidateError.value || '正在加载候选人员')
+    mergedPending.value={...data,requestId:`review-${Date.now()}-${Math.random().toString(36).slice(2)}`,...approvalAssignments(reviewCandidates.value,reviewChosen.value,approved)}
+  }
+  let result
+  try{result=await repairOrderApi.review(wasMerged ? mergedPending.value! : data)}
+  catch(e:any){
+    if(e.success===false)mergedPending.value=undefined
+    if(wasMerged && mergedPending.value)throw new Error('审批结果未确认，请使用原名单重试本次审批')
+    throw e
+  }
+  mergedPending.value=undefined
   chosenReviewTaskId.value='';approvalReason.value=''
   return result
-}) }
+})
+  if(wasMerged || !saved || !approved || !applicationId || selectedId.value!==orderId)return
+  await nextTick()
+  if(selectedId.value!==orderId || screen.value!=='detail')return
+  const eligible=availableAssignments(selected.value?.raw || {},actor.value.id,applicationId)
+  const targets=eligible.filter((d:any)=>d.departmentId===originalTask?.task.departmentId || !previous.has(d.departmentId))
+  if(targets.length){
+    message.value='审批已通过，请依次指定本部门内协人员；稍后也可从待办继续办理'
+    collaborationPanel.value?.showAssignments(targets)
+  }
+}
 function sendQuotation() { void transact(async () => {
   if (!canFillQuotation.value) throw new Error('当前不能修改报价决定，请刷新核对')
   if (quotationDecisionOnly.value && quoteRequired.value) throw new Error('当前报价只能改为无需报价，修改明细请先撤回')
@@ -1017,12 +1155,17 @@ function sendQuotation() { void transact(async () => {
   return repairOrderApi.quotation(data)
 }) }
 function sendException() { void transact(async () => {
+  if (!selected.value || !owner.value || terminal.value || !selected.value.actions.canOwnerApply) throw new Error('当前不能提交此申请，请刷新维修详情')
   if (!exceptionReason.value || !exceptionRemark.value.trim()) throw new Error('请填写原因和说明')
   const data = {...orderBase(),reason:`${exceptionReason.value}：${exceptionRemark.value.trim()}`}
   if (exceptionType.value === '转单') {
-    if (!targetUserId.value) throw new Error('请选择接单人')
+    if (!targetUserId.value || targetUserId.value === selected.value.ownerId || !transferOptions.value.some(p => p.value === targetUserId.value)) throw new Error('请选择有效且不同于当前维修人的接单人')
     return repairOrderApi.transfer({...data,targetUserId:targetUserId.value})
-  } else return repairOrderApi.close({...data,closeType:({客户弃修:'CUSTOMER_ABANDONED',不是问题:'NOT_A_PROBLEM',其他:'OTHER'} as any)[exceptionReason.value]})
+  } else {
+    const closeType = ({客户弃修:'CUSTOMER_ABANDONED',不是问题:'NOT_A_PROBLEM',其他:'OTHER'} as Record<string,string>)[exceptionReason.value]
+    if (!closeType) throw new Error('请选择有效的关闭原因')
+    return repairOrderApi.close({...data,closeType})
+  }
 }) }
 interface FooterAction { text: string; action: () => void; primary?: boolean; disabled?: boolean }
 const latestQuotation = computed(() => selected.value?.raw.quotations?.find((q:any) => q.id === selected.value?.raw.order.latestQuotationId))
@@ -1032,7 +1175,7 @@ const quotationApplication = computed(() => {
   const pending = list.filter((a:any) => a.applicationStatus === 'PENDING')
   return pending.length === 1 ? pending[0] : undefined
 })
-const canWithdrawQuotation = computed(() => !!latestQuotation.value && selected.value?.raw.order.quotationStatus === 'HEAD_REVIEW' && quotationApplication.value?.applicationStatus === 'PENDING' && quotationApplication.value?.applicantUserId === actor.value.id && quotationApplication.value?.canWithdraw !== false)
+const canWithdrawQuotation = computed(() => !quotationLockedMessage.value && !!latestQuotation.value && selected.value?.raw.order.quotationStatus === 'HEAD_REVIEW' && quotationApplication.value?.applicationStatus === 'PENDING' && quotationApplication.value?.applicantUserId === actor.value.id && quotationApplication.value?.canWithdraw !== false)
 async function withdrawQuotation() {
   const items = selected.value?.quoteItems.map(i => ({...i})) || [], scope = latestQuotation.value?.faultScope || selected.value?.fault || ''
   const success = await transact(async () => {
@@ -1044,22 +1187,25 @@ async function withdrawQuotation() {
   if (canFillQuotation.value) { openForm('quote'); quoteDraft.value = items; faultScope.value = scope }
   else message.value = '已撤回，当前接口尚未开放报价编辑，请刷新核对'
 }
-const canFillQuotation = computed(() => selected.value?.raw.canChangeQuotationDecision === true)
+const quotationLockedMessage = computed(() => quotationLockReason(selected.value?.raw || {}))
+const canFillQuotation = computed(() => canChangeRepairQuotation(selected.value?.raw || {}))
 const quotationDecisionOnly = computed(() => ['HEAD_REVIEW','GM_REVIEW','WAIT_CUSTOMER'].includes(selected.value?.raw.order.quotationStatus))
 const canSwitchToNoQuotation = computed(() => canFillQuotation.value && quotationDecisionOnly.value)
 function switchToNoQuotation() {
   if (!canSwitchToNoQuotation.value || submitting.value || mutationBlocked.value) return
   showQuoteDetails.value = false; openForm('quote'); quoteRequired.value = false
 }
-const quotationEntryText = computed(() => latestQuotation.value ? '查看详情' : canFillQuotation.value ? '办理报价' : '')
+const canEditNoQuotation = computed(() => canFillQuotation.value && (selected.value?.raw.order.quotationRequired === false || selected.value?.quotationStatus === 'NOT_REQUIRED'))
+const quotationEntryText = computed(() => canEditNoQuotation.value ? '修改报价信息' : latestQuotation.value ? '查看详情' : canFillQuotation.value ? '办理报价' : '')
 const canEditQuotationDetails = computed(() => !!latestQuotation.value && canFillQuotation.value && !['HEAD_REVIEW','GM_REVIEW','WAIT_CUSTOMER','CONFIRMED'].includes(selected.value?.raw.order.quotationStatus))
 function openQuotationEntry() {
   if (submitting.value || showQuoteDetails.value) return
+  if (canEditNoQuotation.value) { editQuotationDetails(); return }
   if (latestQuotation.value) { showQuoteDetails.value = true; error.value = '' }
   else if (canFillQuotation.value) openForm('quote')
 }
 function editQuotationDetails() {
-  if (!canEditQuotationDetails.value || submitting.value || mutationBlocked.value) return
+  if ((!canEditQuotationDetails.value && !canEditNoQuotation.value) || submitting.value || mutationBlocked.value) return
   showQuoteDetails.value = false; openForm('quote')
   faultScope.value = latestQuotation.value?.faultScope || selected.value?.fault || ''
   noQuoteReason.value = latestQuotation.value?.noQuoteReason || ''
@@ -1088,6 +1234,15 @@ const footerActions = computed<FooterAction[]>(() => {
     if (c.actions.canStartWork) return primary(isAssistantWork.value ? '填写维修日志' : c.logs.length ? '继续维修' : '开始维修', startWork)
     return []
   }
+  if (screen.value === 'approval' && reviewTask.value && isInternalCollaborationApproval.value) {
+    if(mergedPending.value)return [{text:'重试本次审批',action:()=>review(mergedPending.value!.approve === true),primary:true}]
+    if(!approvalDecision.value)return [
+      {text:'驳回',action:()=>{approvalDecision.value='reject';approvalReason.value=''}},
+      {text:'同意',action:()=>{approvalDecision.value='approve';approvalReason.value=''},primary:true},
+    ]
+    return [{text:'重新选择',action:()=>{approvalDecision.value='';approvalReason.value=''}},
+      {text:approvalDecision.value==='reject'?'确认驳回':mergedApproval.value?'确认同意':'确认同意并继续',action:()=>review(approvalDecision.value==='approve'),primary:true}]
+  }
   if (screen.value === 'approval' && reviewTask.value) return [{ text: '驳回', action: () => review(false) }, { text: '审批通过', action: () => review(true), primary: true }]
   if (screen.value === 'begin' && c.actions.canStartWork) return [{text:'签到打卡',action:beginWork,primary:true,disabled:locating.value || clockLocation.value.status !== 'NORMAL'}]
   if (screen.value === 'checkout' && currentLog.value) return [{text:'返回修改日志',action:() => go('log')}, {text:'确认并签退',action:endWork,primary:true,disabled:workDetail.value?.actions?.canEnd !== true || locating.value || clockLocation.value.status !== 'NORMAL' || (!isAssistantWork.value && !checkoutNext.value)}]
@@ -1108,13 +1263,16 @@ const footerActions = computed<FooterAction[]>(() => {
   if (screen.value === 'assistance') return primary('提交协助申请', () => assistanceForm.value?.submit())
   if (screen.value === 'materials') return primary(`提交${materialType.value}申请`, () => materialForm.value?.submit())
   if (screen.value === 'customer') return primary('确认维修价格', confirmPrice)
-  if (screen.value === 'completion') return primary('提交完工审批', complete)
+  if (screen.value === 'completion') return completionMissingQuotation.value
+    ? (canFillQuotation.value ? primary(completionQuotationChoice.value === true ? '去填写报价单' : '提交完工审批', completionQuotationChoice.value === true ? () => openForm('quote') : complete) : [])
+    : primary('提交完工审批', complete)
   if (screen.value === 'exception') return primary(`提交${exceptionType.value}申请`, sendException)
   return []
 })
 async function openException(type: '转单' | '关闭') {
+  transferOptions.value = []
   exceptionType.value = type; exceptionReason.value = ''; exceptionRemark.value = ''; targetUserId.value = ''; go('exception')
-  if (type === '转单') try { transferOptions.value = (await repairOrderApi.options('internal')).filter(p => p.value !== selected.value?.ownerId) } catch (e: any) { error.value = e.message || '人员加载失败' }
+  if (type === '转单') try { transferOptions.value = (await readOperationsUsers()).filter(p => p.value !== selected.value?.ownerId) } catch (e: any) { error.value = e.message || '运维部人员加载失败' }
 }
 const moreGroups = computed(() => {
   const c = selected.value
@@ -1137,6 +1295,14 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 
 <style scoped lang="scss">
 @use './preview.scss';
+.backfill-actions { display: flex; gap: 12px; margin-top: 20px; }
+.backfill-actions .btn { flex: 1; min-height: 44px; }
+.backfill-error { display: block; margin-top: 12px; color: #b42318; font-size: 14px; line-height: 1.6; }
+.approval-assignees__department { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+.approval-assignees__members { display: flex; flex-wrap: wrap; gap: 8px; }
+.approval-assignees__members button { margin: 0; padding: 0 12px; min-height: 44px; font-size: 14px; }
+.approval-assignees__members .is-selected { color: #245eaa; background: #eaf2ff; }
+
 .ops-form-page .field-label { margin-bottom:10px; font-size:15px; line-height:1.5; color:#344054; }
 .ops-form-page .spaced { margin-top:24px; }
 .ops-form-page .picker-value, .ops-form-page .input { min-height:48px; box-sizing:border-box; padding:12px; border:1px solid #d5dce5; border-radius:8px; background:#f8fafc; font-size:16px; line-height:1.5; }
@@ -1306,6 +1472,9 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 button::after { border: none; }
 button[disabled] { opacity: .5; }
 .event-timeline { padding:12px 0 0 6px; }
+.event-toggle { display:flex; align-items:center; gap:6px; margin:0; padding:0 4px 0 12px; min-height:44px; background:transparent; color:#176ac7; font-size:13px; line-height:1.5; }
+.event-toggle::after { border:0; }
+.event-toggle:focus-visible { outline:2px solid #176ac7; outline-offset:2px; }
 .event-item { position:relative; padding:0 0 22px 20px; }
 .event-item::before { content:''; position:absolute; left:0; top:6px; width:7px; height:7px; background:#176ac7; border-radius:50%; }
 .event-item:not(:last-child)::after { content:''; position:absolute; left:3px; top:15px; bottom:0; width:1px; background:#dce5ef; }
@@ -1329,11 +1498,13 @@ button[disabled] { opacity: .5; }
 .personnel-filter-value { display:flex; align-items:center; justify-content:flex-end; gap:10px; min-height:44px; overflow-wrap:anywhere; }
 .personnel-list-meta { display:flex; justify-content:space-between; gap:8px; padding:14px 2px 10px; color:#606266; font-size:12px; }
 .repair-log-person { min-width:0; overflow-wrap:anywhere; }
-.repair-log-clock { display:flex; gap:20px; padding:12px 0 4px; font-size:12px; color:#606266; }
-.repair-log-clock > view { display:flex; flex-direction:column; gap:2px; }
-.repair-log-clock > view > text:last-child { color:#303133; font-size:13px; }
-.repair-log-bottom { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:12px; margin-top:12px; border-top:1px solid #edf0f3; }
-.repair-log-duration { font-size:12px; color:#606266; }
+.repair-log-clock { display:flex; flex-direction:column; gap:6px; padding:10px 0; font-size:13px; color:#606266; font-variant-numeric:tabular-nums; }
+.repair-log-clock > view { display:flex; align-items:baseline; gap:8px; }
+.repair-log-clock > view > text:first-child { flex:0 0 56px; }
+.repair-log-clock > view > text:last-child { min-width:0; overflow-wrap:anywhere; color:#303133; }
+.repair-log-description { border-top:1px solid #edf0f3; padding-top:8px; }
+.repair-log-description-label { display:block; font-size:13px; color:#606266; }
+.repair-log-bottom { display:flex; align-items:center; justify-content:flex-end; padding-top:12px; }
 .personnel-empty { display:flex; flex-direction:column; align-items:center; gap:8px; padding:36px 16px; background:#fff; border-radius:12px; color:#606266; font-size:14px; }
 .personnel-empty text:last-child { font-size:12px; }
 </style>

@@ -61,7 +61,7 @@ const sources = computed(() => {
 const selectedIds = computed({get:() => items.value.map(i => i.pickLinkId),set:(ids:string[]) => {
   if (props.disabled || !props.form) return
   const keep = new Set([...ids,...items.value.filter(i => locked(i.pickLinkId)).map(i => i.pickLinkId)])
-  props.form.materialItems = [...keep].map(id => items.value.find(i => i.pickLinkId === id) || {pickLinkId:id,quantity:''})
+  props.form.materialItems = [...keep].map(id => items.value.find(i => i.pickLinkId === id) || {pickLinkId:id,quantity:1})
 }})
 function removeMaterial(id:string) { if (!props.disabled && !locked(id)) selectedIds.value = selectedIds.value.filter(i => i !== id) }
 const showPicker = ref(false), keyword = ref('')

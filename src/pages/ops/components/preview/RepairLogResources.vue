@@ -14,11 +14,9 @@
     <template v-if="!hideEmpty || uses.length || (workDetail?.materialItems?.length || workDetail?.materialUseIds?.length)">
     <text class="log-resources__title">用料记录</text>
     <text v-if="!uses.length" class="log-resources__empty">{{ workDetail?.materialUseIds?.length ? `已关联 ${workDetail.materialUseIds.length} 条用料，接口未返回明细` : '未记录用料' }}</text>
-    <view v-for="use in uses" :key="use.id" class="log-resources__material">
-      <view class="log-resources__row"><text>{{ material(use).materialName || material(use).name || use.materialId || '物料' }}</text><text>{{ use.usedQuantity }} {{ material(use).baseUnitName || material(use).unitName || '' }}</text></view>
-      <text v-if="material(use).brand || material(use).spec" class="log-resources__empty">{{ [material(use).brand, material(use).spec].filter(Boolean).join(' · ') }}</text>
-      <view v-if="use.useStatus" class="log-resources__row"><text>状态</text><text>{{ statuses[use.useStatus] || use.useStatus }}</text></view>
-      <text v-if="use.useDescription" class="log-resources__description">{{ use.useDescription }}</text>
+    <view v-if="uses.length" class="material-table" role="table" aria-label="用料记录">
+      <view class="material-table__row material-table__head" role="row"><text role="columnheader">物料名称</text><text role="columnheader">使用数量</text></view>
+      <view v-for="use in uses" :key="use.id" class="material-table__row" role="row"><text role="cell">{{ material(use).materialName || material(use).name || use.materialId || '物料' }}</text><text role="cell">{{ use.usedQuantity ?? '—' }} {{ material(use).baseUnitName || material(use).unitName || '' }}</text></view>
     </view>
     </template>
   </view>
@@ -30,7 +28,6 @@ const record = computed(() => ({...(props.detail.workRecords || []).find((r:any)
 const persons = computed(() => props.workDetail ? (props.workDetail.persons || []).map((p:any) => ({...p,id:`${p.personType}:${p.sourcePersonId}`,personNameSnapshot:p.name || p.sourcePersonId})) : (props.detail.workPersons || []).filter((p:any) => p.workRecordId === props.recordId))
 const uses = computed(() => props.workDetail?.materialItems ? props.workDetail.materialItems.map((i:any) => ({...(props.detail.materialUses || []).find((u:any)=>u.workRecordId === props.recordId && u.pickLinkId === i.pickLinkId && u.useStatus !== 'VOIDED'),...i,id:i.pickLinkId,usedQuantity:i.quantity,useDescription:i.description})) : props.workDetail?.materialUses || (props.detail.materialUses || []).filter((u:any) => u.workRecordId === props.recordId))
 function material(use:any) { const link=props.detail.materialLinks?.find((l:any) => l.id === use.pickLinkId) || {}; return {...(link.material || {}),...link} }
-const statuses:Record<string,string> = {DRAFT:'草稿',PENDING_CONFIRM:'待确认',CONFIRMED:'已确认',VOIDED:'已作废'}
 </script>
 <style scoped>
 .log-resources { margin-top:16px; }
@@ -41,6 +38,10 @@ const statuses:Record<string,string> = {DRAFT:'草稿',PENDING_CONFIRM:'待确�
 .log-resources__row > text:first-child { color:#606266; }
 .log-resources__row > text:last-child { min-width:0; text-align:right; overflow-wrap:anywhere; }
 .log-resources__empty { display:block; color:#606266; font-size:14px; line-height:1.6; }
-.log-resources__material { padding:8px 0; border-bottom:1px solid #ededed; }
-.log-resources__description { display:block; font-size:15px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.material-table { border:1px solid #e4e7ed; border-radius:8px; overflow:hidden; }
+.material-table__row { display:grid; grid-template-columns:minmax(0, 1fr) minmax(88px, 34%); font-size:14px; line-height:1.6; color:#303133; }
+.material-table__row + .material-table__row { border-top:1px solid #e4e7ed; }
+.material-table__row > text { padding:12px; min-width:0; overflow-wrap:anywhere; }
+.material-table__row > text:last-child { text-align:right; border-left:1px solid #e4e7ed; font-variant-numeric:tabular-nums; }
+.material-table__head { background:#f5f7fa; color:#536176; font-weight:500; }
 </style>

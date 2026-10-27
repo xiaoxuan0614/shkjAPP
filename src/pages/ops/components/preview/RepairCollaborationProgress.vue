@@ -1,5 +1,5 @@
 <template>
-  <SectionCard title="协助管理">
+  <SectionCard v-if="!standalone" title="协助管理">
     <template #extra><button class="text-action" @click="showDetails">查看详情</button></template>
     <view class="people-summary">
       <view v-if="activePeople.length" class="summary-line"><text class="summary-label">内协</text><text class="summary-names">{{ activePeople.map(p => p.name).join('、') }}</text><text class="summary-count">{{ activePeople.length }} 人</text></view>
@@ -19,7 +19,7 @@
     <text v-if="!applications.length" class="empty">暂无协助邀请。发起邀请后，可在这里查看审批和人员指定进度。</text>
     <view v-for="application in visibleApplications" :key="application.id" class="application">
       <button class="summary" :aria-expanded="expanded === application.id" @click="expanded = expanded === application.id ? '' : application.id">
-        <view class="row"><text class="heading">{{ applicationTitle(application) }}</text><text class="status">{{ statusText(application.applicationStatus) }}</text></view>
+        <view class="row"><text class="heading">{{ applicationTitle(application) }}</text><text class="status">{{ application.applicationStatus === 'APPROVED' ? '审批完成' : statusText(application.applicationStatus) }}</text></view>
         <view class="row"><text class="hint">{{ collaborationType(application) === 'INTERNAL' ? '内协' : collaborationType(application) === 'EXTERNAL' ? '外协' : '协助' }} · {{ formatTime(application.createTime) }}</text><wd-icon :name="expanded === application.id ? 'arrow-up' : 'arrow-down'" /></view>
       </button>
       <view v-if="expanded === application.id" class="expanded">
@@ -29,22 +29,19 @@
         <view class="row"><text>{{ department.departmentName || '受邀部门' }}</text><text>{{ statusText(department.status) }}</text></view>
         <text class="reason">{{ department.reason }}</text>
         <ApprovalReuseInfo :department="department" :detail="detail" />
-        <text v-if="application.applicationStatus === 'APPROVED'" class="hint">人员指定：{{ statusText(department.assignmentStatus || application.formData?.assignmentStatus || 'NOT_READY') }}</text>
+        <text v-if="department.assignmentStatus" class="hint">人员指定：{{ statusText(department.assignmentStatus || application.formData?.assignmentStatus || 'NOT_READY') }}</text>
         <text v-if="department.assignedUserIds?.length" class="hint">已指定 {{ department.assignedUserIds.length }} 人{{ assignedNames(department) ? `：${assignedNames(department)}` : '' }}</text>
         <button v-if="canOfferAssignment(application, department, actorId, detail.order)" class="text-action" :disabled="locked" @click="openAssignment(application.id, department.departmentId)">指定内协人员</button>
       </view>
       <template v-if="!departments(application).length">
         <text class="reason">协助原因：{{ application.formData?.reason || application.reason || '—' }}</text>
-        <text v-if="application.formData?.headcount != null" class="hint">人数：{{ application.formData.headcount }} 人</text>
-        <text v-if="application.formData?.hoursPerPerson != null" class="hint">人均预计工时：{{ application.formData.hoursPerPerson }} h</text>
+        <text v-if="application.formData?.personCount != null" class="hint">人数：{{ application.formData.personCount }} 人</text>
+        <text v-else-if="application.formData?.headcount != null" class="hint">人数：{{ application.formData.headcount }} 人</text>
+        <text v-if="application.formData?.estimatedTotalHours != null" class="hint">预计总工时：{{ application.formData.estimatedTotalHours }} h</text>
+        <text v-else-if="application.formData?.hoursPerPerson != null" class="hint">人均预计工时：{{ application.formData.hoursPerPerson }} h</text>
       </template>
-      <view v-if="approvalTasks(application).length" class="approval">
-        <text class="subheading">审批信息</text>
-        <view v-for="task in approvalTasks(application)" :key="task.id" class="approval-row">
-          <text>{{ task.departmentName || task.name || '审批节点' }} · {{ statusText(task.status || task.taskStatus) }}</text>
-          <text v-if="task.assigneeName || task.approverName" class="hint">{{ task.assigneeName || task.approverName }}</text>
-          <text v-if="task.comment || task.reason" class="hint">{{ task.comment || task.reason }}</text>
-        </view>
+      <view class="approval">
+        <text>{{ collaborationApprovalProgress(application, detail) }}</text>
       </view>
       <text v-if="application.reason" class="hint">处理说明：{{ application.reason }}</text>
       <view class="actions">
@@ -92,9 +89,12 @@
     <wd-popup v-model="open" position="bottom" :close-on-click-modal="!busy && !pending" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;" :z-index="12000">
       <view class="assignment">
         <view class="row"><text class="heading">{{ candidates?.departmentName || '指定内协人员' }}</text><button :disabled="busy || !!pending" @click="open=false">关闭</button></view>
+        <text class="hint">审批已通过，请指定本部门人员。</text>
+        <text v-if="assignmentQueue.length" class="hint">还有 {{ assignmentQueue.length }} 个部门待指定，将依次办理。</text>
         <text class="hint">{{ candidates?.reason }}</text>
         <text v-if="loading">正在读取可指定人员…</text>
         <text v-if="error" class="error" role="alert">{{ error }}</text>
+        <button v-if="error && !candidates && !loading" :disabled="busy" @click="openAssignment(target.applicationId,target.departmentId,true)">重新加载人员</button>
         <template v-if="candidates && !loading">
           <input v-model="keyword" placeholder="搜索本部门人员" :disabled="busy || !!pending" />
           <scroll-view scroll-y class="members">
@@ -109,11 +109,12 @@
 </template>
 <script setup lang="ts">
 import ApprovalReuseInfo from './ApprovalReuseInfo.vue'
+import { collaborationApprovalProgress } from '@/service/repairCollaboration'
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { repairOrderApi } from '@/service/repairOrder'
 import { canOfferAssignment, collaborationStatusText as statusText, collaborationApplications, collaborationType, collaborationMemberGroups, canWithdrawCollaboration, canReapplyCollaboration, canExitInternalMember, isCollaborationOwner, type CollaborationManagementAction, type AssignmentInput, type AssignmentOptions } from '@/service/repairCollaboration'
-const props = defineProps<{detail:Record<string,any>;actorId:string;disabled?:boolean;actionError?:string;manage?:(input:CollaborationManagementAction)=>Promise<boolean>}>()
+const props = defineProps<{detail:Record<string,any>;actorId:string;standalone?:boolean;disabled?:boolean;actionError?:string;manage?:(input:CollaborationManagementAction)=>Promise<boolean>}>()
 const emit = defineEmits<{changed:[];edit:[applicationId:string]}>()
 const applications = computed(() => collaborationApplications(props.detail))
 const memberGroups = computed(() => collaborationMemberGroups(props.detail))
@@ -129,9 +130,16 @@ function showInvitation(applicationId:string,departmentId?:string){
   const index=applications.value.findIndex(a=>a.id===applicationId)
   if(index<0 || (departmentId && !departments(applications.value[index]).some((d:any)=>d.departmentId===departmentId)))return false
   tab.value='invitations';page.value=Math.floor(index/5)+1;expanded.value=applicationId;detailsOpen.value=true
+  const department=departments(applications.value[index]).find((d:any)=>d.departmentId===departmentId)
+  if(department && canOfferAssignment(applications.value[index],department,props.actorId,props.detail.order))void openAssignment(applicationId,departmentId!)
   return true
 }
-defineExpose({showInvitation})
+function showAssignments(targets:{applicationId:string;departmentId:string}[]) {
+  if(!targets.length || locked.value)return
+  showInvitation(targets[0].applicationId,targets[0].departmentId)
+  assignmentQueue.value=targets.slice(1)
+}
+defineExpose({showInvitation,showAssignments,openAssignment})
 function editInvitation(id:string){if(locked.value)return;detailsOpen.value=false;emit('edit',id)}
 const pageCount=computed(()=>Math.max(1,Math.ceil((tab.value==='invitations'?applications.value.length:listedGroups.value.length)/5)))
 const visibleApplications=computed(()=>applications.value.slice((page.value-1)*5,page.value*5))
@@ -141,9 +149,8 @@ const formatTime=(value:unknown)=>String(value || '时间未返回').replace('T'
 const memberStatus=(status:string)=>({ACTIVE:'协助中',ENDED:'已结束',EXITED:'已移除'}[status] || status || '状态未返回')
 function applicationTitle(application:any) {
   const form=application.formData || {}
-  return departments(application).map((d:any)=>d.departmentName || '受邀部门').join('、') || form.sourcePersonName || form.personNameSnapshot || form.companyName || application.applicationNo || '协助邀请'
+  return departments(application).map((d:any)=>d.departmentName || '受邀部门').join('、') || form.unitName || form.sourcePersonName || form.personNameSnapshot || form.companyName || application.applicationNo || '协助邀请'
 }
-function approvalTasks(application:any):any[]{return (props.detail.workflows || []).filter((w:any)=>w.businessId===application.id).flatMap((w:any)=>w.tasks || [])}
 const managementOpen=ref(false),managing=ref(false),managementReason=ref(''),managementError=ref(''),managementName=ref(''),managementId=ref('')
 const managementKind=ref<CollaborationManagementAction['kind']>('memberExit')
 const locked=computed(()=>!!props.disabled || busy.value || loading.value || managing.value || !!pending.value)
@@ -169,14 +176,16 @@ function assignedNames(department:any) {
   return (props.detail.members || []).filter((m:any) => department.assignedUserIds?.includes(m.userId || m.sourcePersonId)).map((m:any) => m.userNameSnapshot || m.personNameSnapshot).filter(Boolean).join('、')
 }
 const open=ref(false),loading=ref(false),busy=ref(false),error=ref(''),keyword=ref('')
+const assignmentQueue=ref<{applicationId:string;departmentId:string}[]>([])
 const chosen=ref<string[]>([]),candidates=ref<AssignmentOptions>(),pending=ref<AssignmentInput>()
 let target={applicationId:'',departmentId:''},generation=0
 onBeforeUnmount(()=>{generation++})
-watch([()=>props.detail.order?.id,()=>props.actorId],()=>{generation++;open.value=false;candidates.value=undefined;pending.value=undefined;loading.value=false;busy.value=false;managementOpen.value=false;managing.value=false;expanded.value='';page.value=1;detailsOpen.value=false;showHistory.value=false})
+watch([()=>props.detail.order?.id,()=>props.actorId],()=>{generation++;assignmentQueue.value=[];open.value=false;candidates.value=undefined;pending.value=undefined;loading.value=false;busy.value=false;managementOpen.value=false;managing.value=false;expanded.value='';page.value=1;detailsOpen.value=false;showHistory.value=false})
 const filteredMembers=computed(()=>(candidates.value?.members || []).filter(m=>m.label.includes(keyword.value.trim())))
-async function openAssignment(applicationId:string,departmentId:string) {
-  if(locked.value)return
+async function openAssignment(applicationId:string,departmentId:string,preserveQueue=false) {
+  if(locked.value || open.value && !preserveQueue)return
   const current=++generation
+  if(!preserveQueue)assignmentQueue.value=[]
   target={applicationId,departmentId};open.value=true;loading.value=true;error.value='';candidates.value=undefined;chosen.value=[];keyword.value='';pending.value=undefined
   try { const result=await repairOrderApi.assignmentOptions(applicationId,departmentId);if(current===generation)candidates.value=result }
   catch(e:any){if(current===generation)error.value=e.message || '无法读取本部门可指定人员'}
@@ -186,12 +195,18 @@ function toggle(id:string){if(busy.value || pending.value)return;chosen.value=ch
 async function submit(){
   if(props.disabled || busy.value || !candidates.value)return
   if(!pending.value){
-    if(!chosen.value.length || chosen.value.length>20){error.value='请选择1至20名人员';return}
+    if(!chosen.value.length || chosen.value.length>20 || new Set(chosen.value).size!==chosen.value.length || chosen.value.some(id=>!candidates.value!.members.some(m=>m.value===id))){error.value='请选择1至20名本部门人员';return}
     pending.value={...target,requestId:`assign-${Date.now()}-${Math.random().toString(36).slice(2)}`,assignedUserIds:[...chosen.value]}
   }
   const current=generation
   busy.value=true;error.value=''
-  try{await repairOrderApi.assignCollaboration(pending.value);if(current!==generation)return;pending.value=undefined;open.value=false;emit('changed')}
+  try{
+    await repairOrderApi.assignCollaboration(pending.value);if(current!==generation)return
+    pending.value=undefined;emit('changed');busy.value=false
+    const next=assignmentQueue.value.shift()
+    if(next)await openAssignment(next.applicationId,next.departmentId,true)
+    else open.value=false
+  }
   catch(e:any){if(current!==generation)return;error.value=e.message || '指派结果未确认，请重试本次请求';if(e.success===false)pending.value=undefined}
   finally{if(current===generation)busy.value=false}
 }

@@ -23,6 +23,9 @@ vm.runInNewContext(code, {exports:exportsObject,uni:{uploadFile:options=>{upload
 const {repairReportPayload,repairCaseView,repairOrderApi} = exportsObject
 const plain = value => JSON.parse(JSON.stringify(value))
 async function main() {
+  await repairOrderApi.materialStatistics('order-1',2,5)
+  assert.deepEqual(plain(calls.pop()),['GET','/repair/materialAccount/page',{orderId:'order-1',pageNo:2,pageSize:5}])
+  await assert.rejects(repairOrderApi.materialStatistics(''),/缺少维修单/)
   assert.equal(await exportsObject.uploadRepairAttachment('local-photo'),'repair/photo.jpg')
   assert.equal(uploadOptions.url,'/api/sys/common/upload')
   assert.equal(uploadOptions.name,'file');assert.equal(uploadOptions.formData.biz,'repair')
@@ -78,6 +81,10 @@ async function main() {
   for(const kind of ['confirmUse','writeoff','closeRemainder','contact']) assert.equal(repairOrderApi[kind],undefined)
   await repairOrderApi.personOptions('o')
   assert.deepEqual(plain(calls.at(-1)),['GET','/repair/work/personOptions',{orderId:'o'}])
+  await repairOrderApi.materialAccounts('order','me',2,10,'电缆')
+  assert.deepEqual(plain(calls.at(-1)),['GET','/repair/materialAccount/page',{orderId:'order',handlerUserId:'me',pageNo:2,pageSize:10,keyword:'电缆'}])
+  await assert.rejects(()=>repairOrderApi.materialAccounts('','me'))
+  await assert.rejects(()=>repairOrderApi.materialAccounts('order',''))
   response={success:false,code:200,message:'业务拒绝'}
   await assert.rejects(repairOrderApi.detail('o'),error => error.success === false && error.message === '业务拒绝')
   response={success:true,code:403,message:'无权'}

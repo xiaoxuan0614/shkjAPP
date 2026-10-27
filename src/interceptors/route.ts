@@ -4,9 +4,11 @@ import { HOME_PAGE } from '@/common/constants'
 import { buildPermissionOwnerKey } from '@/service/permission'
 import { isOAuth2AppEnv } from '@/common/uitls'
 import { normalizeMiniAppPath } from '@/store/permission'
+import { isRootEntry } from '@/utils/rootEntry'
 const loginRoute = '/pages/login/login'
 const publicPages = new Set([loginRoute, '/pages/login/loginOauth2'])
 let redirectingToLogin = false
+let redirectingRoot = false
 
 const redirectToLogin = () => {
   if (redirectingToLogin || isLogined()) return
@@ -51,7 +53,18 @@ export const routeInterceptor = {
     // 首次直接访问和浏览器刷新不会经过 navigateTo 等导航方法。
     app.mixin({
       onShow() {
-        if (this.$mpType !== 'page' || isLogined()) return
+        if (this.$mpType !== 'page') return
+        // #ifdef H5
+        if (typeof window !== 'undefined' && isRootEntry(window.location, import.meta.env.BASE_URL)) {
+          if (!isLogined()) redirectToLogin()
+          else if (!redirectingRoot) {
+            redirectingRoot = true
+            uni.reLaunch({ url: HOME_PAGE, complete: () => { redirectingRoot = false } })
+          }
+          return
+        }
+        // #endif
+        if (isLogined()) return
         const pages = getCurrentPages()
         const current = pages[pages.length - 1]
         const route = String(current?.route || this.$page?.route || '').split(/[?#]/)[0]

@@ -122,12 +122,12 @@ const openProjects = () => {
   projectKeyword.value = ''; showProjects.value = true
   void loadProjects()
 }
-const selectProject = (project: any) => {
+const selectProject = async (project: any) => {
   if (submitting.value || submitted.value) return
   showProjects.value = false
-  if (String(selectedProject.value?.periodId || '') === String(project.periodId) && !materialsError.value) return
   selectedProject.value = project
-  void loadMaterials()
+  // 每次确认项目都重新读取完整总账，默认带出全部应还物料。
+  await loadMaterials()
 }
 onLoad(async (query) => {
   await loadProjects()

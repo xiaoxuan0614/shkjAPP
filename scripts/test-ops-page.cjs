@@ -32,16 +32,25 @@ const api = {
 }
 const filename='src/pages/ops/components/preview/OpsWorkflow.vue'
 const {descriptor}=sfc.parse(fs.readFileSync(filename,'utf8'),{filename})
+// Compile actual styles too: script/template checks do not catch misplaced Sass @use.
+for(const style of descriptor.styles.filter(s=>s.lang==='scss')) {
+  require('sass').compileString(fs.readFileSync('src/uni.scss','utf8')+'\n'+style.content,{loadPaths:[require('node:path').dirname(filename)]})
+}
 const logTemplate=descriptor.template.content.split(`screen === 'log' && selected && currentLog`)[1].split(`screen === 'quote'`)[0]
 assert.ok(!logTemplate.includes('canFillQuotation') && !logTemplate.includes('报价状态'),'quotation belongs to order detail, not log form')
 assert.ok(descriptor.template.content.includes('title="报价管理"'))
 assert.ok(!descriptor.template.content.includes('title="物料申请记录"'))
 assert.ok(!descriptor.template.content.includes('title="申请与审批记录"'))
-assert.ok(descriptor.template.content.includes('>处理日志<'))
+assert.ok(descriptor.template.content.includes('<SectionCard title="处理日志" @header-click="toggleEvents">'))
+assert.ok(descriptor.template.content.includes('@click.stop="toggleEvents"'))
 const script=sfc.compileScript(descriptor,{id:'repair-test'})
-const box={exports:{},setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},uni:{getStorageSync:()=>false,showToast:()=>{},getLocation:p=>p.success({longitude:117.2,latitude:39.1})},require:name=>{
+const notifications=[]
+const box={exports:{},setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},uni:{getStorageSync:()=>false,showToast:payload=>notifications.push(payload),getLocation:p=>p.success({longitude:117.2,latitude:39.1})},require:name=>{
   if(name==='@/service/repairWorkMaterials'){const m={exports:{}};vm.runInNewContext(transpile(fs.readFileSync('src/service/repairWorkMaterials.ts','utf8')),m);return m.exports}
+  if(name==='@/service/collaborationApproval'){const m={exports:{}};vm.runInNewContext(transpile(fs.readFileSync('src/service/collaborationApproval.ts','utf8')),m);return m.exports}
   if(name==='vue')return {...vue,onBeforeUnmount:()=>{}}
+  if(name==='@/service/repairQuotationAccess'){const m={exports:{}};vm.runInNewContext(transpile(fs.readFileSync('src/service/repairQuotationAccess.ts','utf8')),m);return m.exports}
+  if(name==='@/service/operationsMembership')return {readOperationsUsers:async()=>[{value:'me',label:'当前维修人'},{value:'receiver',label:'运维人员'}]}
   if(name==='./repairView')return domain.exports
   if(name==='@/service/repairQuotationDictionary')return {loadRepairQuotationDictionary:async()=>[],repairQuotationText:(value)=>value||'—'}
   if(name==='@/store/user')return {useUserStore:()=>({identity:{userId:'me'},userInfo:{realname:'当前人员',username:'me'}})}
@@ -163,6 +172,20 @@ async function main(){
   page.currentLog.value.result='维修完成'
   page.submitLogForCheckout();await tick()
   assert.equal(page.screen.value,'checkout')
+  const beforeBackfillCalls=calls.length
+  page.openBackfillCheckout();assert.equal(page.showBackfillCheckout.value,true)
+  page.submitBackfillCheckout();assert.match(page.backfillCheckoutError.value,/原因/)
+  page.backfillCheckoutReason.value='离开现场后忘记签退'
+  page.backfillCheckoutTime.value=page.backfillCheckoutMin.value-1000
+  page.submitBackfillCheckout();assert.match(page.backfillCheckoutError.value,/时间/)
+  page.backfillCheckoutTime.value=Date.now()+60000
+  page.submitBackfillCheckout();assert.match(page.backfillCheckoutError.value,/时间/)
+  page.backfillCheckoutTime.value=Date.now()
+  page.submitBackfillCheckout();assert.match(page.backfillCheckoutError.value,/尚未接通/)
+  assert.equal(calls.length,beforeBackfillCalls,'backfill UI must not call normal checkout or approval APIs')
+  assert.equal(page.screen.value,'checkout');assert.equal(page.workDetail.value.recordStatus,'ACTIVE')
+  page.go('log');await tick();assert.equal(page.showBackfillCheckout.value,false)
+  page.go('checkout');await tick()
   const preserved={personType:'INTERNAL',sourcePersonId:'no-longer-in-options'}
   page.workDraft.value.persons=[preserved];page.workDraft.value.vehicleValue='historical-car';page.workDraft.value.materialItems=[{pickLinkId:'pick',quantity:1}];detail.materialLinks=[{id:'pick',linkType:'PICK',handlerUserId:'me',outboundQty:3,availableUseQty:3}]
   await page.transact(()=>page.saveLog(),'checkout')
@@ -189,14 +212,31 @@ async function main(){
   api.end=realEnd;await page.endWork();await tick()
   assert.equal(page.screen.value,'completion','successful owner checkout opens application without submitting it')
   assert.equal(calls.filter(c=>c[0]==='completion').length,0)
+  assert.equal(page.completionMissingQuotation.value,true);assert.equal(page.completionNeedsPrice.value,false)
+  const unselectedCompletionCount=calls.filter(c=>c[0]==='completion').length
+  page.complete();await tick();assert.equal(calls.filter(c=>c[0]==='completion').length,unselectedCompletionCount,'undecided quotation cannot submit completion')
+  page.completionQuotationChoice.value=true
+  assert.equal(page.footerActions.value[0].text,'去填写报价单')
+  page.footerActions.value[0].action();assert.equal(page.screen.value,'quote');page.go('completion')
+  page.selected.value.raw.order.quotationRequired=true
   page.priceInput.value='101';page.selected.value.confirmedPrice=100
   assert.equal(page.completionPriceChanged.value,true)
-  page.selected.value.quotationStatus='NOT_REQUIRED'
+  page.selected.value.quotationStatus='NOT_REQUIRED';page.selected.value.raw.order.quotationRequired=false
   assert.equal(page.completionNeedsPrice.value,false)
   assert.equal(page.completionPriceChanged.value,false)
   page.go('detail')
   api.quotation=async data=>{calls.push(['quotation',data]);return detail}
   api.completion=async data=>{calls.push(['completion',data]);return detail}
+  detail.order.quotationRequired=null;page.installDetail(detail);page.go('completion')
+  page.completionQuotationChoice.value=false;page.completionDescription.value='维保范围内，维修完成'
+  api.quotation=async data=>{calls.push(['quotation',data]);detail.order.quotationRequired=data.quotationRequired;return detail}
+  const inlineStart=calls.length
+  page.complete();await tick()
+  const inlineCalls=calls.slice(inlineStart).filter(c=>['quotation','completion'].includes(c[0]))
+  assert.equal(inlineCalls.map(c=>c[0]).join(','),'quotation,completion','save no-quotation decision before completion')
+  assert.equal(inlineCalls[0][1].reason,'维保范围内，维修完成')
+  assert.equal(inlineCalls[1][1].finalAmount,0)
+  api.quotation=async data=>{calls.push(['quotation',data]);return detail}
   page.quoteRequired.value=false;page.noQuoteReason.value='维保范围内';page.faultScope.value=''
   page.sendQuotation();await tick()
   assert.equal(Object.keys(calls.filter(c=>c[0]==='quotation').at(-1)[1]).sort().join(','),'orderId,quotationRequired,reason')
@@ -205,7 +245,8 @@ async function main(){
   assert.equal(Object.keys(calls.filter(c=>c[0]==='quotation').at(-1)[1]).sort().join(','),'faultScope,items,orderId,quotationRequired')
   detail.order.quotationRequired=false;page.installDetail(detail);page.completionDescription.value='维修结束';page.priceInput.value='999';page.amountChangeReason.value='旧原因'
   page.complete();await tick()
-  assert.equal(Object.keys(calls.filter(c=>c[0]==='completion').at(-1)[1]).sort().join(','),'description,orderId')
+  assert.equal(Object.keys(calls.filter(c=>c[0]==='completion').at(-1)[1]).sort().join(','),'description,finalAmount,orderId')
+  assert.equal(calls.filter(c=>c[0]==='completion').at(-1)[1].finalAmount,0,'no quotation ignores stale entered price and sends numeric zero')
   detail.order.quotationRequired=true;detail.order.latestQuotationId='q';detail.quotations=[{id:'q',customerConfirmedAmount:100}]
   page.installDetail(detail);page.priceInput.value='101';page.amountChangeReason.value=''
   const completionCount=calls.filter(c=>c[0]==='completion').length
@@ -214,6 +255,7 @@ async function main(){
   assert.equal(calls.filter(c=>c[0]==='completion').at(-1)[1].amountChangeReason,'增加配件')
   page.priceInput.value='100.00';page.amountChangeReason.value='';page.complete();await tick()
   assert.equal(calls.filter(c=>c[0]==='completion').at(-1)[1].amountChangeReason,undefined,'unchanged price sends no stale reason')
+  detail.quotations=[];detail.order.latestQuotationId=null
   detail.actions.canOwnerApply=false;detail.canChangeQuotationDecision=true;page.installDetail(detail)
   assert.equal(page.canFillQuotation.value,true,'quotation permission independent from generic owner-apply')
   page.openForm('quote');assert.equal(page.footerActions.value.length,1)
@@ -258,6 +300,14 @@ async function main(){
   assert.equal(calls.filter(c=>c[0]==='list').at(-1)[1].scope,'RESPONSIBLE')
   page.cases.value=[{id:'log-test',raw:{workRecords:[],order:{}},actions:{},logs:Array.from({length:7},(_,i)=>({id:String(i),startedAt:i*100,actorId:i%2?'p1':'p2',people:i%2?'人员一':'人员二'}))}]
   page.selectedId.value='log-test';await tick()
+  assert.equal(page.repairLogDuration({id:'duration-test'}),'进行中')
+  assert.equal(page.repairLogDuration({id:'duration-test',endedAt:1}),'未提供')
+  page.cases.value[0].raw.workRecords=[{id:'duration-test',durationSeconds:5400}]
+  assert.equal(page.repairLogDuration({id:'duration-test',endedAt:1}),'1.50h')
+  page.cases.value[0].raw.workRecords[0].durationSeconds=0
+  assert.equal(page.repairLogDuration({id:'duration-test',endedAt:1}),'0.00h')
+  page.cases.value[0].raw.workRecords[0].durationSeconds='invalid'
+  assert.equal(page.repairLogDuration({id:'duration-test',endedAt:1}),'未提供')
   assert.equal(page.pagedRepairLogs.value.map(l=>l.id).join(','),'6,5,4,3,2')
   assert.equal(page.repairLogsPages.value,2)
   page.repairLogsPage.value=2;assert.equal(page.pagedRepairLogs.value.length,2)
@@ -318,6 +368,7 @@ async function main(){
   assert.equal(page.showContact.value,false);assert.equal(page.screen.value,'detail','back closes contact sheet first')
   page.showReportDetails.value=true;page.selectedId.value='another-order';await tick()
   assert.equal(page.showReportDetails.value,false,'new order starts collapsed')
+  detail.order.workStatus='PROCESSING'
   detail.order.quotationStatus='HEAD_REVIEW';detail.order.latestQuotationId='q-test'
   detail.quotations=[{id:'q-test',applicationId:'qa-test',totalAmount:20}]
   detail.applications=[{id:'qa-test',applicationType:'QUOTATION',applicationStatus:'PENDING',applicantUserId:'me'}]
@@ -345,22 +396,41 @@ async function main(){
   page.openQuotationEntry();page.editQuotationDetails();assert.equal(page.showQuoteDetails.value,false)
   detail.quotations=[];detail.order.latestQuotationId=null;page.installDetail(detail)
   assert.equal(page.quotationEntryText.value,'办理报价')
+  detail.order.quotationRequired=false;detail.order.quotationStatus='NOT_REQUIRED';page.installDetail(detail)
+  assert.equal(page.quotationEntryText.value,'修改报价信息')
+  page.openQuotationEntry();assert.equal(page.screen.value,'quote');assert.equal(page.quoteRequired.value,false)
+  detail.completions=[{id:'completion-submitted'}];page.installDetail(detail)
+  assert.equal(page.canFillQuotation.value,false);assert.equal(page.quotationEntryText.value,'')
+  assert.match(page.quotationLockedMessage.value,/已提交完工/)
+  detail.completions=[];detail.order.quotationRequired=true;detail.order.quotationStatus='CONFIRMED';page.installDetail(detail)
+  assert.equal(page.canFillQuotation.value,false);assert.match(page.quotationLockedMessage.value,/客户已确认/)
+  detail.order.quotationStatus='PENDING_QUOTATION';detail.quotations=[{id:'old-confirmed',customerConfirmedAmount:0}];page.installDetail(detail)
+  assert.equal(page.canFillQuotation.value,false,'historical customer confirmation, including zero amount, locks modification')
+  detail.quotations=[];page.installDetail(detail)
   api.materialApply=async payload=>{calls.push(['materialApply',payload]);return detail}
-  page.materialType.value='领料';page.submitMaterials([{id:'m1',qty:2,material:{unit:'件'}}],'维修使用');await tick()
+  page.materialType.value='领料'
+  const beforeUseDate=calls.filter(c=>c[0]==='materialApply').length
+  for(const date of [undefined,'','2026-02-30','2026-10-26 09:00:00']) { page.submitMaterials([{id:'m1',qty:2}],'维修使用',date);await tick() }
+  assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeUseDate)
+  page.submitMaterials([{id:'m1',qty:2,material:{unit:'件'}}],'维修使用','2026-10-28');await tick()
   let materialPayload=calls.filter(c=>c[0]==='materialApply').at(-1)[1]
+  assert.equal(materialPayload.useDate,'2026-10-28')
   assert.equal('bizType' in materialPayload,false);assert.equal(materialPayload.applyType,'OUT');assert.equal(materialPayload.usageType,'MAINTENANCE');assert.equal(materialPayload.repairOrderId,'o1')
   assert.equal(materialPayload.itemList[0].applyQty,2);assert.equal('unitQty' in materialPayload.itemList[0],false)
   detail.materialLinks=[{linkType:'PICK',stockApplyItemId:'source1',materialId:'m1',material:{baseUnitName:'件'}}];page.installDetail(detail)
-  page.materialType.value='还料';page.submitMaterials([{id:'m1',qty:1,unitPrice:0}],'剩余退回');await tick()
+  page.materialType.value='还料';page.submitMaterials([{id:'["m1","unit"]',qty:1,material:{materialId:'m1',unit:'件',availableReturnQty:1}}],'剩余退回');await tick()
   materialPayload=calls.filter(c=>c[0]==='materialApply').at(-1)[1]
+  assert.equal('useDate' in materialPayload,false)
   assert.equal('bizType' in materialPayload,false);assert.equal(materialPayload.applyType,'IN');assert.equal(materialPayload.usageType,'MAINTENANCE')
-  assert.equal('repairSourceItemId' in materialPayload.itemList[0],false);assert.equal(materialPayload.itemList[0].applyQty,1);assert.equal(materialPayload.itemList[0].unitPrice,0);assert.equal(materialPayload.itemList[0].materialId,'m1')
+  assert.equal('repairSourceItemId' in materialPayload.itemList[0],false)
+  assert.deepEqual(JSON.parse(JSON.stringify(materialPayload.itemList)),[{materialId:'m1',unitName:'件',unitQty:1}])
+  assert.equal(materialPayload.repairOrderId,'o1')
   const beforeInvalidMaterial=calls.filter(c=>c[0]==='materialApply').length
   page.submitMaterials([{id:'source1',qty:1.12345}],'');await tick()
   assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeInvalidMaterial)
   page.submitMaterials([{id:'m1',qty:1}],'');await tick()
   page.submitMaterials([{id:'m1',qty:1,unitPrice:-1}],'');await tick()
-  assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeInvalidMaterial,'return requires a nonnegative price')
+  assert.equal(calls.filter(c=>c[0]==='materialApply').length,beforeInvalidMaterial,'return requires complete material account information')
   api.collaboration=async payload=>{calls.push(['collaboration',payload]);return detail}
   page.submitAssistance({personType:'INTERNAL',departments:[{departmentId:'department1',reason:'现场协助'}]});await tick()
   assert.equal(calls.filter(c=>c[0]==='collaboration').length,0,'requires server owner action')
@@ -372,8 +442,18 @@ async function main(){
   page.submitAssistance({personType:'INTERNAL',departments:[{departmentId:'department1',reason:'现场协助'},{departmentId:'department2',reason:'技术支持'}]});await tick()
   const invitation=calls.filter(c=>c[0]==='collaboration').at(-1)[1]
   assert.equal(invitation.orderId,'o1');assert.equal(invitation.departments.length,2);assert.equal('assignedUserIds' in invitation,false)
-  page.submitAssistance({personType:'EXTERNAL',targetId:'company1',reason:'现场协助',headcount:2,hoursPerPerson:4});await tick()
-  assert.equal(calls.filter(c=>c[0]==='collaboration').length,1,'external extras are not silently discarded')
+  page.submitAssistance({personType:'EXTERNAL',targetId:'company1',reason:'现场协助',personCount:2,estimatedTotalHours:4});await tick()
+  const externalInvitation=calls.filter(c=>c[0]==='collaboration').at(-1)[1]
+  assert.equal(externalInvitation.personCount,2);assert.equal(externalInvitation.estimatedTotalHours,4)
+  assert.equal(externalInvitation.sourcePersonId,'company1');assert.equal('departments' in externalInvitation,false)
+  api.transfer=async payload=>{calls.push(['transfer',payload]);return detail}
+  await page.openException('转单')
+  assert.equal(page.transferOptions.value.length,1);assert.equal(page.transferOptions.value[0].value,'receiver','transfer excludes current owner from operations department candidates')
+  page.exceptionType.value='转单';await tick();page.exceptionReason.value='病假';page.exceptionRemark.value='交接检查';page.transferOptions.value=[{value:'receiver',label:'接单人'}]
+  page.targetUserId.value='me';page.sendException();await tick();assert.equal(calls.filter(c=>c[0]==='transfer').length,0)
+  page.targetUserId.value='receiver';page.sendException();await tick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(c=>c[0]==='transfer').at(-1)[1])),{orderId:'o1',targetUserId:'receiver',reason:'病假：交接检查'})
+  assert.equal(detail.order.responsibleUserId,'me','submission never switches owner before approval')
   detail.members=[{id:'member1',userId:'helper',personType:'INTERNAL',memberStatus:'ACTIVE',userNameSnapshot:'协助人员'}]
   detail.applications=[{id:'editable',applicationType:'COLLABORATION',applicationStatus:'PENDING',applicantUserId:'me',formData:{personType:'INTERNAL',departments:[{departmentId:'d1',departmentName:'工程部',reason:'原原因'}]}}];page.installDetail(detail)
   page.openAssistance('editable');assert.notEqual(page.screen.value,'assistance','pending invitation cannot be edited in place')
@@ -404,13 +484,82 @@ async function main(){
   page.review(true);await tick()
   assert.equal(calls.filter(c=>c[0]==='review').at(-1)[1].taskId,'t2')
   assert.equal(page.reviewTasks.value.length,1)
+  // Transfer follows the same server workflow, including exact todo routing and rejection.
+  detail.applications=[{id:'transfer-a',applicationType:'TRANSFER',applicationStatus:'PENDING',formData:{targetUserId:'receiver',reason:'病假交接'}}]
+  detail.workflows=[{id:'transfer-w',businessId:'transfer-a',processKey:'repair_ops_transfer',tasks:[{id:'transfer-t',canHandle:true,name:'运维主管审批'}]}]
+  page.installDetail(detail)
+  await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'transfer-w',applicationId:'transfer-a',taskId:'transfer-t'})
+  assert.equal(page.screen.value,'approval');assert.equal(page.reviewTask.value.application.applicationType,'TRANSFER')
+  const beforeReview=calls.filter(c=>c[0]==='review').length
+  page.approvalReason.value='';page.review(false);await tick()
+  assert.equal(calls.filter(c=>c[0]==='review').length,beforeReview,'transfer rejection requires a reason')
+  api.review=async payload=>{calls.push(['review',payload]);detail.applications[0].applicationStatus=payload.approve?'APPROVED':'REJECTED';detail.workflows[0].tasks=[];if(payload.approve)detail.order.responsibleUserId='receiver';return detail}
+  page.approvalReason.value='请补充交接安排';page.review(false);await tick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(c=>c[0]==='review').at(-1)[1])),{applicationId:'transfer-a',instanceId:'transfer-w',taskId:'transfer-t',approve:false,comment:'请补充交接安排'})
+  assert.equal(page.selected.value.ownerId,'me','rejection preserves owner')
+  detail.applications[0].applicationStatus='PENDING';detail.workflows[0].tasks=[{id:'transfer-t2',canHandle:true,name:'运维主管审批'}];page.installDetail(detail)
+  await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'transfer-w',applicationId:'transfer-a',taskId:'transfer-t2'})
+  page.approvalReason.value='';page.review(true);await tick()
+  assert.equal(calls.filter(c=>c[0]==='review').at(-1)[1].taskId,'transfer-t2')
+  assert.equal(page.selected.value.ownerId,'receiver','approved response supplies the new owner')
+  assert.equal(page.reviewTasks.value.length,0,'completed transfer task is no longer actionable')
+  detail.order.responsibleUserId='me';page.installDetail(detail)
+  const originalStatus=detail.order.workStatus
+  detail.actions.canOwnerApply=true;page.installDetail(detail)
+  api.close=async payload=>{calls.push(['close',payload]);return detail}
+  await page.openException('关闭');page.exceptionReason.value='客户弃修';page.exceptionRemark.value=''
+  page.sendException();await tick();assert.equal(calls.filter(c=>c[0]==='close').length,0,'close reason description is required')
+  page.exceptionRemark.value='客户明确不再维修';page.sendException();await tick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(c=>c[0]==='close').at(-1)[1])),{orderId:'o1',closeType:'CUSTOMER_ABANDONED',reason:'客户弃修：客户明确不再维修'})
+  assert.equal(page.selected.value.raw.order.workStatus,originalStatus,'close submission does not close the order')
+  detail.applications=[{id:'close-a',applicationType:'CLOSE',applicationStatus:'PENDING',formData:{closeType:'CUSTOMER_ABANDONED',reason:'客户明确不再维修'}}]
+  detail.workflows=[{id:'close-w',businessId:'close-a',processKey:'repair_ops_close',tasks:[{id:'close-t',canHandle:true,name:'运维主管审批'}]}];page.installDetail(detail)
+  await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'close-w',applicationId:'close-a',taskId:'close-t'})
+  assert.equal(page.reviewTask.value.application.applicationType,'CLOSE')
+  api.review=async payload=>{calls.push(['review',payload]);detail.applications[0].applicationStatus=payload.approve?'APPROVED':'REJECTED';detail.workflows[0].tasks=[];if(payload.approve)detail.order.workStatus='CLOSED';return detail}
+  const beforeCloseReview=calls.filter(c=>c[0]==='review').length
+  page.approvalReason.value='';page.review(false);await tick();assert.equal(calls.filter(c=>c[0]==='review').length,beforeCloseReview)
+  page.approvalReason.value='需核实客户意见';page.review(false);await tick();assert.equal(page.selected.value.raw.order.workStatus,originalStatus)
+  detail.applications[0].applicationStatus='PENDING';detail.workflows[0].tasks=[{id:'close-t2',canHandle:true}];page.installDetail(detail)
+  await page.openOrder('o1',{orderId:'o1',view:'approval',instanceId:'close-w',applicationId:'close-a',taskId:'close-t2'})
+  page.approvalReason.value='';page.review(true);await tick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(c=>c[0]==='review').at(-1)[1])),{applicationId:'close-a',instanceId:'close-w',taskId:'close-t2',approve:true,comment:''})
+  assert.equal(page.selected.value.raw.order.workStatus,'CLOSED');assert.equal(page.reviewTasks.value.length,0)
+  detail.order.workStatus=originalStatus;page.installDetail(detail)
   detail.members[0].memberStatus='ACTIVE';page.installDetail(detail)
   let uncertainWrites=0
+  const successNotices=notifications.filter(n=>n.icon==='success').length
+  assert.ok(successNotices>0,'successful submissions show toast feedback')
   api.memberExit=async()=>{uncertainWrites++;throw Object.assign(new Error('network'),{uncertain:true})}
   assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'结束'}),false)
   assert.equal(page.mutationBlocked.value,true,'unknown mutation result requires re-open and readback')
   assert.equal(await page.manageCollaboration({kind:'memberExit',targetId:'member1',reason:'重复点击'}),false)
   assert.equal(uncertainWrites,1,'uncertain writes are not automatically retried')
+  assert.equal(notifications.filter(n=>n.icon==='success').length,successNotices,'unknown result must not show success')
+  page.mutationBlocked.value=false
+  await page.transact(async()=>{throw new Error('审批模型未启用')})
+  assert.equal(notifications.filter(n=>n.icon==='success').length,successNotices,'business failure must not show success')
+  await page.transact(async()=>detail)
+  assert.equal(notifications.filter(n=>n.icon==='success').length,successNotices+1,'one success notification per completed submission')
+  // V4: server-selected reusable departments are submitted atomically with approval.
+  const v4={id:'v4',applicationType:'COLLABORATION',applicationStatus:'PENDING',formData:{personType:'INTERNAL',assignmentMode:'WITH_APPROVAL',departments:[{departmentId:'d1',reason:'支持'},{departmentId:'d2',reason:'协助'}]}}
+  detail.applications=[v4];detail.workflows=[{id:'v4w',businessId:'v4',processKey:'repair_ops_collaboration',tasks:[{id:'v4t',canHandle:true,nodeKey:'head'}]}]
+  const candidateCalls=[],reviewCalls=[]
+  api.approvalCandidates=async(applicationId,taskId)=>{candidateCalls.push({applicationId,taskId});return {assignmentMode:'WITH_APPROVAL',taskId,nodeKey:'head',departments:[{departmentId:'d1',departmentName:'部门一',members:[{value:'u1',label:'成员一'}]},{departmentId:'d2',departmentName:'部门二',members:[{value:'u2',label:'成员二'}]}]}}
+  page.installDetail(detail);page.go('approval');await tick()
+  assert.equal(candidateCalls.at(-1).taskId,'v4t')
+  page.approvalDecision.value='approve'
+  let failV4=true
+  api.review=async p=>{reviewCalls.push(JSON.parse(JSON.stringify(p)));if(failV4)throw Object.assign(Error('network'),{uncertain:true});return detail}
+  await page.review(true);assert.equal(reviewCalls.length,0,'all required departments must have members')
+  page.reviewChosen.value={d1:['u1'],d2:['u2']};await page.review(true)
+  assert.equal(page.mutationBlocked.value,false,'idempotent review can retry');assert.ok(page.mergedPending.value)
+  assert.equal(reviewCalls[0].departmentAssignments.length,2);assert.equal('assignedUserIds' in reviewCalls[0],false)
+  failV4=false;await page.review(true);assert.deepEqual(reviewCalls[0],reviewCalls[1],'atomic approval retry preserves original payload')
+  page.go('approval');await tick();page.approvalDecision.value='reject';page.approvalReason.value=''
+  const beforeReject=reviewCalls.length;await page.review(false);assert.equal(reviewCalls.length,beforeReject,'rejection requires reason')
+  page.approvalReason.value='不予批准';await page.review(false)
+  assert.equal(reviewCalls.at(-1).approve,false);assert.equal('departmentAssignments' in reviewCalls.at(-1),false);assert.equal('assignedUserIds' in reviewCalls.at(-1),false)
   scope.stop()
   console.log('PASS page list, server permissions, recordId, new work endpoints, checkout routing and quotation/completion payloads')
 }

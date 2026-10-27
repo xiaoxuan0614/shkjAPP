@@ -99,10 +99,12 @@
             class="todo"
             @click="openTodo(item)"
           >
-            <view class="todo__tag" :class="['todo__tag--' + todoTag(item).tone, { urgent: item.urgent }]">{{ item.urgent ? '急' : todoTag(item).label }}</view>
             <view class="todo__body">
-              <view class="todo__title">{{ item.displayTitle }}</view>
-              <view class="todo__summary">{{ item.summary }}</view>
+              <view class="todo__heading">
+              <view class="todo__tag" :class="['todo__tag--' + todoTag(item).tone, { urgent: item.urgent }]">{{ item.urgent ? '急' : todoTag(item).label }}</view>
+                <view class="todo__title">{{ item.displayTitle }}</view>
+              </view>
+              <view v-if="item.summary?.trim()" class="todo__summary">{{ item.summary }}</view>
             </view>
             <view class="todo__meta">
               <text class="todo__time">{{ formatShortDate(item.time) || '时间未提供' }}</text>
@@ -236,12 +238,19 @@
       </view>
     </wd-popup>
     <OpsPreview v-if="canViewOpsPreview && !todoOnly" v-show="showOpsPreview" :key="opsSessionKey" ref="opsPreview" :can-manage="canManageOps" @role-change="opsDemoRole = $event" @close="showOpsPreview = false" />
+    <RepairCollaborationProgress ref="repairAssignment" standalone :detail="assignmentContext" :actor-id="userStore.identity.userId" @changed="toast.success('人员指定成功'); loadTodos(true)" />
+    <RepairApprovalPopup ref="repairApproval" @processed="loadTodos(true)" />
   </PageLayout>
 </template>
 
 <script lang="ts" setup>
 import { repairTodoTarget, repairTodoUrl } from "@/service/repairCollaboration";
 import { computed, ref, watch } from "vue";
+import RepairCollaborationProgress from '@/pages/ops/components/preview/RepairCollaborationProgress.vue';
+import RepairApprovalPopup from '@/pages/ops/components/preview/RepairApprovalPopup.vue';
+const repairApproval = ref<InstanceType<typeof RepairApprovalPopup>>();
+const repairAssignment = ref<InstanceType<typeof RepairCollaborationProgress>>();
+const assignmentContext = {order:{},applications:[],members:[]};
 const props = withDefaults(defineProps<{ todoOnly?: boolean }>(), { todoOnly: false });
 let todoListNextOpenAt = 0;
 const openTodoList = () => {
@@ -280,7 +289,6 @@ import { acceptanceApi, type AcceptanceType } from '@/service/projectAcceptance'
 import { projectApi, normalizeProject, unwrapRecords } from "@/service/shkj";
 import { http } from "@/utils/http";
 import {
-  buildPermissionOwnerKey,
   ensureCurrentAuthorization,
 } from "@/service/permission";
 import {
@@ -291,7 +299,6 @@ import {
   parseTodoActionParams,
   projectInvitationApi,
   todoApi,
-  todoTypeText,
   unwrapTodoPage,
   type ProjectInvitationRecord,
   type TodoRecord,
@@ -406,17 +413,6 @@ const workbenchPresentation: Record<string, WorkbenchPresentation> = {
   "/pages/ops/repairOnline": {
     icon: "service",
     tone: "purple",
-    section: "office",
-  },
-  "/pages/ops/materialApply": {
-    icon: "goods",
-    tone: "orange",
-    section: "office",
-    label: "领料申请",
-  },
-  "/pages/ops/materialReturn": {
-    icon: "refresh",
-    tone: "green",
     section: "office",
   },
   "/pages/ops/implementLog": {
@@ -555,7 +551,7 @@ const loadTodos = async (reset = true) => {
     const existing = new Set(todoList.value.map(item => item.id));
     todoList.value.push(...page.records.filter(item => !existing.has(item.id)).map((item: TodoRecord) => ({
       ...item,
-      displayTitle: todoTypeText(item.todoType, item.todoType_dictText),
+      displayTitle: item.title?.trim() || '未命名待办',
       actionParams: parseTodoActionParams(item.actionParams),
       time: item.dueTime || item.createTime,
       urgent: item.urgent === true,
@@ -715,7 +711,21 @@ const openTodoContent = async (
   item: TodoRecord & { actionParams?: Record<string, any> },
 ) => {
   try {
+    const params = parseTodoActionParams(item.actionParams);
+    const workflow = [item.actionKey,item.todoType].some(v => String(v || '').toUpperCase() === 'WORKFLOW_APPROVAL');
+    if (workflow && (String(item.bizModule || '').toUpperCase() === 'REPAIR' || params.businessType === 'REPAIR_OPS_APPLICATION')) {
+      await repairApproval.value?.open(String(params.instanceId || item.bizSubId || ''), params);
+      return;
+    }
     const target = await repairTodoTarget(item, parseTodoActionParams(item.actionParams));
+    if (target?.view === 'assignment') {
+      await repairAssignment.value?.openAssignment(target.applicationId!,target.departmentId!);
+      return;
+    }
+    if (target?.view === 'approval' && target.instanceId) {
+      await repairApproval.value?.open(target.instanceId, { ...params, taskId:target.taskId, orderId:target.orderId, applicationId:target.applicationId }, target.initialDetail);
+      return;
+    }
     if (target) { await uni.navigateTo({url:repairTodoUrl(target)}); return; }
   } catch (e:any) { toast.warning(e.message || '待办读取失败，请刷新重试'); return; }
   if ([item.todoType, item.actionKey].some((value) => String(value || '').trim().toUpperCase() === 'PROJECT_CANDIDATE_APPROVAL')) {
@@ -816,11 +826,8 @@ const projectStatusText = (item: any) => {
 const refresh = () => {
   if (!userStore.userInfo.token) return;
 
-  if (
-    !permissionStore.loaded ||
-    permissionStore.ownerKey !== buildPermissionOwnerKey(userStore.userInfo)
-  )
-    refreshAuthorization();
+  // Recheck on home entry; the service throttles within one minute.
+  void ensureCurrentAuthorization(userStore.userInfo).catch(() => {});
   if (!props.todoOnly) loadProjects();
   loadTodos();
 };
@@ -1039,7 +1046,11 @@ defineExpose({ refresh });
   min-width: 0;
   flex: 1;
 }
+.todo__heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.todo__heading .todo__tag { width: auto; min-width: 24px; height: 24px; padding: 0 5px; margin-right: 0; font-size: 12px; }
 .todo__title {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: #303b49;
   font-size: 14px;
@@ -1063,7 +1074,7 @@ defineExpose({ refresh });
 .todo-more { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; margin: 8px 0 0; padding: 0 12px; background: #f3f7fc; color: #245eaa; font-size: 14px; line-height: 44px; border-radius: 8px; }
 .todo-more::after { border: 0; }
 .todo-more__count { color: #657285; font-size: 12px; }
-@media (max-width: 360px) { .todo { flex-wrap: wrap; } .todo__meta { flex-basis: calc(100% - 40px); margin: 6px 0 0 40px; align-items: flex-start; gap: 4px; } .todo__applicant { text-align: left; } }
+@media (max-width: 360px) { .todo { flex-wrap: wrap; } .todo__meta { flex-basis: calc(100% - 40px); margin: 6px 0 0; align-items: flex-start; gap: 4px; } .todo__applicant { text-align: left; } }
 .invitation-popup {
   box-sizing: border-box;
   display: flex;

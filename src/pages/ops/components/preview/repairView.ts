@@ -4,8 +4,8 @@ export type MainState = '待处理' | '进行中' | '已完成' | '已关闭'
 export interface QuoteLine { name: string; qty: number; price: number }
 export interface AssistUser { id: string; name: string }
 export interface AssistanceRequest { users: AssistUser[]; reason: string; status: '待双主管审批' }
-export interface RepairMaterial { id: string; name: string; spec: string; unit: string; stock: number; code?: string; brand?: string }
-export interface MaterialLine { id: string; qty: number; reason: string; unitPrice?: number; material?: RepairMaterial }
+export interface RepairMaterial { id: string; name: string; spec: string; unit: string; stock: number; code?: string; brand?: string; materialId?: string; baseUnitId?: string; availableReturnQty?: number }
+export interface MaterialLine { id: string; qty: number; reason: string; material?: RepairMaterial }
 export interface RepairMaterialRequest { type: '领料' | '还料'; lines: MaterialLine[]; remark: string; status: string }
 export interface RepairLog {
   id: string; actorId: string; startedAt: number; endedAt?: number

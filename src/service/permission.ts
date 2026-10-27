@@ -2,8 +2,7 @@ import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
 import { normalizeMiniAppPath, usePermissionStore, type AuthorizedMenu } from '@/store/permission'
 
-const CURRENT_USER_MENU_URL = '/sys/permission/getUserPermissionByToken'
-const PERMISSION_CODE_URL = '/sys/permission/getPermCode'
+const CURRENT_USER_MENU_URL = '/sys/permission/getUserAppPermissionByToken'
 let authorizationCheckedAt = 0
 
 const toArray = (value: any): any[] => {
@@ -50,11 +49,11 @@ const normalizePermissionCodes = (response: any) => {
   const source = Array.isArray(result)
     ? result
     : result?.codeList || result?.permissionCodes || result?.permissions || result?.auth || []
-  return Array.isArray(source) ? source.map((item) => String(item)).filter(Boolean) : []
+  return Array.isArray(source) ? source.map((item) => typeof item === 'string' ? item : item?.action).filter((item): item is string => typeof item === 'string' && !!item) : []
 }
 
 export const buildPermissionOwnerKey = (userInfo: IUserInfo) =>
-  `${userInfo.userid || userInfo.username || ''}:${userInfo.tenantId || ''}:menu-v6`
+  `${userInfo.userid || userInfo.username || ''}:${userInfo.tenantId || ''}:app-menu-v7`
 
 export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUserInfo) => {
   const permissionStore = usePermissionStore()
@@ -73,13 +72,7 @@ export const loadCurrentAuthorization = async (ownerKey: string, userInfo: IUser
       userStore.editUserInfo({ roles: [] })
     }
     const menuResponse: any = await http.get(CURRENT_USER_MENU_URL)
-    let permissionCodes: string[] = []
-    try {
-      const permissionResponse: any = await http.get(PERMISSION_CODE_URL)
-      permissionCodes = normalizePermissionCodes(permissionResponse)
-    } catch {
-      // 按钮权限加载失败不应拖垮菜单；按钮接口仍由后端独立鉴权。
-    }
+    const permissionCodes = normalizePermissionCodes(menuResponse)
     if (userStore.userInfo.token !== token) return []
     permissionStore.setAuthorization(normalizeMenus(menuResponse), permissionCodes, ownerKey)
     authorizationCheckedAt = Date.now()

@@ -3,7 +3,7 @@
     <text v-if="initial" class="prefill-note">已带入原申请内容。修改后将重新发起审批，原邀请和审批记录保留。</text>
     <view class="assistance-types"><button :class="{ active: personType === 'INTERNAL' }" :disabled="loading" @click="changeType('INTERNAL')">内部协助</button><button :class="{ active: personType === 'EXTERNAL' }" :disabled="loading" @click="changeType('EXTERNAL')">外部协助</button></view>
     <text class="label">{{ personType === 'INTERNAL' ? '选择部门' : '选择外协单位' }}<text class="required"> *</text></text>
-    <button class="people-select" :aria-expanded="showPicker" @click="openPicker"><text>{{ personType === 'INTERNAL' ? (chosen.length ? `已选 ${chosen.length} 个部门，点击调整` : '请选择部门，可多选') : (chosen[0]?.name || '请选择一家外协单位') }}</text><wd-icon name="arrow-down" /></button>
+    <button class="people-select" :aria-expanded="showPicker" @click="openPicker"><text>{{ personType === 'INTERNAL' ? (chosen.length ? chosen.map(department => department.name).join('、') : '请选择部门，可多选') : (chosen[0]?.name || '请选择一家外协单位') }}</text><wd-icon name="arrow-down" /></button>
     <template v-if="personType === 'INTERNAL'">
       <view v-for="department in chosen" :key="department.id" class="department-row">
         <view class="department-heading"><text>{{ department.name }}</text><button :aria-label="`移除${department.name}`" @click="removeDepartment(department.id)">移除</button></view>
@@ -12,9 +12,9 @@
       </view>
     </template>
     <view v-if="personType === 'EXTERNAL'" class="external-fields">
-      <label for="assist-count" class="label">人数<text class="required"> *</text></label><input id="assist-count" v-model="headcount" type="number" placeholder="填写人数" />
-      <label for="assist-hours" class="label">人均预计工时（h）<text class="required"> *</text></label><input id="assist-hours" v-model="hoursPerPerson" type="digit" placeholder="填写每人预计工时" />
-      <text class="hint">预计总工时：{{ totalHours }} h，实际工时以维修记录为准。</text>
+      <label for="assist-count" class="label">人数<text class="required"> *</text></label><input id="assist-count" v-model="personCount" type="number" placeholder="填写人数" />
+      <label for="assist-hours" class="label">预计总工时（h）<text class="required"> *</text></label><input id="assist-hours" v-model="estimatedTotalHours" type="digit" placeholder="所有人员合计工时，最多两位小数" />
+      <text class="hint">填写所有人的合计工时，例如 3 人总计 24 小时填 24，不再乘人数。预计值不计入实际工时。</text>
     </view>
   </SectionCard>
   <wd-popup v-model="showPicker" position="bottom" :z-index="12000" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;" @close="cancelPicker">
@@ -25,9 +25,16 @@
     <text v-if="loading" class="hint">正在加载候选列表…</text>
     <button v-else-if="failed" @click="load(page)">候选列表加载失败，点击重试</button>
     <template v-else>
-      <label v-for="u in users" :key="u.id" class="user" @click="toggleDraft(u)">
-        <checkbox v-if="personType === 'INTERNAL'" :checked="draftChosen.some(p => p.id === u.id)" color="#1769c2" /><radio v-else :checked="draftChosen.some(p => p.id === u.id)" color="#1769c2" /><text>{{ u.name }}</text>
-      </label>
+      <checkbox-group v-if="personType === 'INTERNAL'" @change="changeDepartments">
+        <label v-for="u in users" :key="u.id" class="user">
+          <checkbox :value="u.id" :checked="draftChosen.some(p => p.id === u.id)" color="#1769c2" /><text>{{ u.name }}</text>
+        </label>
+      </checkbox-group>
+      <radio-group v-else @change="changeCompany">
+        <label v-for="u in users" :key="u.id" class="user">
+          <radio :value="u.id" :checked="draftChosen.some(p => p.id === u.id)" color="#1769c2" /><text>{{ u.name }}</text>
+        </label>
+      </radio-group>
       <text v-if="!users.length" class="hint">未找到匹配项，请更换名称查询。</text>
     </template>
       </scroll-view>
@@ -38,12 +45,11 @@
   <SectionCard :title="personType === 'INTERNAL' ? '办理说明' : '申请原因'">
     <template v-if="personType === 'EXTERNAL'"><label for="assist-reason" class="label">协助原因<text class="required"> *</text></label>
     <textarea id="assist-reason" v-model="reason" maxlength="1000" placeholder="请说明需要协助的工作和原因" /></template>
-    <text class="hint">{{ personType === 'INTERNAL' ? '运维主管先审批，再由各受邀部门主管并行审批；全部通过后，各部门主管单独指定成员。任一部门驳回，本次内协申请结束；指定人员不在审批流内。' : '每次申请一家外协单位，由运维主管审批。' }}</text>
-    <text v-if="personType === 'EXTERNAL'" class="pending-note">外协人数和工时协议尚未接入，暂不能提交外协申请</text>
+    <text class="hint">{{ personType === 'INTERNAL' ? '运维主管先审批，再由各受邀部门主管并行审批；全部通过后，各部门主管单独指定成员。任一部门驳回，本次内协申请结束；指定人员不在审批流内。' : '每次申请一家外协单位，由申请人所属部门主管审批；通过后协助生效。' }}</text>
   </SectionCard>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { collaborationDepartments, validateCollaborationDraft, type CollaborationDraft, type CollaborationPrefill } from '@/service/repairCollaboration'
 import { repairOrderApi } from '@/service/repairOrder'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
@@ -51,8 +57,7 @@ import type { AssistUser } from './repairView'
 type Selection = AssistUser & {personType: 'INTERNAL' | 'EXTERNAL'}
 const props = defineProps<{initial?: CollaborationPrefill}>()
 const emit = defineEmits<{ submit: [draft: CollaborationDraft] }>()
-const headcount = ref(''), hoursPerPerson = ref('')
-const totalHours = computed(() => { const total = Number(headcount.value) * Number(hoursPerPerson.value); return Number.isFinite(total) && total > 0 ? Number(total.toFixed(2)) : '—' })
+const personCount = ref(''), estimatedTotalHours = ref('')
 const keyword = ref(''), query = ref(''), reason = ref('')
 const departmentReasons = ref<Record<string,string>>({})
 const internalChosen = ref<Selection[]>([]), externalChosen = ref<Selection[]>([])
@@ -63,9 +68,17 @@ async function openPicker() {
   showPicker.value = true; await load(1)
 }
 function cancelPicker() { showPicker.value = false; draftChosen.value = [] }
-function toggleDraft(u: AssistUser) {
-  const selection = {id:u.id,name:u.name,personType:personType.value}
-  draftChosen.value = personType.value === 'EXTERNAL' ? [selection] : draftChosen.value.some(p => p.id === u.id) ? draftChosen.value.filter(p => p.id !== u.id) : [...draftChosen.value, selection]
+function changeDepartments(event: {detail:{value:string[]}}) {
+  const checked = new Set(event.detail.value.map(String))
+  const visible = new Set(users.value.map(u => u.id))
+  draftChosen.value = [
+    ...draftChosen.value.filter(u => !visible.has(u.id)),
+    ...users.value.filter(u => checked.has(u.id)).map(u => ({id:u.id,name:u.name,personType:'INTERNAL' as const})),
+  ]
+}
+function changeCompany(event: {detail:{value:string}}) {
+  const user = users.value.find(u => u.id === String(event.detail.value))
+  draftChosen.value = user ? [{id:user.id,name:user.name,personType:'EXTERNAL'}] : []
 }
 function confirmPicker() {
   if (loading.value || failed.value || !draftChosen.value.length) return
@@ -75,6 +88,13 @@ const personType = ref<'INTERNAL' | 'EXTERNAL'>('INTERNAL')
 if (props.initial?.personType === 'INTERNAL') {
   chosen.value = (props.initial.departments || []).map(d => ({id:d.departmentId,name:props.initial!.departmentNames?.[d.departmentId] || '原受邀部门',personType:'INTERNAL'}))
   departmentReasons.value = Object.fromEntries((props.initial.departments || []).map(d => [d.departmentId,d.reason]))
+}
+if (props.initial?.personType === 'EXTERNAL') {
+  personType.value = 'EXTERNAL'
+  chosen.value = [{id:props.initial.targetId || '',name:props.initial.targetName || '原外协单位',personType:'EXTERNAL'}]
+  personCount.value = String(props.initial.personCount ?? '')
+  estimatedTotalHours.value = String(props.initial.estimatedTotalHours ?? '')
+  reason.value = props.initial.reason || ''
 }
 let allUsers: {id:string;name:string;account:string}[] = []
 const page = ref(1), hasMore = ref(false), loading = ref(false), failed = ref(false)
@@ -86,7 +106,7 @@ async function load(next = 1) {
   try {
     const response = personType.value === 'INTERNAL' ? await collaborationDepartments() : await repairOrderApi.options('external')
     if (id !== request) return
-    allUsers = response.map(r => ({id:r.value,name:r.label,account:''}))
+    allUsers = response.map(r => ({id:String(r.value),name:r.label,account:''}))
     paginate(next)
   } catch { if (id === request) failed.value = true }
   finally { if (id === request) loading.value = false }
@@ -105,7 +125,7 @@ function removeDepartment(id: string) { chosen.value = chosen.value.filter(d => 
 function submit() {
   const draft: CollaborationDraft = personType.value === 'INTERNAL'
     ? {personType:'INTERNAL',departments:chosen.value.map(d => ({departmentId:d.id,reason:(departmentReasons.value[d.id] || '').trim()}))}
-    : {personType:'EXTERNAL',targetId:chosen.value[0]?.id || '',reason:reason.value.trim(),headcount:Number(headcount.value),hoursPerPerson:Number(hoursPerPerson.value)}
+    : {personType:'EXTERNAL',targetId:chosen.value[0]?.id || '',reason:reason.value.trim(),personCount:Number(personCount.value),estimatedTotalHours:Number(estimatedTotalHours.value)}
   const error = validateCollaborationDraft(draft)
   if (error) { uni.showToast({title:error,icon:'none'}); return }
   emit('submit', draft)
@@ -124,7 +144,6 @@ defineExpose({ submit })
 .people-select text { min-width:0; overflow-wrap:anywhere; }
 .external-fields { margin-top:24px; }
 .external-fields input { box-sizing:border-box; width:100%; min-height:48px; border:1px solid #d5dce5; border-radius:8px; padding:0 12px; margin-bottom:16px; font-size:16px; }
-.pending-note { display:block; margin-top:16px; color:#92400e; font-size:14px; line-height:1.7; }
 .prefill-note { display:block; margin-bottom:20px; color:#536176; font-size:14px; line-height:1.7; }
 .people-panel { padding:16px; color:#303133; }
 .people-panel__head { display:flex; align-items:center; justify-content:space-between; font-size:18px; font-weight:600; }

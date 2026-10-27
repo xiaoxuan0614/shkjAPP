@@ -9,6 +9,17 @@ assert.throws(()=>service.collaborationPayload('o1',{...draft,departments:Array(
 assert.throws(()=>service.collaborationPayload('o1',{...draft,departments:[draft.departments[0],draft.departments[0]]}),/重复/);
 const app={id:'a1',applicationType:'COLLABORATION',applicationStatus:'APPROVED',formData:{departments:[{departmentId:'d1',departmentName:'部门一',reason:'支持',assignmentStatus:'PENDING_ASSIGNMENT',approverIds:['head']}]}};
 const dep=app.formData.departments[0];assert.equal(service.canOfferAssignment(app,dep,'head',{workStatus:'PROCESSING'}),true);
+assert.equal(service.collaborationApprovalProgress(app,{}),'已完成')
+assert.equal(service.collaborationApprovalProgress({...app,applicationStatus:'REJECTED'},{}),'已驳回')
+assert.equal(service.collaborationApprovalProgress({...app,applicationStatus:'WITHDRAWN'},{}),'已撤回')
+assert.equal(service.collaborationApprovalProgress({...app,applicationStatus:'PENDING'},{}),'当前审批节点：审批信息待返回')
+assert.equal(service.collaborationApprovalProgress({...app,applicationStatus:'PENDING'},{workflows:[{businessId:'a1',tasks:[{status:'COMPLETED',assigneeName:'已办理人'},{status:'PENDING',assigneeName:'张三'},{status:'PENDING',approverName:'李四'}]}]}),'当前审批节点：张三、李四')
+assert.equal(service.collaborationApprovalProgress({...app,applicationStatus:'PENDING'},{workflows:[{businessId:'a1',tasks:[{departmentName:'技术部'}]}]}),'当前审批节点：技术部（审批人未返回）')
+assert.equal(service.canOfferAssignment({...app,applicationStatus:'PENDING'},dep,'head',{workStatus:'PROCESSING'}),true,'ready department does not wait for other departments');
+assert.equal(service.canOfferAssignment({...app,applicationStatus:'PENDING'},{...dep,status:'PENDING',assignmentStatus:'NOT_READY'},'head',{}),false);
+assert.equal(service.availableAssignments({applications:[{...app,applicationStatus:'PENDING'}],order:{}},'head','a1').length,1);
+assert.equal(service.availableAssignments({applications:[app],order:{}},'other','a1').length,0);
+
 const pendingApp={...app,applicantUserId:'owner',applicationStatus:'PENDING'};
 const approval=service.collaborationApprovalSummary(pendingApp,{});
 assert.equal(approval.targetLabel,'邀请部门');assert.equal(approval.entries[0].target,'部门一');assert.equal(approval.entries[0].reason,'支持');assert.match(approval.note,/指定协助人员/);
@@ -16,6 +27,12 @@ assert.ok(!JSON.stringify(approval).includes('PENDING_ASSIGNMENT'));
 const externalApproval=service.collaborationApprovalSummary({formData:{personType:'EXTERNAL',companyName:'测试单位',reason:'调试',headcount:2,hoursPerPerson:8}},{});
 assert.equal(externalApproval.targetLabel,'邀请单位');assert.equal(externalApproval.entries[0].target,'测试单位');assert.equal(externalApproval.staffing,'2 人，每人预计 8 h');
 const missingApproval=service.collaborationApprovalSummary({formData:{personType:'EXTERNAL',sourcePersonId:'private-id'}},{});
+const ext={personType:'EXTERNAL',targetId:'vendor',personCount:3,estimatedTotalHours:24,reason:' 支持 '}
+assert.deepEqual(JSON.parse(JSON.stringify(service.collaborationPayload('o',ext))),{orderId:'o',personType:'EXTERNAL',sourcePersonId:'vendor',personCount:3,estimatedTotalHours:24,reason:'支持'})
+for(const personCount of [0,1.5,10001,NaN])assert.throws(()=>service.collaborationPayload('o',{...ext,personCount}))
+for(const estimatedTotalHours of [0,-1,1.001,1000000,Infinity])assert.throws(()=>service.collaborationPayload('o',{...ext,estimatedTotalHours}))
+const extSummary=service.collaborationApprovalSummary({formData:{...ext,unitName:'外协单位'}},{})
+assert.equal(extSummary.entries[0].target,'外协单位');assert.equal(extSummary.staffing,'3 人，预计总工时 24 h')
 assert.ok(!JSON.stringify(missingApproval).includes('private-id'),'missing names must not expose IDs as names');
 assert.equal(service.collaborationApprovalSummary(undefined,{}).entries.length,1,'empty approval is safe');
 const member={id:'member-record',userId:'helper',personType:'INTERNAL',memberStatus:'ACTIVE',userNameSnapshot:'协助人员'};
@@ -42,8 +59,15 @@ assert.equal('assignmentStatus' in prefill.departments[0],false);
 assert.equal('id' in service.collaborationPayload('o1',prefill),false,'reapply creates a new business request');
 const grouped=service.collaborationMemberGroups({members:[member,{id:'e1',sourcePersonId:'vendor',personType:'EXTERNAL',memberStatus:'ACTIVE'},{id:'e2',sourcePersonId:'vendor',personType:'EXTERNAL',memberStatus:'EXITED'},{id:'e3',sourcePersonId:'other',personType:'EXTERNAL'}]});
 assert.equal(grouped.length,3);assert.equal(grouped[1].members.length,2,'group unit history by ID, retain ended rows');
-for(const [a,d,u,o] of [[{...app,applicationStatus:'PENDING'},dep,'head',{}],[app,{...dep,assignmentStatus:'ASSIGNED'},'head',{}],[app,dep,'other',{}],[app,dep,'head',{workStatus:'CLOSED'}]])assert.equal(service.canOfferAssignment(a,d,u,o),false);
+for(const [a,d,u,o] of [[{...app,applicationStatus:'REJECTED'},dep,'head',{}],[app,{...dep,assignmentStatus:'ASSIGNED'},'head',{}],[app,dep,'other',{}],[app,dep,'head',{workStatus:'CLOSED'}]])assert.equal(service.canOfferAssignment(a,d,u,o),false);
 assert.equal(service.repairReviewTasks({applications:[app],workflows:[{businessId:'a1',tasks:[{id:'t1',canHandle:true},{id:'t2',canHandle:true},{id:'t3',canHandle:false}]}]}).length,2);
+for(const application of [{id:'external-a',applicationType:'COLLABORATION',formData:{personType:'EXTERNAL'}},{id:'transfer-a',applicationType:'TRANSFER',formData:{targetUserId:'receiver'}}]) {
+ const tasks=service.repairReviewTasks({applications:[application],workflows:[{id:'instance',businessId:application.id,tasks:[{id:'task',canHandle:true},{id:'past',canHandle:false}]}]})
+ assert.equal(tasks.length,1);assert.equal(tasks[0].application.id,application.id);assert.equal(tasks[0].task.id,'task')
+}
+const externalReapply={applicationType:'COLLABORATION',applicantUserId:'owner',applicationStatus:'WITHDRAWN',formData:{personType:'EXTERNAL',sourcePersonId:'vendor',unitName:'单位',personCount:3,estimatedTotalHours:24,reason:'支持'}}
+assert.equal(service.canReapplyCollaboration(externalReapply,managed,'owner'),true)
+assert.equal(service.collaborationPayload('o',service.collaborationPrefill(externalReapply)).estimatedTotalHours,24)
 const filename='src/pages/ops/components/preview/RepairCollaborationProgress.vue';const {descriptor}=sfc.parse(fs.readFileSync(filename,'utf8'));const script=sfc.compileScript(descriptor,{id:'collaboration'});assert.deepEqual(sfc.compileTemplate({source:descriptor.template.content,filename,id:'collaboration'}).errors,[]);
 const requests=[],events=[];let fail=true;
 const component=load(script.content,{'./ApprovalReuseInfo.vue':{},'vue':{...vue,onBeforeUnmount:()=>{}},'@/components/SectionCard/SectionCard.vue':{},'@/service/repairCollaboration':service,'@/service/repairOrder':{repairOrderApi:{assignmentOptions:async()=>({departmentId:'d1',departmentName:'部门一',reason:'支持',members:[{value:'u1',label:'一'},{value:'u2',label:'二'}]}),assignCollaboration:async payload=>{requests.push(JSON.parse(JSON.stringify(payload)));if(fail)throw Error('network');return {}}}}});
@@ -61,17 +85,22 @@ async function main(){
 
  await service.collaborationDepartments();assert.equal(gets.at(-1).path,'/repair/options');assert.equal(gets.at(-1).params.type,'collaborationDepartments');
  response={success:false,code:500,message:'拒绝'};await assert.rejects(()=>service.collaborationDepartments(),/拒绝/);
- response={success:true,code:200,result:{businessType:'REPAIR_OPS_APPLICATION',snapshot:{orderId:'o1'}}};assert.equal(await service.repairTodoOrder({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{}),'o1');
+ response={success:true,code:200,result:{id:'i1',businessType:'REPAIR_OPS_APPLICATION',snapshot:{orderId:'o1'}}};assert.equal(await service.repairTodoOrder({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{}),'o1');
  assert.equal(await service.repairTodoOrder({bizModule:'REPAIR'},{orderId:'o2'}),'o2');
  const target=await service.repairTodoTarget({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{taskId:'second',applicationId:'a1'});
  assert.equal(target.orderId,'o1');assert.equal(target.view,'approval');assert.equal(target.taskId,'second');assert.equal(target.instanceId,'i1');assert.equal(target.applicationId,'a1');
  assert.match(service.repairTodoUrl(target),/view=approval.*taskId=second.*instanceId=i1.*applicationId=a1/);
- response={success:true,code:200,result:{businessType:'REPAIR_OPS_APPLICATION',snapshot:JSON.stringify({orderId:'o1',applicationId:'a1'})}};
+ response={success:true,code:200,result:{id:'i1',businessType:'REPAIR_OPS_APPLICATION',snapshot:JSON.stringify({orderId:'o1',applicationId:'a1'})}};
  assert.equal((await service.repairTodoTarget({todoType:'WORKFLOW_APPROVAL',bizSubId:'i1'},{})).applicationId,'a1');
  const assignment=await service.repairTodoTarget({bizModule:'REPAIR'},{orderId:'o1',applicationId:'a1',departmentId:'d1'});assert.equal(assignment.view,'collaboration');assert.equal(assignment.departmentId,'d1');
  assert.equal((await service.repairTodoTarget({bizModule:'REPAIR'},{orderId:'o1'})).view,'detail');
  await assert.rejects(()=>service.repairTodoTarget({bizModule:'REPAIR',bizId:'not-an-order'},{}),/缺少维修单/);
- response={success:true,code:200,result:{businessType:'PROJECT_CONTRACT'}};assert.equal(await service.repairTodoOrder({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{}),undefined);
+ const direct=await service.repairTodoTarget({actionKey:'REPAIR_COLLABORATION_ASSIGN'},{applicationId:'a1',departmentId:'d1'});assert.equal(direct.view,'assignment');assert.equal(direct.orderId,'');
+ await assert.rejects(()=>service.repairTodoTarget({actionKey:'REPAIR_COLLABORATION_ASSIGN'},{}),/缺少申请/);
+ await assert.rejects(()=>service.repairTodoTarget({actionKey:'WORKFLOW_APPROVAL',bizModule:'REPAIR'},{orderId:'wrong',instanceId:'i1'}),/不匹配/);
+ await assert.rejects(()=>service.repairTodoTarget({actionKey:'WORKFLOW_APPROVAL'},{}),/缺少审批实例/);
+ response={success:true,code:200,result:{id:'wrong',businessType:'REPAIR_OPS_APPLICATION'}};await assert.rejects(()=>service.repairTodoTarget({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{}),/不匹配/);
+ response={success:true,code:200,result:{id:'i1',businessType:'PROJECT_CONTRACT'}};assert.equal(await service.repairTodoOrder({actionKey:'WORKFLOW_APPROVAL',bizSubId:'i1'},{}),undefined);
  let apiResponse={success:true,code:200,result:{departmentId:'d1',members:[{value:'u1',label:'成员'}]}};const apiCalls=[];
  const http={get:async(path,params)=>{apiCalls.push({path,params});return apiResponse},post:async(path,payload)=>{apiCalls.push({path,payload});return apiResponse}};
  const api=load(fs.readFileSync('src/service/repairOrder.ts','utf8').replaceAll('import.meta.env','({})'),{'@/utils/http':{http},'@/store/user':{},'@/utils/platform':{isH5:false},'@/utils/index':{}}).repairOrderApi;
@@ -80,7 +109,11 @@ async function main(){
  apiResponse={success:false,code:500,message:'人员已指定'};await assert.rejects(()=>api.assignCollaboration(payload),e=>e.success===false);
  apiResponse={};await assert.rejects(()=>api.assignCollaboration(payload),e=>e.success!==false);
  const scope=vue.effectScope();const page=scope.run(()=>component.default.setup({detail:{order:{id:'o1'},applications:[app]},actorId:'head'},{expose:()=>{},emit:(...args)=>events.push(args)}));
- await page.openAssignment('a1','d1');page.toggle('u1');await page.submit();assert.ok(page.pending.value);page.toggle('u2');assert.equal(page.chosen.value.length,1,'uncertain request locks original member list');fail=false;await page.submit();assert.deepEqual(requests[0],requests[1],'retry preserves requestId and ordered users');assert.equal(page.pending.value,undefined);assert.equal(page.open.value,false);assert.equal(events[0][0],'changed');scope.stop();
+ await page.openAssignment('a1','d1');page.toggle('u1');await page.submit();assert.ok(page.pending.value);page.toggle('u2');assert.equal(page.chosen.value.length,1,'uncertain request locks original member list');fail=false;await page.submit();assert.deepEqual(requests[0],requests[1],'retry preserves requestId and ordered users');assert.equal(page.pending.value,undefined);assert.equal(page.open.value,false);assert.equal(events[0][0],'changed');
+ await page.openAssignment('a1','d1');page.assignmentQueue.value=[{applicationId:'a1',departmentId:'d2'}];
+ await page.openAssignment('a1','d1',true);assert.equal(page.assignmentQueue.value.length,1,'candidate retry preserves remaining departments');
+ page.toggle('u1');await page.submit();assert.equal(page.open.value,true,'continue next department in same flow');assert.equal(page.chosen.value.length,0);
+ page.toggle('u1');fail=true;await page.submit();const second=JSON.stringify(page.pending.value);assert.equal(page.pending.value.departmentId,'d2');fail=false;await page.submit();assert.equal(JSON.stringify(requests.at(-1)),second);assert.equal(page.open.value,false);scope.stop();
  const props=vue.reactive({detail:managed,actorId:'owner',disabled:false,manage:async()=>false,actionError:'后端拒绝'});
  const managementScope=vue.effectScope();const manager=managementScope.run(()=>component.default.setup(props,{expose:()=>{},emit:()=>{}}));
  assert.equal(manager.detailsOpen.value,false,'details are hidden until requested');
