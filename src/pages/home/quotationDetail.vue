@@ -68,7 +68,7 @@
         <text v-else-if="!loading && !error && !capabilities.submit && !capabilities.withdraw">{{ processed ? '操作已提交' : '可用操作由报价状态和当前权限决定' }}</text>
       </view>
       <QuotationHistory v-model="historyVisible" :period-id="periodId" :candidate-id="candidateId" />
-      <QuotationDocumentPreview v-model="documentPreviewVisible" :title="record.candidateName || '项目报价清单'" :project-label="projectLabel" :status-text="statusText" :rows="rows" :show-price="showFinalPrice" :brands="brandNames" />
+      <QuotationDocumentPreview v-model="documentPreviewVisible" :title="record.candidateName || '项目报价清单'" :project-label="projectLabel" :status-text="statusText" :rows="rows" :show-price="showFinalPrice" :show-cost="showCost" :brands="brandNames" />
       <wd-popup v-model="drawerVisible" position="right" :safe-area-inset-bottom="false" :close-on-click-modal="false" :z-index="2100" custom-style="width:92%;max-width:480px;top:var(--window-top, 0px);bottom:0;height:auto;overflow:hidden;box-sizing:border-box;">
         <view class="item-drawer">
           <view class="quotation-detail__head"><text>{{ selected?.isFee ? '服务费详情' : '物料详情' }}</text><button @click="drawerVisible = false">关闭</button></view>

@@ -5,6 +5,10 @@
         <view><text class="document-preview__heading">报价单预览</text><text class="document-preview__name">{{ title }}</text></view>
         <button aria-label="关闭报价单预览" @click="visible = false">关闭</button>
       </view>
+      <view v-if="showCost && showPrice && !materialOnly" class="document-preview__basis" aria-label="预览金额口径">
+        <button :class="{ 'is-active': amountBasis === 'quote' }" :aria-pressed="amountBasis === 'quote'" @click="requestedBasis = 'quote'">报价金额</button>
+        <button :class="{ 'is-active': amountBasis === 'cost' }" :aria-pressed="amountBasis === 'cost'" @click="requestedBasis = 'cost'">成本金额</button>
+      </view>
       <view class="document-preview__zoom" aria-label="报价单缩放">
         <button :disabled="zoom <= 0.1" aria-label="缩小报价单" @click="setZoom(zoom - 0.1)">缩小</button>
         <text aria-live="polite">{{ Math.round(zoom * 100) }}%</text>
@@ -14,7 +18,7 @@
         <button @click="setZoom(1)">100%</button>
       </view>
       <view class="document-preview__hint">共 {{ rows.length }} 项 · 默认整页适应，放大后可滑动查看</view>
-      <view v-if="!showPrice && !materialOnly" class="document-preview__hint">当前无报价查看权限，单价、小计和合计不显示。</view>
+      <view v-if="!amountBasis && !materialOnly" class="document-preview__hint">当前无金额查看权限，单价、小计和合计不显示。</view>
       <scroll-view ref="scrollElement" scroll-x scroll-y class="document-preview__scroll">
         <view ref="paperElement" class="document-preview__paper" :style="{ width: `${PAPER_WIDTH * zoom}px`, fontSize: `${14 * zoom}px` }">
           <view class="document-preview__title">{{ title || '项目报价清单' }}</view>
@@ -28,7 +32,7 @@
             </view>
           </view>
           <view v-if="!rows.length" class="document-preview__empty">{{ emptyText || '暂无报价明细' }}</view>
-          <view v-if="showPrice && !materialOnly" class="document-preview__total">合计（元）：{{ total }}</view>
+          <view v-if="amountBasis && !materialOnly" class="document-preview__total">{{ amountLabel }}合计（元）：{{ total }}</view>
           <!-- <view class="document-preview__hint">{{ materialOnly ? '仅展示合同提交时的物料及服务费快照，不包含金额。' : '完整型号、规格参数和备注均保留换行；未返回的内容显示“—”。' }}</view> -->
         </view>
       </scroll-view>
@@ -39,11 +43,14 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, nextTick, ref, watch } from 'vue'
 import { quotationCell } from '@/utils/quotationTable'
-import { quotationDocumentTotal, quotationDocumentAmount } from '@/utils/quotationDocument'
+import { quotationDocumentTotal, quotationDocumentAmount, quotationDocumentBasis, type QuotationDocumentBasis } from '@/utils/quotationDocument'
 
-const props = defineProps<{ modelValue: boolean; title: string; projectLabel: string; statusText: string; rows: any[]; showPrice: boolean; brands: Record<string, string>; zIndex?: number; materialOnly?: boolean; emptyText?: string }>()
+const props = defineProps<{ modelValue: boolean; title: string; projectLabel: string; statusText: string; rows: any[]; showPrice: boolean; showCost?: boolean; brands: Record<string, string>; zIndex?: number; materialOnly?: boolean; emptyText?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
+const requestedBasis = ref<QuotationDocumentBasis>('quote')
+const amountBasis = computed(() => props.materialOnly ? null : quotationDocumentBasis(props.showCost === true, props.showPrice === true, requestedBasis.value))
+const amountLabel = computed(() => amountBasis.value === 'cost' ? '成本' : '报价')
 const PAPER_WIDTH = 1600
 const zoom = ref(0.18)
 const scrollElement = ref<any>()
@@ -65,6 +72,7 @@ function measure(selector: string, callback: (rect: any) => void) {
 watch(() => props.modelValue, (open) => {
   zoomRequest++
   if (!open) return
+  requestedBasis.value = props.showPrice ? 'quote' : 'cost'
   // 测量之前先按屏幕宽度初始化，避免查询为空时留在100%。
   const width = uni.getSystemInfoSync?.().windowWidth || 320
   zoom.value = Math.max(0.001, Math.min(1, (width - 24) / PAPER_WIDTH))
@@ -108,7 +116,7 @@ const columns = computed(() => props.materialOnly ? [
   { key: 'index', title: '序号' }, { key: 'name', title: '名称' }, { key: 'brand', title: '品牌' },
   { key: 'model', title: '型号' }, { key: 'parameters', title: '规格参数' },
   { key: 'quantity', title: '数量' }, { key: 'unit', title: '单位' },
-  ...(props.showPrice ? [{ key: 'finalPrice', title: '单价（元）' }, { key: 'guideTotal', title: '小计（元）' }] : []),
+  ...(amountBasis.value ? [{ key: 'finalPrice', title: `${amountLabel.value}单价（元）` }, { key: 'guideTotal', title: `${amountLabel.value}小计（元）` }] : []),
   { key: 'remark', title: '备注' },
 ])
 function cell(row: any, key: string, index: number) {
@@ -117,11 +125,11 @@ function cell(row: any, key: string, index: number) {
   if (key === 'brand') return row.isFee ? '—' : row.brand_dictText || props.brands[String(row.brand)] || row.brand || '—'
   if (key === 'model') return row.isFee ? '—' : row.model || '—'
   if (key === 'parameters') return (row.isFee ? row.description : row.specificationParams) || '—'
-  if (key === 'guideTotal') return quotationDocumentAmount(row).replace(/^¥/, '')
-  if (key === 'finalPrice') return quotationCell(row, key).replace(/^¥/, '')
+  if (key === 'guideTotal') return amountBasis.value ? quotationDocumentAmount(row, amountBasis.value).replace(/^¥/, '') : '—'
+  if (key === 'finalPrice') return amountBasis.value ? quotationCell(row, amountBasis.value === 'cost' ? 'basePrice' : key).replace(/^¥/, '') : '—'
   return row[key] == null || row[key] === '' ? '—' : String(row[key])
 }
-const total = computed(() => props.showPrice ? quotationDocumentTotal(props.rows) : '—')
+const total = computed(() => amountBasis.value ? quotationDocumentTotal(props.rows, amountBasis.value) : '—')
 </script>
 
 <style scoped>
@@ -132,6 +140,9 @@ const total = computed(() => props.showPrice ? quotationDocumentTotal(props.rows
 .document-preview__name { display:block; margin-top:4px; font-size:13px; color:#667085; overflow-wrap:anywhere; max-height:42px; overflow:auto; }
 .document-preview__head button { flex:none; min-height:44px; margin:0; padding:8px 12px; font-size:14px; color:#176ac7; background:#fff; }
 .document-preview__hint { flex:none; padding:8px 16px; font-size:12px; color:#667085; }
+.document-preview__basis { display:flex; flex:none; gap:8px; padding:8px 16px; background:#fff; }
+.document-preview__basis button { flex:1; margin:0; min-height:44px; line-height:24px; padding:10px 12px; font-size:14px; color:#176ac7; background:#f2f6fc; }
+.document-preview__basis button.is-active { color:#fff; background:#176ac7; }
 .document-preview__zoom { display:flex; flex:none; flex-wrap:wrap; align-items:center; justify-content:center; gap:4px; padding:8px 12px; background:#fff; border-bottom:1px solid #e4e7ec; }
 .document-preview__zoom button { margin:0; min-width:44px; min-height:44px; padding:10px 8px; line-height:24px; font-size:14px; color:#176ac7; background:#f2f6fc; }
 .document-preview__zoom button[disabled] { color:#98a2b3; }

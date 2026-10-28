@@ -47,6 +47,7 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
+import { IMPLEMENTATION_RADIUS_METERS } from '@/utils/implementationLocation'
 
 type LocationStatus = 'PENDING' | 'NORMAL' | 'OUT_OF_RANGE' | 'FAILED' | 'NO_SITE'
 type ImplementationSite = {
@@ -155,7 +156,7 @@ const circles = computed(() =>
   (props.sites || []).map((site) => ({
     latitude: site.latitude,
     longitude: site.longitude,
-    radius: 200,
+    radius: IMPLEMENTATION_RADIUS_METERS,
     color: '#2f86ff99',
     fillColor: '#2f86ff1f',
     strokeWidth: 2,

@@ -69,6 +69,34 @@ async function main() {
   assert.deepEqual(plain(snapshotPreview.columns.value.map(column => column.key)), ['index', 'name', 'brand', 'model', 'quantity', 'unit', 'remark'])
   assert.equal(snapshotPreview.cell({ isFee: true, materialName: '安装' }, 'name', 0), '【服务费】安装')
   assert.equal(snapshotPreview.cell({ isFee: true }, 'brand', 0), '—')
+  const moneyRows = [{ basePrice: '10.10', finalPrice: 20, quantity: 3 },
+    { isFee: true, basePrice: '5.05', finalPrice: 8, quantity: 2, documentAmount: 999 }]
+  const moneyProps = vue.reactive({ modelValue: false, rows: moneyRows, showPrice: false, showCost: true, materialOnly: false, brands: {} })
+  const moneyPreview = evaluate(zoomSource + '\nmodule.exports = { columns, cell, total, amountBasis, requestedBasis };', {
+    vue, '@/utils/quotationTable': table, '@/utils/quotationDocument': documentPreview,
+  }, { defineProps: () => moneyProps, defineEmits: () => () => {} })
+  assert.equal(moneyPreview.amountBasis.value, 'cost')
+  assert.equal(moneyPreview.total.value, '40.40')
+  assert.equal(moneyPreview.cell(moneyRows[1], 'guideTotal', 1), '10.10')
+  assert.equal(moneyPreview.cell(moneyRows[0], 'finalPrice', 0), '10.10')
+  assert(moneyPreview.columns.value.some(c => c.title === '成本小计（元）'))
+  moneyProps.showPrice = true
+  assert.equal(moneyPreview.amountBasis.value, 'quote')
+  assert(moneyPreview.columns.value.some(c => c.title === '报价单价（元）'))
+  moneyPreview.requestedBasis.value = 'cost'
+  assert.equal(moneyPreview.total.value, '40.40')
+  moneyProps.showCost = false
+  assert.equal(moneyPreview.amountBasis.value, 'quote')
+  moneyProps.showPrice = false
+  assert.equal(moneyPreview.total.value, '—')
+  assert.equal(moneyPreview.cell(moneyRows[0], 'finalPrice', 0), '—')
+  assert(!moneyPreview.columns.value.some(c => c.key === 'guideTotal'))
+  moneyProps.materialOnly = true; moneyProps.showCost = true; moneyProps.showPrice = true
+  assert.equal(moneyPreview.amountBasis.value, null)
+  assert.equal(moneyPreview.total.value, '—')
+  assert.equal(documentPreview.quotationDocumentTotal([{ basePrice: null, finalPrice: 100, quantity: 1 }], 'cost'), '—')
+  assert.equal(documentPreview.quotationDocumentTotal([{ basePrice: 0, quantity: 1 }], 'cost'), '0.00')
+  assert(fs.readFileSync(root + '/src/pages/home/quotationDetail.vue', 'utf8').includes(':show-cost="showCost"'))
   const preview = evaluate(zoomSource + '\nmodule.exports = { zoom, setZoom, fitWidth, fitScreen, scrollElement, paperElement };', {
     vue: { ...vue, getCurrentInstance: () => ({ proxy: {} }) }, '@/utils/quotationTable': table, '@/utils/quotationDocument': documentPreview,
   }, {
@@ -121,9 +149,9 @@ async function main() {
   assert.equal(table.quotationPercent('300', '400'), '33.33%')
   assert.equal(table.quotationPercent('100', '80'), '-20.00%')
   assert.equal(table.quotationCell({ basePrice: 100, finalPrice: 80, markupRate: 99 }, 'markupRate'), '-20.00%')
-  assert.equal(table.quotationCell({ basePrice: 0, finalPrice: 80, markupRate: 99 }, 'markupRate'), '—')
+  assert.equal(table.quotationCell({ basePrice: 0, finalPrice: 80, markupRate: 99 }, 'markupRate'), '0.00%')
   assert.equal(table.quotationCell({ basePrice: null, finalPrice: 80, markupRate: 99 }, 'markupRate'), '—')
-  assert.equal(table.quotationPercent('0', '100'), '—')
+  assert.equal(table.quotationPercent('0', '100'), '0.00%')
   assert.equal(table.quotationPercent(null, '100'), '—')
   assert.equal(table.quotationCell({ basePrice: '123.45', quantity: '2.5' }, 'costTotal'), '¥308.63')
   assert.equal(table.quotationPersonnelRoute(['m'], [{ id: 'm', departName: '市场部' }]), 'MARKET')

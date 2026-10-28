@@ -47,7 +47,7 @@
           <text v-if="!photos.length" class="hint">未上传现场影像</text>
         </SectionCard>
         <SectionCard title="用车记录">
-          <view class="entry"><text>使用车辆：{{ log.vehicleNo || '未填写' }}</text><text>公里数：{{ log.mileage ?? '—' }} km</text></view>
+          <view class="entry"><text>使用车辆：{{ log.vehicleNo || '未填写' }}</text></view>
         </SectionCard>
         <SectionCard v-if="isSiteLeader" title="用料记录" :extra="log.materials?.length ? (showMaterials ? '收起明细' : '用料清单') : ''" @extra-click="showMaterials = !showMaterials">
           <text v-if="!log.materials?.length" class="hint">无用料记录</text>

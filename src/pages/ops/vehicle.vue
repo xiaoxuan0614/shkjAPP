@@ -21,7 +21,6 @@
         <view class="row"><text class="label">油量</text><text class="val">{{ r.amount }}</text></view>
         <view class="row"><text class="label">金额</text><text class="val price">¥{{ r.price }}</text></view>
         <view class="row"><text class="label">加油站</text><text class="val">{{ r.station }}</text></view>
-        <view class="row"><text class="label">里程</text><text class="val">{{ r.odometer }} km</text></view>
         <image v-if="r.image" :src="r.image" mode="aspectFill" class="card__img" />
       </view>
 
@@ -30,7 +29,6 @@
         <view class="card__head"><text class="card__title">{{ r.plate }}</text><text class="card__date">{{ r.startTime }}</text></view>
         <view class="row"><text class="label">出发</text><text class="val">{{ r.startLoc }} · {{ r.startTime }}</text></view>
         <view class="row"><text class="label">到达</text><text class="val">{{ r.endLoc }} · {{ r.endTime }}</text></view>
-        <view class="row"><text class="label">里程</text><text class="val">{{ r.mileage }} km</text></view>
         <view class="row"><text class="label">事由</text><text class="val">{{ r.purpose }}</text></view>
         <image v-if="r.image" :src="r.image" mode="aspectFill" class="card__img" />
       </view>
@@ -41,7 +39,6 @@
         <view class="row"><text class="label">车牌</text><text class="val">{{ r.plate }}</text></view>
         <view class="row"><text class="label">费用</text><text class="val price">¥{{ r.cost }}</text></view>
         <view class="row"><text class="label">门店</text><text class="val">{{ r.store }}</text></view>
-        <view class="row"><text class="label">里程</text><text class="val">{{ r.odometer }} km</text></view>
       </view>
 
       <!-- 车辆日志 -->
@@ -73,10 +70,6 @@
         <view class="form-row" v-if="active === 0">
           <text class="label">油量/金额</text>
           <input class="input" v-model="addForm.amount" placeholder="如 42.3L" placeholder-style="color:#bbb" />
-        </view>
-        <view class="form-row" v-if="active === 1">
-          <text class="label">里程</text>
-          <input class="input" v-model="addForm.mileage" type="number" placeholder="km" placeholder-style="color:#bbb" />
         </view>
         <view class="form-row" v-if="active === 2">
           <text class="label">保养项目</text>
@@ -113,7 +106,7 @@ const active = ref(0)
 const list = ref<any[]>([])
 const showAdd = ref(false)
 const plates = ['沪A·8H213', '沪B·3K556']
-const addForm = ref({ plate: plates[0], date: dayjs().format('YYYY-MM-DD'), amount: '', mileage: '', type: '', remark: '' })
+const addForm = ref({ plate: plates[0], date: dayjs().format('YYYY-MM-DD'), amount: '', type: '', remark: '' })
 
 const load = async () => {
   try {

@@ -105,7 +105,7 @@
         </SectionCard>
         <SectionCard v-if="isSignInLocationAbnormal" title="签到位置异常说明">
           <view class="warning">
-            当前签到位置不在项目任一实施地点200米范围内，请填写真实原因并上传现场照片。
+            当前签到位置不在项目任一实施地点500米范围内，请填写真实原因并上传现场照片。
           </view>
           <textarea
             v-model="signInRemark"
@@ -402,17 +402,6 @@
                 </scroll-view>
                 <text v-else class="vehicle-options__hint">暂无车辆选项，可直接输入车牌号</text>
               </template>
-            </view>
-            <view v-if="form.plate" class="form-row">
-              <text class="label">行驶公里</text>
-              <input
-                v-model="form.mileage"
-                class="input"
-                type="digit"
-                placeholder="请输入公里数"
-                placeholder-style="color:#767676"
-              />
-              <text class="unit">km</text>
             </view>
           </SectionCard>
           <SectionCard v-if="isSiteLeader" title="用料记录（选填）">
@@ -888,7 +877,8 @@
 <script lang="ts" setup>
 import { onHide, onLoad } from "@dcloudio/uni-app";
 import dayjs from "dayjs";
-import { computed, ref } from "vue";
+import { computed, ref, watch, onBeforeUnmount } from "vue";
+import { getImplementationLocation, isFreshLocation, IMPLEMENTATION_RADIUS_METERS, type VerifiedLocation } from '@/utils/implementationLocation';
 import { useToast } from "wot-design-uni";
 import SectionCard from "@/components/SectionCard/SectionCard.vue";
 import LocationPanel from "./components/LocationPanel.vue";
@@ -926,6 +916,9 @@ type ImplementationSite = {
   longitude: number;
 };
 type SiteLocation = {
+  accuracy?: number;
+  acquiredAt?: number;
+  coordinateSystem?: 'gcj02';
   name: string;
   address: string;
   latitude?: number;
@@ -1052,7 +1045,6 @@ const createEmptyForm = () => ({
   needsOutsource: false,
   outsourcingList: [] as any[],
   plate: "",
-  mileage: "",
 });
 const form = ref(createEmptyForm());
 const mainSteps = ["签到", "实施日志", "签退"];
@@ -1186,7 +1178,7 @@ const elapsedText = computed(() => {
     : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
 });
 const isLocationAbnormal = computed(() =>
-  ["OUT_OF_RANGE", "FAILED", "NO_SITE"].includes(location.value.status),
+  location.value.status === "OUT_OF_RANGE",
 );
 const isSignInLocationAbnormal = computed(
   () => location.value.status === "OUT_OF_RANGE",
@@ -1395,9 +1387,10 @@ const onProcess = async (event: any) => {
   await checkSelectedProcessStatus();
 };
 const normalizeSite = (item: any): ImplementationSite | null => {
+  if (item.latitude == null || item.longitude == null || String(item.latitude).trim() === '' || String(item.longitude).trim() === '') return null;
   const latitude = Number(item.latitude);
   const longitude = Number(item.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
   return {
     id: item.id,
     locationName: item.locationName || item.name || item.address || "实施地点",
@@ -1934,6 +1927,7 @@ const locationFailure = (error: any): SiteLocation => {
 const applyLocation = (
   latitude: number,
   longitude: number,
+  verified: VerifiedLocation,
 ) => {
   if (!implementationSites.value.length) {
     location.value = {
@@ -1956,8 +1950,11 @@ const applyLocation = (
     .sort((a, b) => a.distance - b.distance)[0];
   const roundedDistance = Math.round(nearest.distance);
   const status: LocationStatus =
-    nearest.distance <= 200 ? "NORMAL" : "OUT_OF_RANGE";
+    nearest.distance <= IMPLEMENTATION_RADIUS_METERS ? "NORMAL" : "OUT_OF_RANGE";
   location.value = {
+    accuracy: verified.accuracy,
+    acquiredAt: verified.acquiredAt,
+    coordinateSystem: verified.coordinateSystem,
     latitude,
     longitude,
     status,
@@ -1968,10 +1965,16 @@ const applyLocation = (
       status === "NORMAL"
         ? `已进入“${nearest.site.locationName}”范围`
         : `距最近地点“${nearest.site.locationName}”约 ${roundedDistance} 米`,
-    address: `经度 ${longitude.toFixed(6)}，纬度 ${latitude.toFixed(6)}`,
+    address: `经度 ${longitude.toFixed(6)}，纬度 ${latitude.toFixed(6)} · 定位精度约 ${Math.round(verified.accuracy)} 米`,
   };
 };
-const getLocation = () => {
+let locationRequest = 0;
+watch(() => [project.value.id, project.value.processId], () => {
+  locationRequest++; locating.value = false;
+  location.value = { name: '请重新定位', address: '项目或工序已切换', status: 'PENDING' };
+}, { flush: 'sync' });
+onBeforeUnmount(() => { locationRequest++ });
+const getLocation = async () => {
   if (!project.value.id || locating.value) return;
   if (sitesLoading.value) return;
   if (sitesError.value) {
@@ -1999,15 +2002,14 @@ const getLocation = () => {
     return;
   }
   locating.value = true;
+  const request = ++locationRequest;
   location.value = {
-    ...location.value,
     name: "正在获取位置…",
     address: "请保持定位权限开启",
     status: "PENDING",
   };
-  let settled = false;
   const slowTimer = setTimeout(() => {
-    if (settled) return;
+    if (request !== locationRequest) return;
     location.value = {
       ...location.value,
       name: "定位响应较慢，仍在尝试…",
@@ -2015,34 +2017,26 @@ const getLocation = () => {
       status: "PENDING",
     };
   }, 5000);
-  const timeoutTimer = setTimeout(() => {
-    if (settled) return;
-    settled = true;
+  try {
+    const result = await getImplementationLocation();
+    if (request !== locationRequest) return;
+    applyLocation(result.latitude, result.longitude, result);
+  } catch (error: any) {
+    if (request !== locationRequest) return;
+    location.value = error?.message && /重新定位/.test(error.message)
+      ? { name: '请重新定位', address: error.message, status: 'FAILED' }
+      : locationFailure(error);
+  } finally {
     clearTimeout(slowTimer);
-    location.value = locationFailure({ code: 3 });
-    locating.value = false;
-  }, 20000);
-  uni.getLocation({
-    type: "gcj02",
-    success: (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
-      applyLocation(result.latitude, result.longitude);
-    },
-    fail: (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
-      console.warn("[implementLog] 获取当前位置失败", error);
-      location.value = locationFailure(error);
-    },
-    complete: () => {
-      if (settled) locating.value = false;
-    },
-  });
+    if (request === locationRequest) locating.value = false;
+  }
+};
+const validateCurrentLocation = () => {
+  if (locating.value || !isFreshLocation(location.value)) {
+    toast.warning('定位不可用、精度不足或已过期，请重新定位');
+    return false;
+  }
+  return true;
 };
 
 const parsePhotoList = (value: unknown) =>
@@ -2091,7 +2085,6 @@ const restoreDraft = (draft: any) => {
     needsOutsource: outsourcingList.length > 0,
     outsourcingList,
     plate: normalizeVehiclePlate(draft.vehicleNo),
-    mileage: draft.mileage ?? "",
   };
   outsourceSeed = Math.max(
     outsourceSeed,
@@ -2443,6 +2436,7 @@ const checkIn = async () => {
     return toast.warning("请先获取当前位置");
   if (location.value.status === "FAILED")
     return toast.warning("定位失败，请重新定位后签到");
+  if (!validateCurrentLocation()) return;
   if (isSignInLocationAbnormal.value && !signInRemark.value.trim())
     return toast.warning("请填写签到位置异常原因");
   if (isSignInLocationAbnormal.value && !signInPhotos.value.length)
@@ -2456,6 +2450,7 @@ const checkIn = async () => {
     const signInPhotoPaths = isSignInLocationAbnormal.value
       ? signInPhotos.value
       : [];
+    if (!validateCurrentLocation()) return;
     const response: any = await projectApi.signInImplementLog({
       periodId: project.value.id,
       processId: project.value.processId,
@@ -2624,8 +2619,6 @@ const saveDraft = async (silent: boolean) => {
     }
     if (data.plate.trim())
       draftPayload.vehicleNo = normalizeVehiclePlate(data.plate);
-    if (data.plate.trim() && String(data.mileage).trim())
-      draftPayload.mileage = Number(data.mileage);
     await projectApi.saveSignOutDraft(draftPayload);
     session.value = {
       ...session.value,
@@ -2647,8 +2640,6 @@ const saveDraft = async (silent: boolean) => {
 };
 const submitLog = async () => {
   if (!validateRecord() || submitting.value) return;
-  if (form.value.plate && Number(form.value.mileage) <= 0)
-    return toast.warning("使用车辆后请填写行驶公里数");
   const saved = await saveDraft(true);
   if (!saved) return;
   session.value = { ...session.value, status: "LOG_SUBMITTED", logStep: 2 };
@@ -2666,6 +2657,7 @@ const buildSignOutPayload = async (
   signOutRemark?: string,
   signOutTime?: string,
 ) => {
+  if (!isFreshLocation(location.value)) throw new Error('定位结果已过期，请重新定位后签退');
   const signOutPhotoPaths = isLocationAbnormal.value ? signOutPhotos.value : [];
   const longitude = Number(location.value.longitude);
   const latitude = Number(location.value.latitude);
@@ -2719,6 +2711,7 @@ const finishCurrentFlow = (
   resumingPreviousFlow.value = false;
 };
 const checkOut = async () => {
+  if (!validateCurrentLocation()) return;
   if (location.value.status === "PENDING")
     return toast.warning("请先获取签退位置");
   if (isLocationAbnormal.value && !abnormalReason.value.trim())
@@ -2741,8 +2734,8 @@ const checkOut = async () => {
       result.id,
     );
     toast.success("签退成功，本次实施已闭环");
-  } catch (error) {
-    toast.error("签退失败，实施日志尚未提交，请稍后重试");
+  } catch (error: any) {
+    toast.error(error?.message?.includes('重新定位') ? error.message : "签退失败，实施日志尚未提交，请稍后重试");
   } finally {
     submitting.value = false;
   }
@@ -2755,6 +2748,7 @@ const openBackfill = () => {
 };
 const submitBackfill = async () => {
   if (submitting.value) return;
+  if (!validateCurrentLocation()) return;
   const selectedTime = dayjs(backfillTime.value);
   const signInTime = dayjs(session.value.checkInTime);
   if (!selectedTime.isValid()) return toast.warning("请选择实际签退时间");
@@ -2787,8 +2781,8 @@ const submitBackfill = async () => {
       result.id,
     );
     toast.success("补签退成功，上一次实施流程已完成");
-  } catch (error) {
-    toast.error("补签退失败，请核对时间和原因后重试");
+  } catch (error: any) {
+    toast.error(error?.message?.includes('重新定位') ? error.message : "补签退失败，请核对时间和原因后重试");
   } finally {
     submitting.value = false;
   }
