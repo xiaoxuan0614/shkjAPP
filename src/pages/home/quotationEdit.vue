@@ -47,8 +47,8 @@
                 <label v-if="item.fee" class="field"><text>单位</text><input v-model="item.row.unit" :maxlength="50" :disabled="!canStructure || busy" /></label>
                 <view v-else class="field"><text>单位</text><picker :disabled="!canStructure || busy || itemLoading || !!unitError" :range="item.row._units || []" range-key="label" @change="changeUnit(item.row, $event)"><view class="select-control">{{ itemLoading ? '正在加载…' : item.row.unit || '请选择单位' }}<wd-icon v-if="canStructure" name="arrow-down" size="14px" /></view></picker><button v-if="unitError" class="text-button" @click="loadItemUnits">单位加载失败，重试</button></view>
                 <label v-if="showCost" class="field"><text>成本单价（元）</text><input v-model="item.row[item.fee ? 'costPrice' : 'basePrice']" type="digit" :disabled="!canCost || busy" @input="syncRate(item)" /></label>
-                <label v-if="showRate && !direct" class="field"><text>加价比例（%）</text><input v-model="item.row.markupRate" type="text" placeholder="—" :disabled="!canPrice || busy" @input="changeRate(item)" /></label>
-                <label v-if="showQuote" class="field"><text>{{ direct ? '报价' : '指导价' }}（元）</text><input v-model="item.row[item.fee ? 'guidePrice' : 'finalPrice']" type="digit" :disabled="!canPrice || busy" @input="syncRate(item)" /></label>
+                <label v-if="showRate && !direct" class="field"><text>加价比例（%）</text><input v-model="item.row.markupRate" type="text" placeholder="0.00" :disabled="!canPrice || busy" @input="changeRate(item)" @blur="normalizeGuide(item, true)" /></label>
+                <label v-if="showQuote" class="field"><text>{{ direct ? '报价' : '指导价' }}（元）</text><input v-model="item.row[item.fee ? 'guidePrice' : 'finalPrice']" type="digit" placeholder="0.00" :disabled="!canPrice || busy" @input="syncRate(item)" @blur="normalizeGuide(item, false)" /></label>
               </view>
               <view v-if="item.row._error" class="error" role="alert">{{ item.row._error }}</view>
               <label class="field"><text>备注</text><input v-model="item.row.remark" :disabled="pricing || busy" :maxlength="500" placeholder="选填" /></label>
@@ -72,7 +72,7 @@ import { usePermissionStore } from '@/store/permission'
 import { quotationPersonnelRoute, quotationPercent } from '@/utils/quotationTable'
 import { quotationDocumentTotal } from '@/utils/quotationDocument'
 import { quotationPages, quotationVersion, getQuotationAccess, getQuotationRecord, unwrapQuotation } from '@/service/quotationApproval'
-import { quotationCapabilities, materialPayload, feePayload, pricingPayload, guidancePrice, candidateAction } from '@/service/quotationEditor'
+import { quotationCapabilities, materialPayload, feePayload, pricingPayload, guidancePrice, candidateAction, decimalInput } from '@/service/quotationEditor'
 import QuotationPicker from './components/QuotationPicker.vue'
 import ReadOnlyTable from '@/components/ReadOnlyTable/ReadOnlyTable.vue'
 import type { ReadOnlyColumn } from '@/components/ReadOnlyTable/types'
@@ -131,6 +131,12 @@ function confirmItem() {
   if (!allowed.value || itemLoading.value || unitError.value || !draftItem.value || !originalItem) return
   try {
     const { row, fee } = draftItem.value
+    if (row._error) throw new Error(row._error)
+    if (canPrice.value) {
+      const field = fee ? 'guidePrice' : 'finalPrice'
+      row[field] = decimalInput(row[field] == null || row[field] === '' ? 0 : row[field], '指导价').toFixed(2)
+      syncRate(draftItem.value)
+    }
     if (pricing.value) pricingPayload(fee ? [] : [row], fee ? [row] : [])
     else if (fee) feePayload(row, { cost: canCost.value, price: canPrice.value, structure: canStructure.value, direct: direct.value })
     else materialPayload(row, { cost: canCost.value, price: canPrice.value, direct: direct.value })
@@ -183,15 +189,17 @@ async function select(source: any) {
   if (!canStructure.value) return
   if (pickerKind.value === 'material') {
     if (materials.value.some(row => String(row.materialId) === String(source.id))) return
-    const row = { ...source, id: undefined, materialId: source.id, quantity: 1, unitId: '', unit: '', basePrice: direct.value ? 0 : source.costPrice ?? 0, finalPrice: direct.value ? '0.00' : '', markupRate: source.guideMarkupRate ?? 0, remark: '', _units: [] }
+    const row = { ...source, id: undefined, materialId: source.id, quantity: 1, unitId: '', unit: '', basePrice: direct.value ? 0 : source.costPrice ?? 0, finalPrice: Number(source.guidePrice ?? 0).toFixed(2), _sourceGuidePrice: source.guidePrice ?? 0, markupRate: '0.00', remark: '', _units: [] }
+    syncRate({ row, fee: false })
     busy.value = true
     try { await populateUnits(row); materials.value.push(row) }
     catch (e: any) { actionError.value = e?.message || '物料单位加载失败，请重试'; return }
     finally { busy.value = false }
   } else {
     if (fees.value.some(row => String(row.serviceFeeId) === String(source.id))) return
-    const cost = source.costPrice ?? '', rate = source.guideMarkupRate ?? 0
-    fees.value.push({ serviceFeeId: source.id, name: source.name, description: source.description || '', unit: source.unit || '项', quantity: 1, costPrice: cost, markupRate: rate, taxRate: source.taxRate ?? source.markupRate, guidePrice: direct.value ? '0.00' : cost !== '' ? guidancePrice(cost, rate) : '', remark: '' })
+    const row = { serviceFeeId: source.id, name: source.name, description: source.description || '', unit: source.unit || '项', quantity: 1, costPrice: source.costPrice ?? '', markupRate: '0.00', taxRate: source.taxRate ?? source.markupRate, guidePrice: Number(source.guidePrice ?? 0).toFixed(2), remark: '' }
+    syncRate({ row, fee: true })
+    fees.value.push(row)
   }
   page.value = pages.value; dirty.value = true; pickerOpen.value = false
 }
@@ -216,7 +224,23 @@ function syncRate(item: any) {
   item.row.markupRate = rate === '—' ? '' : rate.replace('%', '')
   item.row._error = ''
 }
-function changeRate(item: any) { try { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = guidancePrice(item.row[item.fee ? 'costPrice' : 'basePrice'], item.row.markupRate); item.row._error = '' } catch (e: any) { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = ''; item.row._error = e.message } }
+function normalizeGuide(item: any, rate: boolean) {
+  if (!canPrice.value || busy.value) return
+  const field = rate ? 'markupRate' : item.fee ? 'guidePrice' : 'finalPrice'
+  const value = item.row[field] == null || item.row[field] === '' ? 0 : item.row[field]
+  try {
+    if (rate) {
+      const price = guidancePrice(item.row[item.fee ? 'costPrice' : 'basePrice'], value)
+      item.row.markupRate = Number(value).toFixed(2)
+      item.row[item.fee ? 'guidePrice' : 'finalPrice'] = price
+      item.row._error = ''
+    } else {
+      item.row[field] = decimalInput(value, '指导价').toFixed(2)
+      syncRate(item)
+    }
+  } catch (e: any) { item.row._error = e.message }
+}
+function changeRate(item: any) { try { item.row[item.fee ? 'guidePrice' : 'finalPrice'] = guidancePrice(item.row[item.fee ? 'costPrice' : 'basePrice'], item.row.markupRate || 0); item.row._error = '' } catch (e: any) { item.row._error = e.message } }
 function remove(item: any) { if (!canStructure.value || busy.value || !originalItem) return; const source = originalItem.row; if (item.fee) fees.value = fees.value.filter(row => row !== source); else materials.value = materials.value.filter(row => row !== source); page.value = Math.min(page.value, pages.value); dirty.value = true; closeItem() }
 async function save() {
   if (busy.value || loading.value || fatal.value || !allowed.value || itemOpen.value) return

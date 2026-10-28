@@ -39,7 +39,8 @@ export function quotationPercent(cost: unknown, price: unknown) {
     return Number(integer) * 100 + Number(fraction.padEnd(2, '0'))
   }
   const base = cents(cost), final = cents(price)
-  if (base == null || final == null || base === 0) return '—'
+  if (base == null || final == null) return '—'
+  if (base === 0) return '0.00%'
   const difference = final - base, magnitude = Math.abs(difference)
   let remainder = magnitude % base
   let decimals = ''

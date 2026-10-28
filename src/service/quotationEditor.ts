@@ -30,8 +30,8 @@ export function decimalInput(value: unknown, label: string, precision = 2, posit
 // 与PC一致：成本20、加价25%得到指导价25；比例按百分数输入，不是毛利率。
 export function guidancePrice(cost: unknown, percent: unknown) {
   decimalInput(cost, '成本价')
-  const raw = String(percent ?? '').trim(), negative = raw.startsWith('-')
-  decimalInput(negative ? raw.slice(1) : raw, '加价比例', 4)
+  const raw = String(percent == null || percent === '' ? 0 : percent).trim(), negative = raw.startsWith('-')
+  decimalInput(negative ? raw.slice(1) : raw, '加价比例', 2)
   if (Number(raw) < -100) throw new Error('加价比例不能低于 -100%')
   const [whole, fraction = ''] = (negative ? raw.slice(1) : raw).split('.')
   const scaled = 1000000 + (negative ? -1 : 1) * (Number(whole) * 10000 + Number(fraction.padEnd(4, '0')))
@@ -49,7 +49,9 @@ export function materialPayload(row: any, options: { cost: boolean; price: boole
   if (result.remark.length > 500) throw new Error('物料备注最多 500 字')
   if (options.cost) result.basePrice = decimalInput(row.basePrice, '成本价')
   if (options.price) {
-    if (options.direct || row.finalPrice != null && row.finalPrice !== '') result.finalPrice = decimalInput(row.finalPrice, '报价')
+    result.finalPrice = decimalInput(row.finalPrice == null || row.finalPrice === '' ? 0 : row.finalPrice, '报价')
+  } else if (!row.id && row._sourceGuidePrice != null) {
+    result.finalPrice = decimalInput(row._sourceGuidePrice, '物料默认指导价')
   }
   return result
 }
@@ -63,7 +65,7 @@ export function feePayload(row: any, options: { cost: boolean; price: boolean; s
   if (row.taxRate != null && row.taxRate !== '') result.taxRate = decimalInput(row.taxRate, '税率', 6)
   if (options.cost) result.costPrice = decimalInput(row.costPrice, '服务费成本价')
   if (options.price || (!row.id && options.structure && row.serviceFeeId)) {
-    const guide = row.guidePrice
+    const guide = row.guidePrice == null || row.guidePrice === '' ? 0 : row.guidePrice
     result.guidePrice = decimalInput(guide, '服务费报价')
   }
   return result
@@ -76,8 +78,8 @@ export function pricingPayload(materials: any[], fees: any[]) {
     ids.add(String(row.id)); return row.id
   }
   return {
-    records: materials.map(row => ({ id: identify(row), finalPrice: decimalInput(row.finalPrice, '指导价') })),
-    serviceFees: fees.map(row => ({ id: identify(row), guidePrice: decimalInput(row.guidePrice, '服务费指导价') })),
+    records: materials.map(row => ({ id: identify(row), finalPrice: decimalInput(row.finalPrice == null || row.finalPrice === '' ? 0 : row.finalPrice, '指导价') })),
+    serviceFees: fees.map(row => ({ id: identify(row), guidePrice: decimalInput(row.guidePrice == null || row.guidePrice === '' ? 0 : row.guidePrice, '服务费指导价') })),
   }
 }
 
