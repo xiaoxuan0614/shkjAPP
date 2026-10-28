@@ -339,7 +339,7 @@
                 ><view v-if="log.people.length" class="muted"
                   >内协：{{ log.people.join("、") }}</view
                 ><view v-if="log.vehicle" class="muted"
-                  >用车：{{ log.vehicle }} · {{ log.mileage || "—" }} km</view
+                  >用车：{{ log.vehicle }}</view
                 ><view v-for="m in log.materials" :key="m.name" class="muted"
                   >{{ m.name }}：{{ m.qty }} {{ m.unit }}</view
                 ><view class="photos"
@@ -931,7 +931,6 @@ function completeForm(data: PreviewFormData) {
       reason: data.reason,
       photos: [...data.photos],
       vehicle: data.vehicle,
-      mileage: data.mileage,
       people: [...data.people],
       outsource: data.outsource,
       outsourceCount: data.outsourceCount,

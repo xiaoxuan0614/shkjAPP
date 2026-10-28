@@ -376,13 +376,6 @@
             v-model="form.vehicle"
             class="input"
             placeholder="选填，填写车牌号" /></view
-        ><view class="field"
-          ><text class="field-label">行驶里程（km）</text
-          ><input
-            v-model="form.mileage"
-            class="input"
-            type="digit"
-            placeholder="选填" /></view
       ></view>
       <view class="panel"
         ><view class="section-title">参与人员</view
@@ -537,7 +530,6 @@ const form = reactive<PreviewFormData>({
   photos: [],
   quote: "待报价",
   vehicle: "",
-  mileage: "",
   materials,
 });
 const customerMatches = computed(() =>

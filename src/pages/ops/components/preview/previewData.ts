@@ -14,7 +14,6 @@ export interface PreviewLog {
   reason: string;
   photos: string[];
   vehicle: string;
-  mileage: string;
   people: string[];
   materials: { name: string; qty: number; unit: string }[];
   outsource?: string;
@@ -79,7 +78,6 @@ export interface PreviewFormData {
   photos: string[];
   quote: string;
   vehicle: string;
-  mileage: string;
   materials: {
     name: string;
     model: string;
@@ -136,7 +134,6 @@ export function createOrders(): PreviewOrder[] {
               reason: "",
               photos: [],
               vehicle: "",
-              mileage: "",
               people: [],
               materials: [],
             },
