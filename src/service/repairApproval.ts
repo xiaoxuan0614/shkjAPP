@@ -42,23 +42,31 @@ export function snapshotField(value: any, path: string): any {
   return rest.length ? snapshotField(next, rest.join('.')) : next
 }
 
-const labels: Record<string, string> = { departmentName: '部门', reason: '申请原因', unitName: '外协单位', personCount: '人数', estimatedTotalHours: '预计工时', targetUserName: '接收人', closeType: '关闭原因', description: '说明', remark: '备注', personType: '协助类型', departments: '受邀部门', name: '名称', amount: '金额', finalAmount: '最终维修价' }
+const labels: Record<string, string> = { departmentName: '部门', reason: '申请原因', unitName: '外协单位', personCount: '人数', estimatedTotalHours: '预计工时', targetUserName: '接收人', closeType: '关闭原因', description: '说明', remark: '备注', personType: '协助类型', departments: '受邀部门', name: '名称', amount: '金额', finalAmount: '最终维修价', itemName:'项目名称', quantity:'数量', unitPrice:'单价', totalAmount:'合计', items:'报价明细', faultScope:'故障及维修范围', amountChangeReason:'价格变更原因', noQuoteReason:'无需报价原因', productNames:'产品', quotationRequired:'是否需要报价' }
 const values: Record<string, string> = { INTERNAL: '内部协助', EXTERNAL: '外部协助', CUSTOMER_ABANDONED: '客户弃修', NOT_A_PROBLEM: '非故障', OTHER: '其他' }
 /** Flatten only schema-authorized fields; nested HIDDEN fields must never leak through parent objects. */
-export function approvalRows(instance: any, schema: any): { label: string; value: string }[] {
+export function approvalRows(instance: any, schema: any, includePaths = false): { label: string; value: string; path?: string; itemIndex?: number }[] {
   const permissions = schema.fieldPermissions || {}
   const hidden = (path: string) => Object.entries(permissions).some(([key, permission]) => permission === 'HIDDEN' && (path.replace(/\[\]/g, '') === key.replace(/\[\]/g, '') || path.replace(/\[\]/g, '').startsWith(key.replace(/\[\]/g, '') + '.')))
   const rows: { label: string; value: string }[] = []
+  const seen = new Set<string>()
   function add(value: any, path: string, label: string) {
+    const key = path.split('.').pop()!.replace(/\[\]/g, '')
+    if (/Id$|Ids$/.test(key) || ['status','nodeKey','assignmentStatus','assignmentMode','version','iteration','applicationType'].includes(key)) return
     if (hidden(path) || value == null || value === '') return
     if (Array.isArray(value)) { value.forEach((v, i) => add(v, path + '[]', `${label} ${i + 1}`)); return }
     if (typeof value === 'object') {
       Object.entries(value).forEach(([key, v]) => {
-        if (/Id$|Ids$/.test(key)) return
+        if (!labels[key]) return
         add(v, `${path}.${key}`, `${label} · ${labels[key] || key}`)
       }); return
     }
-    rows.push({ label, value: typeof value === 'boolean' ? (value ? '是' : '否') : values[String(value)] || String(value) })
+    const display = typeof value === 'boolean' ? (value ? '是' : '否') : values[String(value)] || String(value)
+    const canonical = path.replace(/^(snapshot|formData|form)\./, '')
+    const identity = `${canonical}:${label.match(/\d+/)?.[0] || ''}:${display}`
+    if (seen.has(identity)) return
+    seen.add(identity)
+    rows.push({ label: labels[key] ? (label.match(/\d+/)?.[0] ? `${label.match(/\d+/)![0]} · ${labels[key]}` : labels[key]) : label, value: display, ...(includePaths ? { path, itemIndex: Number(label.match(/\d+/)?.[0] || 0) } : {}) })
   }
   const definitions:Record<string,[string,string][]>={
     repair_ops_close:[['form.closeType','关闭原因'],['form.reason','关闭说明']],
@@ -78,6 +86,9 @@ export function approvalRows(instance: any, schema: any): { label: string; value
     else {
       const formField=fields.find((f:any)=>['formData','form'].includes(f.key))
       if(formField)add(snapshotField(instance.snapshot,formField.key+'.departments'),formField.key+'.departments','受邀部门')
+      else for (const field of fields.filter((f:any) => /(?:^|\.)departments\[\]\.(departmentName|reason)$/.test(f.key))) {
+        add(snapshotField(instance.snapshot,field.key),field.key,'受邀部门')
+      }
     }
     return rows
   }

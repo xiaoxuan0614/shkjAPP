@@ -1,5 +1,5 @@
 <template>
-  <wd-popup :model-value="modelValue" position="bottom" :close-on-click-modal="!loading" :z-index="2400" custom-style="height:82vh;border-radius:16px 16px 0 0;overflow:hidden;" @update:model-value="emit('update:modelValue', $event)">
+  <wd-popup :model-value="modelValue" position="bottom" :close-on-click-modal="!loading" :z-index="zIndex ?? 2400" custom-style="height:82vh;border-radius:16px 16px 0 0;overflow:hidden;" @update:model-value="emit('update:modelValue', $event)">
     <view class="picker-panel">
       <view class="picker-head"><text>{{ title }}</text><button @click="emit('update:modelValue', false)">关闭</button></view>
       <view class="picker-search"><input v-model="keyword" :placeholder="kind === 'project' ? '搜索主项目或分期名称' : '输入名称搜索'" confirm-type="search" @confirm="load(true)" /><button @click="load(true)">查询</button></view>
@@ -18,7 +18,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
 import { unwrapQuotation } from '@/service/quotationApproval'
-const props = defineProps<{ modelValue: boolean; kind: 'project' | 'material' | 'fee'; excluded: string[] }>()
+const props = defineProps<{ modelValue: boolean; kind: 'project' | 'material' | 'fee'; excluded: string[]; zIndex?: number }>()
 const emit = defineEmits(['update:modelValue', 'select'])
 const user = useUserStore()
 const title = computed(() => ({ project: '选择项目', material: '选择物料', fee: '选择服务费' })[props.kind])

@@ -8,7 +8,7 @@
         <view class="table-container">
           <view class="table" role="table" aria-label="维修单用料统计">
             <view class="table-row table-head" role="row"><text role="columnheader">物料</text><text v-for="column in columns" :key="column.key" role="columnheader">{{ column.label }}</text></view>
-            <view v-for="row in rows" :key="JSON.stringify([row.materialId,row.baseUnitId])" class="table-row" role="row">
+            <view v-for="row in rows" :key="JSON.stringify([row.materialId,row.baseUnitId])" class="table-row selectable" role="row" tabindex="0" :aria-label="`查看${row.materialName || '物料'}明细`" @click="selected=row" @keydown.enter.prevent="selected=row" @keydown.space.prevent="selected=row">
               <view class="name" role="cell"><text>{{ row.materialName || '—' }}</text><text class="hint">{{ [row.brand_dictText || row.brand,row.model].filter(Boolean).join(' / ') }}</text><text class="hint">{{ row.baseUnitName || '单位未返回' }}</text></view>
               <text v-for="column in columns" :key="column.key" class="number" role="cell">{{ quantity(row[column.key]) }}</text>
             </view>
@@ -20,11 +20,14 @@
       <text v-else class="hint">暂无用料统计</text>
     </template>
   </SectionCard>
+  <RepairMaterialHistory :order-id="orderId" :material="selected" @close="selected=null" />
 </template>
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { repairOrderApi } from '@/service/repairOrder'
+import RepairMaterialHistory from './RepairMaterialHistory.vue'
+const selected=ref<any>(null)
 const props = defineProps<{orderId:string}>()
 const expanded=ref(false), loading=ref(false), failed=ref(false), loaded=ref(false)
 const rows=ref<any[]>([]), page=ref(1), total=ref(0)
@@ -43,7 +46,7 @@ async function load(next=1) {
   finally {if(current===generation)loading.value=false}
 }
 function toggle(){expanded.value=!expanded.value;if(expanded.value && !loaded.value && !loading.value)void load(1)}
-watch(()=>props.orderId,()=>{++generation;rows.value=[];total.value=0;page.value=1;loaded.value=false;loading.value=false;failed.value=false;if(expanded.value)void load(1)})
+watch(()=>props.orderId,()=>{selected.value=null;++generation;rows.value=[];total.value=0;page.value=1;loaded.value=false;loading.value=false;failed.value=false;if(expanded.value)void load(1)})
 onBeforeUnmount(()=>{++generation})
 </script>
 <style scoped>
@@ -57,6 +60,7 @@ onBeforeUnmount(()=>{++generation})
 .name { display:flex; flex-direction:column; gap:4px; color:#303133; }
 .name > text { min-width:0; overflow-wrap:anywhere; }
 .number { text-align:center; font-variant-numeric:tabular-nums; }
+.selectable{cursor:pointer}.selectable:focus-visible{outline:2px solid #176ac7;outline-offset:-2px}.selectable:active{background:#f2f6fc}
 .hint { display:block; color:#536176; font-size:12px; line-height:1.7; }
 .pagination { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 0; font-size:12px; }
 .pagination button,.retry { margin:0; min-height:44px; font-size:13px; }

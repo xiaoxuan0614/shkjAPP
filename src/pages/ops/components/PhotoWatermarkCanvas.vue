@@ -17,9 +17,9 @@ type WatermarkMeta = {
   timestamp: string
 }
 
-const canvasId = 'implement-photo-watermark-canvas'
 const canvasSize = ref({ width: 1, height: 1 })
 const instance = getCurrentInstance()
+const canvasId = `implement-photo-watermark-canvas-${instance?.uid ?? 0}`
 
 const getImageInfo = (src: string) =>
   new Promise<UniNamespace.GetImageInfoSuccessData>((resolve, reject) => {

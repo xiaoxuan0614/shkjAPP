@@ -5,6 +5,7 @@
     <view v-if="!hideEmpty" class="log-resources__row"><text>操作人</text><text>{{ record.operatorNameSnapshot || '未记录' }}</text></view>
     <view v-for="person in persons" :key="person.id" class="log-resources__row"><text>{{ person.personType === 'EXTERNAL' ? '外协人员' : '内协人员' }}</text><text>{{ person.personNameSnapshot || '未记录姓名' }}</text></view>
     <text v-if="!persons.length" class="log-resources__empty">未记录其他参与人员</text>
+    <view v-for="row in workDetail?.outsources || []" :key="row.outsourceMemberId" class="log-resources__row"><text>{{ row.unitName || detail.members?.find(m => m.id === row.outsourceMemberId)?.personNameSnapshot || '外协单位' }}</text><text>{{ row.headcount ?? '未返回' }} 人 · {{ row.workHours ?? '未返回' }} h<text v-if="row.remark"> · {{ row.remark }}</text></text></view>
     <view v-if="!hideEmpty" class="log-resources__row"><text>本次作业时长</text><text>{{ record.recordStatus === 'ACTIVE' ? '进行中' : record.durationSeconds != null ? `${(Number(record.durationSeconds) / 3600).toFixed(2)}h` : '未记录' }}</text></view>
     </template>
     <template v-if="!hideEmpty || record.vehicleValue">

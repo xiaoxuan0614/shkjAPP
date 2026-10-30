@@ -6,7 +6,8 @@
           <image v-if="thumbnails[file.fileId]" :src="thumbnails[file.fileId]" mode="aspectFill" @error="thumbnailErrors[file.fileId] = true" v-show="!thumbnailErrors[file.fileId]" />
           <view v-if="!thumbnails[file.fileId] || thumbnailErrors[file.fileId]" class="repair-edit-placeholder"><wd-icon :name="file.mediaType === 'VIDEO' ? 'play-circle' : 'image'" size="28px" /><text>{{ file.mediaType === 'VIDEO' ? '点击播放视频' : thumbnailErrors[file.fileId] ? '加载失败，点击重试' : '正在加载…' }}</text></view>
         </button>
-        <view class="repair-edit-footer"><text>{{ file.mediaType === 'VIDEO' ? '视频' : '照片' }} {{ index + 1 }}</text><button :disabled="disabled || busy" @click="emit('remove', file.fileId)">移除</button></view>
+        <text class="repair-edit-caption">{{ file.mediaType === 'VIDEO' ? '视频' : '照片' }} {{ index + 1 }}</text>
+        <button class="repair-edit-remove" :disabled="disabled || busy" :aria-label="`移除${file.mediaType === 'VIDEO' ? '视频' : '照片'} ${index + 1}`" @click.stop="emit('remove', file.fileId)"><wd-icon name="close" size="14px" /></button>
       </view>
     </view>
     <scroll-view v-else :scroll-x="inline" class="repair-files-scroll">
@@ -90,12 +91,13 @@ onBeforeUnmount(() => { disposed = true; closePreview(); Object.values(thumbnail
 .repair-file { margin:0; padding:8px 12px; max-width:100%; line-height:1.5; font-size:14px; color:#1769c2; overflow-wrap:anywhere; }
 .repair-video { width:85vw; padding:12px; background:#fff; }
 .repair-video video { width:100%; }
-.repair-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.repair-edit-card { overflow:hidden; border:1px solid #e3e8ee; border-radius:10px; background:#f6f8fa; }
-.repair-edit-preview { display:block; width:100%; height:108px; margin:0; padding:0; background:#f6f8fa; }
+.repair-edit-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
+.repair-edit-card { position:relative; overflow:hidden; border:1px solid #e3e8ee; border-radius:10px; background:#f6f8fa; }
+.repair-edit-preview { display:block; width:100%; height:96px; margin:0; padding:0; background:#f6f8fa; }
 .repair-edit-preview image { width:100%; height:100%; }
 .repair-edit-placeholder { display:flex; height:100%; flex-direction:column; align-items:center; justify-content:center; gap:8px; font-size:12px; color:#475569; }
-.repair-edit-footer { display:flex; align-items:center; justify-content:space-between; padding:0 10px; font-size:13px; color:#475569; }
-.repair-edit-footer button { min-height:44px; min-width:44px; margin:0; padding:0; background:transparent; color:#a13a3a; font-size:13px; line-height:44px; }
+.repair-edit-caption { display:block; padding:6px 8px; font-size:12px; color:#475569; line-height:18px; }
+.repair-edit-remove { position:absolute; top:0; right:0; display:flex; align-items:center; justify-content:center; width:44px; height:44px; margin:0; padding:0; color:#fff; background:rgba(17,24,39,.7); border-radius:0 0 0 10px; line-height:1; }
+.repair-edit-card button:focus-visible { outline:2px solid #176ac7; outline-offset:-2px; }
 .repair-edit-card button::after { border:none; }
 </style>

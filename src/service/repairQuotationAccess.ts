@@ -10,4 +10,5 @@ export function quotationLockReason(detail: Record<string, any>): string {
 }
 export function canChangeRepairQuotation(detail: Record<string, any>): boolean {
   return detail.canChangeQuotationDecision === true && !quotationLockReason(detail)
+    && !['HEAD_REVIEW', 'GM_REVIEW', 'WAIT_CUSTOMER'].includes(detail.order?.quotationStatus)
 }

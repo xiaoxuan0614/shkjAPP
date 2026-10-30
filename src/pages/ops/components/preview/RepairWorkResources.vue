@@ -1,9 +1,27 @@
 <template>
-  <SectionCard title="用人记录">
+  <SectionCard title="用人记录（选填）">
     <template v-if="form">
-      <wd-select-picker v-model="personKeys" label="参与人员" :columns="personChoices" value-key="key" label-key="label" type="checkbox" filterable :disabled="disabled" :z-index="999" placeholder="点击选择参与人员" />
-      <text class="resource-hint">仅记录参与人员，不代替他人签到。已保存但不在候选中的人员仍保留，取消勾选才会移除。</text>
-      <button v-if="optionsError" class="resource-submit" @click="loadOptions">{{ optionsError }}，点击重试</button>
+      <view v-for="group in peopleGroups" :key="group.type">
+        <view class="people-form-row"><text class="people-label">{{ group.type === 'INTERNAL' ? '内协参与' : '外协参与' }}</text><view class="people-toggle" role="radiogroup" :aria-label="group.title"><button v-for="choice in [false,true]" :key="String(choice)" :class="{ selected: form[group.flag] === choice }" role="radio" :aria-checked="form[group.flag] === choice" :disabled="disabled" @click="setParticipation(group.type,group.flag,choice)"><wd-icon :name="form[group.flag] === choice ? 'check-circle-filled' : 'circle'" size="18px" /><text>{{ choice ? '是' : '否' }}</text></button></view></view>
+        <template v-if="form[group.flag]">
+          <view v-if="group.type === 'INTERNAL'" class="people-form-row people-form-row--top"><text class="people-label">选择人员</text><view class="people-chips"><button v-for="person in personChoices.filter(p => p.personType === 'INTERNAL')" :key="person.key" class="people-chip" :class="{ selected: selectedPeople('INTERNAL').includes(person.key) }" :aria-pressed="selectedPeople('INTERNAL').includes(person.key)" :disabled="disabled || optionsBusy || !!optionsError" @click="togglePerson(person.key)">{{ person.label }}</button></view></view>
+          <wd-select-picker v-else :model-value="selectedPeople(group.type)" :columns="personChoices.filter(p => p.personType === group.type)" value-key="key" label-key="label" type="checkbox" filterable :disabled="disabled || optionsBusy || !!optionsError" :z-index="12000" title="选择本次外协单位" @confirm="selectPersons(group.type,$event.value)"><view class="material-select">{{ selectedPeople('EXTERNAL').length ? '调整本次外协单位' : '＋ 添加本次外协' }}</view></wd-select-picker>
+          <text v-if="optionsBusy" class="resource-hint" role="status">正在加载已生效协助…</text>
+          <text v-else-if="!optionsError && !personChoices.some(p => p.personType === group.type)" class="resource-hint">暂无审批通过且生效的{{ group.type === 'INTERNAL' ? '内协人员' : '外协单位' }}</text>
+          <view v-if="group.type === 'EXTERNAL'" v-for="person in form.persons.filter(p => p.personType === 'EXTERNAL')" :key="personKey(person)" class="outsourcing-row">
+            <view class="people-form-row"><text class="people-label">外协单位</text><text class="outsourcing-name">{{ person.name || '外协单位' }}</text></view>
+            <view class="outsourcing-fields">
+              <view><text class="outsourcing-field-label">实际人数</text><view class="outsourcing-input"><input v-model="person.headcount" type="number" :disabled="disabled" aria-label="外协实际人数" placeholder="请输入" /><text>人</text></view></view>
+              <view><text class="outsourcing-field-label">实际工时</text><view class="outsourcing-input"><input v-model="person.workHours" type="digit" :disabled="disabled" aria-label="外协实际工时" placeholder="请输入" /><text>h</text></view></view>
+            </view>
+            <view class="outsourcing-remark"><text class="outsourcing-field-label">备注（选填）</text><input v-model="person.remark" class="resource-input" :disabled="disabled" maxlength="1000" aria-label="外协备注" placeholder="填写本次参与说明" /></view>
+            <view class="outsourcing-footer"><button class="resource-remove" :disabled="disabled" @click="removePerson(person)">删除本条</button></view>
+          </view>
+        </template>
+      </view>
+      <view v-for="person in unavailablePeople" :key="personKey(person)" class="resource-row"><text>{{ person.name || '历史参与者' }}（当前不可新增）</text><button class="resource-remove" :disabled="disabled" @click="removePerson(person)">移除</button></view>
+      <text class="resource-hint">只选择本次实际参与的协助；未选择的不计入本次记录。负责人无需重复选择，也不代替内协人员签到。历史记录保留，移除后不可重新选择失效协助。</text>
+      <button v-if="optionsError" class="resource-submit" :disabled="optionsBusy" @click="loadOptions">{{ optionsError }}，点击重试</button>
     </template>
     <template v-else>
     <view class="resource-row"><text>本次操作人</text><text>{{ record.operatorNameSnapshot || '本人' }}</text></view>
@@ -44,6 +62,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { repairOrderApi } from '@/service/repairOrder'
 import { materialInfo, confirmedMaterial } from '@/service/repairWorkMaterials'
+import { isWorkSelf, workPersonKey as personKey, workPersonChoices, selectWorkPeople } from '@/service/repairWorkPeople'
 const props = defineProps<{detail:Record<string,any>;recordId:string;actorId:string;disabled:boolean;form?:any}>()
 const record = computed(() => props.detail.workRecords?.find((r:any) => r.id === props.recordId) || {})
 const persons = computed(() => (props.detail.workPersons || []).filter((p:any) => p.workRecordId === props.recordId))
@@ -69,21 +88,35 @@ const filteredSources = computed(() => sources.value.filter(s => `${s.name} ${s.
 const allSelected = computed(() => filteredSources.value.length > 0 && filteredSources.value.every(s => selectedIds.value.includes(s.id)))
 function toggleMaterial(source:any) { if (props.disabled || source.disabled) return; selectedIds.value = selectedIds.value.includes(source.id) ? selectedIds.value.filter(id => id !== source.id) : [...selectedIds.value,source.id] }
 function toggleAll() { if (props.disabled) return; const ids=filteredSources.value.filter(s=>!s.disabled).map(s=>s.id); selectedIds.value=allSelected.value ? selectedIds.value.filter(id=>!ids.includes(id)) : [...new Set([...selectedIds.value,...ids])] }
-const personOptions = ref<any[]>([]), vehicleOptions = ref<{value:string;label:string}[]>([]), optionsError = ref('')
-function personKey(p:any) { return `${p.personType}:${p.sourcePersonId}` }
-const personChoices = computed(() => [...new Map([...(props.form?.persons || []),...personOptions.value].map(p => [personKey(p),{...p,key:personKey(p),label:`${p.name || p.sourcePersonId} · ${p.personType === 'EXTERNAL' ? '外协' : '内部'}${p.roleName ? ` · ${p.roleName}` : ''}`}])).values()])
-const personKeys = computed({get:() => (props.form?.persons || []).map(personKey),set:(keys:string[]) => selectPersons(keys)})
+const personOptions = ref<any[]>([]), vehicleOptions = ref<{value:string;label:string}[]>([]), optionsError = ref(''), optionsBusy = ref(false)
+const peopleGroups = [{type:'INTERNAL',flag:'hasInternalParticipants',title:'本次是否有内协参与',label:'内协人员'},{type:'EXTERNAL',flag:'hasExternalParticipants',title:'本次是否有外协参与',label:'外协单位'}]
+const personChoices = computed(() => workPersonChoices(personOptions.value, props.detail.order.responsibleUserId, props.actorId))
+const unavailablePeople = computed(() => !optionsBusy.value && !optionsError.value ? (props.form?.persons || []).filter((p:any) => !personChoices.value.some(c => c.key === personKey(p))) : [])
+const selectedPeople = (type:string) => (props.form?.persons || []).filter((p:any) => p.personType === type && personChoices.value.some(c => c.key === personKey(p))).map(personKey)
+function togglePerson(key:string) { const keys=selectedPeople('INTERNAL'); selectPersons('INTERNAL',keys.includes(key) ? keys.filter((id:string)=>id!==key) : [...keys,key]) }
+function setParticipation(type:string,flag:string,value:boolean) { if (props.disabled || !props.form) return; props.form[flag]=value; if (!value) props.form.persons=props.form.persons.filter((p:any)=>p.personType!==type) }
+function removePerson(person:any) { if (!props.disabled && props.form) props.form.persons=props.form.persons.filter((p:any)=>personKey(p)!==personKey(person)) }
+watch([() => props.form, () => props.detail.order.responsibleUserId, () => props.actorId], () => {
+  const form = props.form
+  if (!form) return
+  form.persons=(form.persons || []).filter((p:any)=>!isWorkSelf(p,props.actorId) && !isWorkSelf(p,props.detail.order.responsibleUserId))
+  for (const group of peopleGroups) form[group.flag]=form.persons.some((p:any)=>p.personType===group.type)
+}, {immediate:true})
 const vehicleChoices = computed(() => [{value:'',label:'未使用车辆'},...(props.form?.vehicleValue && !vehicleOptions.value.some(v => v.value === props.form.vehicleValue) ? [{value:props.form.vehicleValue,label:`已保存车辆：${props.form.vehicleValue}`}] : []),...vehicleOptions.value])
-function selectPersons(keys:string[]) { if (props.form) props.form.persons = personChoices.value.filter(p => keys.includes(p.key)).map(({key,...person}) => person) }
+function selectPersons(type:string,keys:string[]) { if (!props.disabled && !optionsBusy.value && !optionsError.value && props.form) {
+  const historical=props.form.persons.filter((p:any)=>p.personType===type&&!personChoices.value.some(c=>c.key===personKey(p)))
+  props.form.persons=[...selectWorkPeople(props.form.persons,personChoices.value,type,keys),...historical]
+} }
 let optionsGeneration = 0
 async function loadOptions() {
   const generation = ++optionsGeneration, id = props.detail.order.id
-  optionsError.value = ''
+  optionsError.value = ''; optionsBusy.value = true
   try {
     const [people,vehicles] = await Promise.all([repairOrderApi.personOptions(id),repairOrderApi.options('vehicles')])
     if (generation !== optionsGeneration || id !== props.detail.order.id) return
     personOptions.value = people; vehicleOptions.value = vehicles
   } catch { if (generation === optionsGeneration) optionsError.value = '人员或车辆加载失败' }
+  finally { if (generation === optionsGeneration) optionsBusy.value = false }
 }
 watch(() => props.detail.order.id, () => { personOptions.value = []; vehicleOptions.value = []; if (props.form) void loadOptions() }, {immediate:true})
 onBeforeUnmount(() => { optionsGeneration++ })
@@ -91,6 +124,31 @@ onBeforeUnmount(() => { optionsGeneration++ })
 <style scoped>
 .resource-row { display:flex; justify-content:space-between; gap:16px; padding:10px 0; font-size:16px; overflow-wrap:anywhere; }
 .resource-row > text:last-child { text-align:right; }
+.people-form-row { display:flex; align-items:center; gap:8px; padding:11px 0; border-bottom:1px solid #f0f0f0; }
+.people-form-row--top { align-items:flex-start; }
+.people-label { width:88px; flex:none; font-size:13px; color:#555; }
+.people-toggle { display:flex; gap:12px; flex:1; justify-content:flex-end; }
+.people-toggle button { display:flex; align-items:center; justify-content:center; gap:6px; margin:0; padding:0 12px; min-width:72px; min-height:44px; line-height:24px; font-size:14px; background:#fff; color:#566579; border:1px solid #dce3ed; border-radius:8px; }
+.people-toggle button.selected { background:#edf5ff; color:#176ac7; border-color:#176ac7; font-weight:600; }
+.people-toggle button:focus-visible { outline:2px solid #176ac7; outline-offset:2px; }
+.people-toggle button[disabled] { opacity:.5; }
+.people-toggle button::after { border:0; }
+.people-chips { display:flex; flex:1; min-width:0; flex-wrap:wrap; gap:8px; }
+.people-chip { margin:0; padding:6px 13px; min-height:44px; font-size:13px; line-height:30px; color:#555; background:#fff; border:1px solid #ccc; border-radius:16px; overflow-wrap:anywhere; }
+.people-chip::after { border:0; }
+.people-chip.selected { color:#176ac7; background:#eaf4ff; border-color:#79afea; }
+.outsourcing-row { padding:0 12px 10px; margin:10px 0; background:#f7f9fb; border-radius:12px; }
+.outsourcing-name { min-width:0; flex:1; overflow-wrap:anywhere; font-size:13px; line-height:1.55; color:#222; }
+.outsourcing-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+.outsourcing-fields > view { min-width:0; }
+.outsourcing-field-label { display:block; margin-bottom:7px; font-size:13px; font-weight:500; color:#475569; }
+.outsourcing-input { display:flex; min-height:48px; padding:0 12px; background:#fff; border:1px solid #cfd8e3; border-radius:10px; align-items:center; gap:8px; }
+.outsourcing-input input { min-width:0; height:48px; padding:0; font-size:16px; color:#222; flex:1; }
+.outsourcing-input > text { font-size:13px; color:#64748b; flex:none; }
+.outsourcing-remark { margin-top:12px; }
+.outsourcing-remark input { background:#fff; font-size:13px; border-color:#cfd8e3; }
+.outsourcing-footer { display:flex; justify-content:flex-end; min-height:44px; }
+.outsourcing-footer button { color:#a13a3a; font-size:13px; }
 .resource-item { padding:8px 0; border-bottom:1px solid #edf0f3; }
 .resource-hint { display:block; color:#536176; font-size:14px; line-height:1.6; margin-top:8px; }
 .resource-label { display:block; margin:18px 0 8px; font-size:16px; }

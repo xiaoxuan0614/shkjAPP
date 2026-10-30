@@ -65,10 +65,6 @@
           <text v-if="member.exitReason" class="hint">移除 / 结束原因：{{ member.exitReason }}</text>
           <text v-if="member.exitByName" class="hint">操作人：{{ member.exitByName }}</text>
         </view>
-        <template v-if="group.external && group.members.some(m => m.memberStatus === 'ACTIVE') && isCollaborationOwner(detail,actorId)">
-          <button disabled class="text-action">结束该单位协助（待接口）</button>
-          <text class="hint">按单位整体结束的接口尚未确认，暂不支持办理，不会逐人移除代替。</text>
-        </template>
       </view>
     </template>
     </scroll-view>

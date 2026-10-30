@@ -14,9 +14,26 @@ const detail=vue.reactive({order:{id:'o'},materialLinks:[
 {id:'not-issued',handlerUserId:'me',linkType:'PICK',outboundQty:0,availableUseQty:5},
 {id:'other',handlerUserId:'other',linkType:'PICK',outboundQty:5,availableUseQty:5}],materialUses:[]})
 const form=vue.reactive({persons:[],materialItems:[]})
-const box={exports:{},require:n=>n==='vue'?{...vue,onBeforeUnmount:()=>{}}:n==='@/service/repairWorkMaterials'?helper.exports:n==='@/service/repairOrder'?{repairOrderApi:{personOptions:async()=>[],options:async()=>[]}}:{}}
+const peopleHelper={exports:{}};vm.runInNewContext(transpile(fs.readFileSync('src/service/repairWorkPeople.ts','utf8')),peopleHelper)
+const box={exports:{},require:n=>n==='vue'?{...vue,onBeforeUnmount:()=>{}}:n==='@/service/repairWorkPeople'?peopleHelper.exports:n==='@/service/repairWorkMaterials'?helper.exports:n==='@/service/repairOrder'?{repairOrderApi:{personOptions:async()=>[],options:async()=>[]}}:{}}
 vm.runInNewContext(transpile(sfc.compileScript(descriptor,{id:'resources'}).content),box)
 const page=box.exports.default.setup({detail,recordId:'r',actorId:'me',disabled:false,form},{expose:()=>{}})
+assert.equal(form.hasInternalParticipants,false)
+assert.equal(form.hasExternalParticipants,false)
+page.setParticipation('INTERNAL','hasInternalParticipants',true)
+assert.equal(form.hasInternalParticipants,true)
+form.persons=[{personType:'INTERNAL',sourcePersonId:'p'},{personType:'EXTERNAL',sourcePersonId:'x'}]
+page.setParticipation('INTERNAL','hasInternalParticipants',false)
+assert.equal(form.persons.length,1)
+assert.equal(form.persons[0].personType,'EXTERNAL')
+assert.equal(page.personChoices.value.length,0,'saved history never creates an eligible option')
+form.persons=[{personType:'INTERNAL',sourcePersonId:'next-owner'},{personType:'INTERNAL',sourcePersonId:'colleague'},{personType:'EXTERNAL',sourcePersonId:'next-owner'}]
+detail.order.responsibleUserId='next-owner'
+vue.nextTick().then(()=>{
+  assert.equal(form.persons.some(p=>p.personType==='INTERNAL'&&p.sourcePersonId==='next-owner'),false,'owner changes remove saved owner selection');
+  assert.equal(form.persons.some(p=>p.sourcePersonId==='colleague'),true);
+  assert.equal(form.persons.some(p=>p.personType==='EXTERNAL'&&p.sourcePersonId==='next-owner'),true);
+}).catch(e=>{console.error(e);process.exitCode=1})
 assert.equal(page.sources.value.length,1)
 page.selectedIds.value=['pick']
 assert.equal(form.materialItems[0].quantity,1,'new material defaults to one')

@@ -1,0 +1,17 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),ts=require('typescript');
+const context={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/service/repairWorkDisplay.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context);
+const {repairClockDisplay:clock,repairCompletionSubmitted:completed}=context.exports;
+let view=clock({signInStatus:'NORMAL',signOutStatus:'MISSING',clockAbnormal:true,clockAbnormalReason:'签退缺卡'});
+assert.equal(view.signInAbnormal,false);assert.equal(view.signOutAbnormal,true);
+view=clock({signInStatus:'MISSING',signOutStatus:'CORRECTED',clockAbnormal:true,correctionReason:'忘记签退'});
+assert.equal(view.signInAbnormal,true);assert.equal(view.signOutAbnormal,false);assert.equal(view.corrected,true);assert.equal(view.correctionDescription,'忘记签退');
+view=clock({signInStatus:'NORMAL',signOutStatus:'NOT_SIGNED_OUT'});assert.equal(view.signOutAbnormal,false);
+view=clock({signInStatus:'NORMAL',signOutStatus:'NORMAL',clockAbnormal:true,clockAbnormalReason:'时间异常'});assert.equal(view.signInAbnormal,false);assert.equal(view.signOutAbnormal,false);assert.equal(view.generalReason,'时间异常');
+assert.equal(clock({}).signInName,'签到状态未记录');assert.equal(clock({signOutStatus:'CORRECTED'}).correctionDescription,'补签退说明未记录');
+assert.equal(completed({}),false);assert.equal(completed({applications:[{applicationType:'COMPLETION',applicationStatus:'DRAFT'}]}),false);
+for(const applicationStatus of ['PENDING','APPROVED','REJECTED','WITHDRAWN'])assert.equal(completed({applications:[{applicationType:'COMPLETION',applicationStatus}]}),true);
+assert.equal(completed({completions:[{}]}),true);
+const source=fs.readFileSync('src/pages/ops/components/preview/OpsWorkflow.vue','utf8');
+assert.ok(!source.includes('repairOrderApi.updateWork('));assert.ok(!source.includes('返回修改日志'));
+console.log('PASS independent clock statuses, corrected checkout, missing fields and submitted-completion lock');

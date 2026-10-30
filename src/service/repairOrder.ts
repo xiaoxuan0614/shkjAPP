@@ -90,6 +90,7 @@ export const repairOrderApi = {
   },
   async begin(payload: Record<string, unknown>) { return mutate('/repair/work/begin', payload) },
   async workDetail(orderId: string, recordId?: string) { return result<any>(await http.get('/repair/work/detail', {orderId, ...(recordId ? {recordId} : {})})) },
+  async workPage(orderId: string, pageNo = 1, pageSize = 10, signInDate = '') { return result<any>(await http.get('/repair/work/page', {orderId,pageNo,pageSize,...(signInDate ? {signInDate} : {})})) },
   async personOptions(orderId: string) { return result<any[]>(await http.get('/repair/work/personOptions', {orderId})) },
   async saveDraft(payload: Record<string, unknown>) { return mutate('/repair/work/saveDraft', payload) },
   async submitWork(payload: Record<string, unknown>) { return mutate('/repair/work/submit', payload) },

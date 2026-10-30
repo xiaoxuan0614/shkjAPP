@@ -1,7 +1,7 @@
 <template>
   <view class="report-media">
     <MediaAttachments :items="items" :readonly="readonly" :busy="busy" :error="mediaError" :compact="compact" :max-photos="6" :max-videos="2" :existing-photos="existingPhotos" :existing-videos="existingVideos" busy-text="正在选择…"
-      :hint="readonly ? '本次报修附件' : '可拍摄或从相册选择；提交时上传，单个文件不超过 400 MB'"
+      :hint="readonly ? '本次报修附件' : photoWatermark ? '照片自动添加当前位置和添加时间水印；视频不加水印，提交时上传' : '可拍摄或从相册选择；提交时上传，单个文件不超过 400 MB'"
       @add="chooseAttachment" @remove="removeAttachment" @preview="previewAttachment" />
     <wd-popup v-model="videoVisible" position="center" :z-index="12000" @close="videoVisible = false">
       <view class="report-video-preview">
@@ -12,6 +12,7 @@
     <wd-popup v-model="imageVisible" position="center" :z-index="13000">
       <view class="report-video-preview"><image :src="imagePath" mode="aspectFit" style="width:100%;height:65vh" /><button @click="imageVisible = false">关闭预览</button></view>
     </wd-popup>
+    <PhotoWatermarkCanvas v-if="photoWatermark" ref="watermarkCanvas" />
   </view>
 </template>
 
@@ -19,7 +20,12 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { onHide } from '@dcloudio/uni-app'
 import MediaAttachments, { type MediaAttachment } from '@/components/MediaAttachments/MediaAttachments.vue'
-const props = withDefaults(defineProps<{ photos: string[]; videos: string[]; readonly?: boolean; compact?: boolean; existingPhotos?: number; existingVideos?: number }>(), { readonly: false, compact: false, existingPhotos: 0, existingVideos: 0 })
+import PhotoWatermarkCanvas from '../PhotoWatermarkCanvas.vue'
+import { readPhotoLocation } from '@/utils/photoLocation'
+import dayjs from 'dayjs'
+import { watchMediaPickerCancel } from '@/utils/mediaPickerCancel'
+const watermarkCanvas = ref<InstanceType<typeof PhotoWatermarkCanvas>>()
+const props = withDefaults(defineProps<{ photos: string[]; videos: string[]; readonly?: boolean; compact?: boolean; existingPhotos?: number; existingVideos?: number; photoWatermark?: boolean }>(), { readonly: false, compact: false, existingPhotos: 0, existingVideos: 0, photoWatermark: false })
 const emit = defineEmits<{ 'update:photos': [paths: string[]]; 'update:videos': [paths: string[]]; busy: [value: boolean] }>()
 const busy = ref(false), mediaError = ref('')
 const videoVisible = ref(false), videoPath = ref('')
@@ -42,7 +48,12 @@ function previewAttachment(item: MediaAttachment) {
   else { mediaError.value = ''; videoPath.value = item.path; videoVisible.value = true }
 }
 let active = true
-onBeforeUnmount(() => { active = false; emit('busy', false) })
+let stopPickerWatch = () => {}
+onBeforeUnmount(() => { active = false; stopPickerWatch(); emit('busy', false) })
+function watchPicker() {
+  stopPickerWatch()
+  stopPickerWatch = watchMediaPickerCancel(() => { if (active) setBusy(false) })
+}
 function setBusy(value: boolean) { busy.value = value; emit('busy', value) }
 function failure(error: { errMsg?: string }) {
   if (active && !/cancel/i.test(error.errMsg || '')) mediaError.value = '附件选择失败，请检查相册或相机权限后重试'
@@ -50,26 +61,48 @@ function failure(error: { errMsg?: string }) {
 function choosePhotos() {
   if (props.readonly || busy.value || props.photos.length + props.existingPhotos >= 6) return
   setBusy(true); mediaError.value = ''
+  watchPicker()
   uni.chooseImage({
     count: 6 - props.existingPhotos - props.photos.length, sourceType: ['album', 'camera'], sizeType: ['compressed'],
-    success: result => {
-      if (!active) return
-      if (Array.isArray(result.tempFiles) && result.tempFiles.some(file => file.size > 419430400)) {mediaError.value = '单个文件不能超过 400 MB';return}
-      emit('update:photos', [...props.photos, ...result.tempFilePaths].slice(0, Math.max(0, 6 - props.existingPhotos)))
+    success: async result => {
+      stopPickerWatch()
+      try {
+        if (!active) return
+        if (!result.tempFilePaths.length) return
+        if (Array.isArray(result.tempFiles) && result.tempFiles.some(file => file.size > 419430400)) throw new Error('单个文件不能超过 400 MB')
+        let paths = result.tempFilePaths
+        if (props.photoWatermark) {
+          const position = await readPhotoLocation()
+          if (!active) return
+          if (!watermarkCanvas.value) throw new Error('照片水印组件尚未就绪，请重新选择')
+          const meta = { ...position, timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss') }
+          const processed: string[] = []
+          // The native canvas is shared: render sequentially and publish only a complete batch.
+          for (const path of paths) {
+            if (!active) return
+            processed.push(await watermarkCanvas.value.applyWatermark(path, meta))
+          }
+          paths = processed
+        }
+        if (active) emit('update:photos', [...props.photos, ...paths].slice(0, Math.max(0, 6 - props.existingPhotos)))
+      } catch (error: any) {
+        if (active) mediaError.value = error.message || '照片水印生成失败，请重新选择'
+      } finally { if (active) setBusy(false) }
     },
-    fail: failure, complete: () => { if (active) setBusy(false) },
+    fail: error => { stopPickerWatch(); failure(error); if (active) setBusy(false) },
   })
 }
 function chooseVideo() {
   if (props.readonly || busy.value || props.videos.length + props.existingVideos >= 2) return
   setBusy(true); mediaError.value = ''
+  watchPicker()
   uni.chooseVideo({
     sourceType: ['album', 'camera'],
     success: result => { if (active && result.tempFilePath) {
       if (result.size > 419430400) {mediaError.value = '单个视频不能超过 400 MB';return}
       emit('update:videos', [...props.videos, result.tempFilePath].slice(0, Math.max(0, 2 - props.existingVideos)))
     } },
-    fail: failure, complete: () => { if (active) setBusy(false) },
+    fail: failure, complete: () => { stopPickerWatch(); if (active) setBusy(false) },
   })
 }
 function previewPhoto(current: string) { imagePath.value = current; imageVisible.value = true }

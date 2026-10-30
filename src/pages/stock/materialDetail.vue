@@ -20,6 +20,7 @@
     <template v-else-if="detail.id">
       <scroll-view class="page" :scroll-y="true">
         <SectionCard title="申请信息">
+          <template #extra><button v-if="canWithdraw || withdrawing" class="cancel-apply-button" :disabled="withdrawing || submitting" @click="withdrawApply">{{ withdrawing ? '正在处理…' : cancelLabel }}</button></template>
           <view class="application-info">
           <view class="row row--full row--project">
             <text class="label">项目名称</text>
@@ -130,7 +131,7 @@
               <view class="quantity-grid">
                 <view class="quantity-cell">
                   <text class="quantity-label">申请数量</text>
-                  <text class="quantity-value">{{ formatQty(material.approvedQty) }}</text>
+                  <text class="quantity-value">{{ formatQty(material.requestedQty) }}</text>
                   <text class="quantity-unit">{{ material.unitName }}</text>
                 </view>
                 <view class="quantity-cell">
@@ -291,7 +292,7 @@
         </view>
         <button
           class="submit-button"
-          :disabled="!selectedItems.length || submitting"
+          :disabled="!selectedItems.length || submitting || withdrawing"
           @click="executeOutbound"
         >
           {{ submitting ? '正在出库…' : '执行出库（' + selectedItems.length + '）' }}
@@ -301,15 +302,10 @@
       <view v-else-if="detail.type === 'in' && (canExecuteInbound || submitting)" class="bottom">
         <button
           class="submit-button submit-button--full"
-          :disabled="submitting"
+          :disabled="submitting || withdrawing"
           @click="executeInbound"
         >
           {{ submitting ? '正在处理…' : '执行入库' }}
-        </button>
-      </view>
-      <view v-else-if="canWithdraw || withdrawing" class="bottom">
-        <button class="submit-button submit-button--full" :disabled="withdrawing" @click="withdrawApply">
-          {{ withdrawing ? '正在撤回…' : '撤回申请' }}
         </button>
       </view>
     </template>
@@ -325,6 +321,7 @@ import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import { getMaterialUsageTypeText } from '@/types/business'
 import { usePermissionStore } from '@/store/permission'
 import { useUserStore } from '@/store/user'
+import { stockCancelMode } from '@/service/stockCancellation'
 import { ensureCurrentAuthorization } from '@/service/permission'
 
 const toast = useToast()
@@ -345,36 +342,32 @@ const fromStockTodo = ref(false)
 const permission = usePermissionStore()
 const userStore = useUserStore()
 const withdrawing = ref(false)
-const isOwnPendingApply = (head: any) => {
-  if (String(head.status) !== '2') return false
-  const user: any = userStore.userInfo
-  const userId = user.userid || user.id || user.userId
-  if (userId && head.applyUserId) return String(head.applyUserId) === String(userId)
-  // 与 PC 一致：旧单缺少申请人 ID 时才回退姓名判断；最终由后端鉴权。
-  const name = user.realname || user.username
-  return !!name && !!head.applyUserName && head.applyUserName === name
-}
-const canWithdraw = computed(() => !loading.value && !loadError.value && !submitting.value &&
-  !withdrawing.value && !!detail.value.id && isOwnPendingApply(detail.value))
+const cancellationMode = (head: any) => stockCancelMode(head, userStore.userInfo)
+const cancelLabel = computed(() => cancellationMode(detail.value) === 'withdraw' ? '撤回申请' : '取消申请')
+const canWithdraw = computed(() => !loading.value && !loadError.value && !submitting.value && !withdrawing.value && !!cancellationMode(detail.value))
 const withdrawApply = async () => {
   if (!canWithdraw.value) return
-  try { await message.confirm('确认撤回该申请吗？撤回后将退出审批流程。') }
+  const mode = cancellationMode(detail.value)
+  const label = cancelLabel.value
+  const prompt = mode === 'withdraw' ? '确认撤回该申请吗？撤回后将退出审批流程。' : '确认取消该待执行领料申请吗？取消后不能继续出库，需要领料时请重新申请。'
+  try { await message.confirm({title:label,msg:prompt}) }
   catch { return }
   if (!canWithdraw.value) return
   withdrawing.value = true
   try {
+    await ensureCurrentAuthorization(userStore.userInfo, true)
     const response: any = await stockApi.applyDetail(id.value)
     const latest = response?.result ?? response
-    if (response?.success === false || String(latest?.id) !== id.value || !isOwnPendingApply(latest)) {
-      toast.warning('申请状态已变化或不属于当前账号，请查看最新详情')
+    if (response?.success === false || String(latest?.id) !== id.value || cancellationMode(latest) !== mode) {
+      toast.warning('申请状态或操作权限已变化，请查看最新详情')
       await load()
       return
     }
     const result: any = await stockApi.cancelApply(id.value)
-    if (result?.success === false) throw new Error(result.message || '撤回失败')
-    toast.success('已撤回申请')
+    if (result?.success === false) throw new Error(result.message || '操作失败')
+    toast.success(mode === 'withdraw' ? '已撤回申请' : '已取消申请')
     await load()
-  } catch (error: any) { toast.error(error?.message || '撤回失败，请重试') }
+  } catch (error: any) { toast.error(error?.message || '操作失败，请刷新核对单据状态') }
   finally { withdrawing.value = false }
 }
 const inboundRecords = ref<any[]>([])
@@ -414,11 +407,11 @@ const outboundReadonlyReason = computed(() => {
   if (!isExecutableOutboundHead(detail.value)) return '当前申请已完成或状态已变化，仅可查看详情'
   return ''
 })
-const canExecuteOutbound = computed(() => !outboundReadonlyReason.value && !submitting.value)
+const canExecuteOutbound = computed(() => !outboundReadonlyReason.value && !submitting.value && !withdrawing.value)
 const isExecutableInboundHead = (head: any) =>
   String(head.applyType).toUpperCase() === 'IN' && String(head.status) === '1' &&
   ['PENDING', 'PARTIAL_EXECUTED'].includes(String(head.executeStatus).toUpperCase())
-const canExecuteInbound = computed(() => !loading.value && !loadError.value && !submitting.value &&
+const canExecuteInbound = computed(() => !loading.value && !loadError.value && !submitting.value && !withdrawing.value &&
   permission.hasPermission('mtl:goods:io') && isExecutableInboundHead(detail.value))
 const inboundReadonlyReason = computed(() => {
   if (loading.value) return '正在更新申请状态'
@@ -772,6 +765,10 @@ onLoad((query) => {
 </script>
 
 <style lang="scss" scoped>
+.cancel-apply-button { margin:0; padding:0 6px; min-height:44px; background:transparent; color:#b42318; font-size:13px; line-height:44px; }
+.cancel-apply-button::after { border:0; }
+.cancel-apply-button[disabled] { color:#909399; }
+
 .material-pagination {
   margin: 0 12px 16px;
   color: #555;

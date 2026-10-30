@@ -12,6 +12,7 @@
           </view>
 
           <template v-if="screen === 'create'">
+            <ReportDutyRoster />
             <view v-if="submitUncertain && !editingReport" class="error">上次提交结果未确认，请先查看报修列表，避免重复创建。<button class="btn" @click="resolveReportUncertainty">已核对列表，解除提交保护</button></view>
             <SectionCard title="关联信息">
               <view class="form-row"><text class="label">客户<text class="required">*</text></text>
@@ -56,6 +57,7 @@
           <template v-else-if="screen === 'reportCancel' && selected"><SectionCard title="取消报修"><text class="title">{{ selected.project }}</text><text class="muted">取消后保留报修记录，关闭相关待办，不再进入维修处理。此操作不经过维修关闭审批。</text><label class="field-label spaced" for="report-cancel-reason">取消原因<text class="required"> *</text></label><textarea id="report-cancel-reason" v-model="reportCancelReason" class="textarea" maxlength="1000" :disabled="submitting" placeholder="请说明取消报修的原因" /></SectionCard></template>
 
           <template v-else-if="['reports', 'records'].includes(screen)">
+            <button v-if="props.canManage && screen === 'records'" class="btn" @click="showRestAssignment = true">休息与转派</button>
             <view class="list-filters">
               <view class="search-row"><input v-model="searchDraft" class="input" aria-label="筛选已加载记录" placeholder="搜索已加载的客户、项目、报修人" confirm-type="search" @confirm="search" /><button class="search-button" @click="search">筛选</button></view>
               <view class="tabs" role="tablist"><button v-for="s in mainFilters" :key="s" role="tab" :aria-selected="filter === s" :class="{ active: filter === s }" @click="filter = s">{{ s }}</button></view>
@@ -95,6 +97,10 @@
               <text class="muted">{{ selected.orderId }} · 负责人：{{ selected.owner }}</text>
               <text v-if="!owner && !currentLog && !selected.actions.canStartWork && source !== 'reports'" class="readonly-note">按当前账号权限查看或办理</text>
             </view>
+            <SectionCard v-if="source !== 'reports'" title="维修记录">
+              <template #extra><button class="quotation-entry" @click="go('logList')">查看详情</button></template>
+              <view v-for="row in repairSummaryRows" :key="row.label" class="kv repair-summary-row"><text>{{ row.label }}</text><text :class="{ 'summary-missing': row.missing }">{{ row.value }}</text></view>
+            </SectionCard>
             <RepairCollaborationProgress ref="collaborationPanel" :detail="selected.raw" :actor-id="actor.id" :disabled="submitting || mutationBlocked" :manage="manageCollaboration" :action-error="error" @edit="openAssistance" @changed="collaborationChanged" />
             <SectionCard title="报修信息">
               <button class="report-row report-customer" aria-label="查看客户联系资料" @click="showContact = true"><text class="report-label">客户</text><text class="report-value">{{ selected.customer || '—' }}</text><wd-icon name="arrow-right" size="14px" /></button>
@@ -117,17 +123,6 @@
                 <text v-if="quotationLockedMessage" class="muted">{{ quotationLockedMessage }}</text>
                 <text v-else-if="selected.quotationStatus === 'UNDETERMINED'" class="muted">请选择是否需要报价；需要报价时一并填写报价明细。</text>
               </SectionCard>
-              <SectionCard title="维修汇总">
-                <template #extra><button class="quotation-entry" @click="go('logList')">查看详情</button></template>
-                <view v-for="row in repairSummaryRows" :key="row.label" class="kv repair-summary-row"><text>{{ row.label }}</text><text :class="{ 'summary-missing': row.missing }">{{ row.value }}</text></view>
-                <button class="fold-button" :aria-expanded="showSummaryNeeds" @click="showSummaryNeeds = !showSummaryNeeds">后端待补数据<wd-icon :name="showSummaryNeeds ? 'arrow-up' : 'arrow-down'" size="14px" /></button>
-                <view v-if="showSummaryNeeds" class="summary-needs">
-                  <text>整单参与人数：去重统计实际参与维修的人员，不是当前协助人数。</text>
-                  <text>整单维修次数、最近维修时间：由后端汇总，不能使用当前可见日志替代。</text>
-                  <text>累计维修工时：确认 effectiveDurationSeconds 是整单人工工时，并明确未签退及补卡的统计口径。</text>
-                  <text>人员日志分页：支持按维修单、人员查询；返回总条数、人员候选和每次日志摘要。</text>
-                </view>
-              </SectionCard>
               <RepairMaterialStatistics :key="selected.id" :order-id="selected.id" />
               <SectionCard v-if="selected.finalPrice != null" title="完工信息">
                 <view v-if="selected.finalPrice != null" class="kv"><text>最终维修价</text><text>¥{{ selected.finalPrice.toFixed(2) }}</text></view>
@@ -141,7 +136,7 @@
           <template v-else-if="screen === 'begin' && selected">
             <SectionCard title="开始本次作业">
               <text class="title">{{ selected.project }} · {{ selected.product }}</text>
-              <text class="field-label spaced">维修方式</text><view class="choices"><button v-for="mode in repairModes" :key="mode" class="choice" :class="{ on: beginMode === mode }" @click="beginMode = mode">{{ mode }}</button></view>
+              <template v-if="!isAssistantWork"><text class="field-label spaced">维修方式</text><view class="choices"><button v-for="mode in repairModes" :key="mode" class="choice" :class="{ on: beginMode === mode }" @click="beginMode = mode">{{ mode }}</button></view></template>
               <text class="muted">签到成功后才能填写本次维修日志。</text>
             </SectionCard>
             <SectionCard title="签到定位"><LocationPanel :location="clockLocation" :locating="locating" :status-label="clockLocation.status === 'NORMAL' ? '已定位' : ''" @refresh="refreshClockLocation" /></SectionCard>
@@ -153,24 +148,25 @@
               <text class="muted">选择提交完成：签退成功后填写完工申请，确认后再提交审批。选择需要复修：签退后返回维修详情。</text>
             </SectionCard>
             <SectionCard title="签退定位"><LocationPanel :location="clockLocation" :locating="locating" :status-label="clockLocation.status === 'NORMAL' ? '已定位' : ''" @refresh="refreshClockLocation" /></SectionCard>
-            <SectionCard title="忘记签退？"><text class="muted">已离开现场，可填写实际结束时间和原因办理补签退。</text><button class="btn" :disabled="submitting || workDetail?.actions?.canEnd !== true" @click="openBackfillCheckout">补签退</button></SectionCard>
+            <SectionCard v-if="!completionSubmitted" title="忘记签退？"><text class="muted">已离开现场，可填写实际结束时间和原因办理补签退。</text><button class="btn" :disabled="submitting || workDetail?.actions?.canEnd !== true" @click="openBackfillCheckout">补签退</button></SectionCard>
           </template>
           <template v-else-if="screen === 'logList' && selected">
             <view class="personnel-records">
-              <view class="personnel-filter"><text class="personnel-filter-label">维修人员</text><picker :range="repairLogPeople" range-key="label" :value="Math.max(0, repairLogPeople.findIndex(p => p.id === repairLogPerson))" @change="repairLogPerson = repairLogPeople[Number($event.detail.value)].id; repairLogsPage = 1"><view class="personnel-filter-value">{{ repairLogPeople.find(p => p.id === repairLogPerson)?.label || '全部人员' }}<wd-icon name="arrow-down" size="14px" /></view></picker></view>
-              <view class="personnel-list-meta"><text>当前可见 {{ filteredRepairLogs.length }} 条记录</text><text>最近维修优先</text></view>
+              <view class="personnel-filter"><text class="personnel-filter-label">签到日期</text><picker mode="date" :value="repairLogDate" @change="changeRepairLogDate($event.detail.value)"><view class="personnel-filter-value">{{ repairLogDate || '全部日期' }}<wd-icon name="arrow-down" size="14px" /></view></picker><button v-if="repairLogDate" class="log-date-clear" @click="changeRepairLogDate('')">清除</button></view>
+              <view class="personnel-list-meta"><text>{{ repairLogsLoading ? '正在查询…' : '共 ' + repairLogsTotal + ' 条记录' }}</text><text>最近签到优先</text></view>
+              <text v-if="repairLogsLoading" class="muted" role="status">正在加载维修日志…</text>
+              <view v-else-if="repairLogsError" class="personnel-empty"><text>{{ repairLogsError }}</text><button class="btn" @click="loadRepairLogs">重新加载</button></view>
                 <view v-for="log in pagedRepairLogs" :key="log.id" class="repair-log-item">
-                  <button class="repair-log-toggle" @click="toggleLog(log.id)">
+                  <button class="repair-log-toggle" :aria-label="'查看' + (log.people || '维修人员') + '的维修日志'" @click="toggleLog(log.id)">
                     <view class="repair-log-heading"><text class="repair-log-person">{{ log.people || '维修人员' }}</text><text class="repair-log-state" :class="{ 'is-active': !log.endedAt }">{{ logState(log.id) }}</text></view>
                     <text v-if="log.mode" class="repair-log-mode">{{ log.mode }}维修</text>
                     <view class="repair-log-clock"><view><text>打卡时间</text><text>{{ log.startedAt ? formatTime(log.startedAt) : '未记录' }} - {{ log.endedAt ? formatTime(log.endedAt) : '未签退' }}</text></view><view><text>维修时长</text><text>{{ repairLogDuration(log) }}</text></view></view>
-                    <view class="repair-log-description"><text class="repair-log-description-label">维修内容</text><text class="repair-log-summary">{{ log.description || '尚未填写维修内容' }}</text></view>
-                    <view class="repair-log-bottom"><view class="repair-log-link"><text>查看详情</text><wd-icon name="arrow-right" size="14px" /></view></view>
+                    <view class="repair-log-description"><text class="repair-log-description-label">维修内容</text><text class="repair-log-summary">{{ log.description || (workCache[log.id] ? '尚未填写维修内容' : '摘要未返回，点击查看详情') }}</text></view>
                   </button>
                 </view>
 
-              <view v-if="!filteredRepairLogs.length" class="personnel-empty"><text>暂无维修日志</text><text>可切换人员查看其他维修记录</text></view>
-              <view v-if="filteredRepairLogs.length" class="repair-log-pagination"><button :disabled="repairLogsPage <= 1" @click="repairLogsPage--; scrollToTop()">上一页</button><text>第 {{ repairLogsPage }} / {{ repairLogsPages }} 页</text><button :disabled="repairLogsPage >= repairLogsPages" @click="repairLogsPage++; scrollToTop()">下一页</button></view>
+              <view v-if="!repairLogsLoading && !repairLogsError && !pagedRepairLogs.length" class="personnel-empty"><text>暂无维修日志</text><text>{{ repairLogDate ? '可清除签到日期查看其他记录' : '当前工单暂无可见的维修记录' }}</text></view>
+              <view v-if="!repairLogsError && repairLogsTotal" class="repair-log-pagination"><button :disabled="repairLogsLoading || repairLogsPage <= 1" @click="repairLogsPage--; scrollToTop()">上一页</button><text>{{ repairLogsPage }} / {{ repairLogsPages }} · 每页 10 条</text><button :disabled="repairLogsLoading || repairLogsPage >= repairLogsPages" @click="repairLogsPage++; scrollToTop()">下一页</button></view>
             </view>
           </template>
 
@@ -178,11 +174,19 @@
             <text v-if="logDetailLoading" class="muted">正在加载维修日志…</text>
             <button v-else-if="!viewedWork" class="btn" @click="toggleLog(expandedLogId)">重新加载日志</button>
             <template v-else>
-              <view class="log-detail-heading"><view class="repair-log-heading"><text class="log-detail-title">{{ viewedSummary?.people || '维修人员' }}</text><text class="repair-log-state" :class="{ 'is-active': viewedWork.recordStatus === 'ACTIVE' }">{{ logState(expandedLogId) }}</text></view><text class="muted">{{ viewedSummary?.mode ? viewedSummary.mode + '维修' : '维修日志' }}</text></view>
+              <view class="log-detail-heading"><view class="repair-log-heading"><text class="log-detail-title">{{ viewedWork.operatorNameSnapshot || viewedSummary?.people || '维修人员' }}</text><text class="repair-log-state" :class="{ 'is-active': viewedWork.recordStatus === 'ACTIVE' }">{{ logState(expandedLogId) }}</text></view><view class="log-detail-meta"><text class="log-detail-role">{{ viewedWorkRole }}</text><text class="muted">{{ viewedSummary?.mode ? viewedSummary.mode + '维修' : '维修日志' }}</text></view></view>
               <SectionCard title="打卡信息">
-                <view class="kv"><text>签到时间</text><text>{{ formatReportedAt(viewedWork.effectiveStartedAt || viewedWork.rawStartedAt) }}</text></view>
-                <view class="kv"><text>签退时间</text><text>{{ viewedWork.effectiveEndedAt || viewedWork.rawEndedAt ? formatReportedAt(viewedWork.effectiveEndedAt || viewedWork.rawEndedAt) : '未签退' }}</text></view>
-                <view class="kv"><text>本次时长</text><text>{{ viewedWork.recordStatus === 'ACTIVE' ? '进行中' : viewedWork.durationSeconds != null ? `${(Number(viewedWork.durationSeconds) / 3600).toFixed(2)}h` : '未记录' }}</text></view>
+                <view class="log-clock-section" :class="{ 'log-clock-abnormal': viewedClock.signInAbnormal }">
+                  <view class="repair-log-heading"><text class="field-label">签到信息</text><text :class="{ 'log-clock-alert': viewedClock.signInAbnormal || viewedClock.signInName.includes('位置异常') }">{{ viewedClock.signInName }}</text></view>
+                  <view class="kv"><text>签到时间</text><text>{{ formatReportedAt(viewedRecordInfo.effectiveStartedAt || viewedRecordInfo.rawStartedAt) }}</text></view>
+                </view>
+                <view class="log-clock-section" :class="{ 'log-clock-abnormal': viewedClock.signOutAbnormal }">
+                  <view class="repair-log-heading"><text class="field-label" :class="{ 'log-clock-alert': viewedClock.corrected }">{{ viewedClock.corrected ? '补签退信息' : '签退信息' }}</text><text :class="{ 'log-clock-alert': viewedClock.corrected || viewedClock.signOutAbnormal || viewedClock.signOutName.includes('位置异常') }">{{ viewedClock.signOutName }}</text></view>
+                  <view class="kv"><text>{{ viewedClock.corrected ? '实际签退时间' : '签退时间' }}</text><text>{{ viewedRecordInfo.effectiveEndedAt || viewedRecordInfo.rawEndedAt ? formatReportedAt(viewedRecordInfo.effectiveEndedAt || viewedRecordInfo.rawEndedAt) : viewedRecordInfo.signOutStatus === 'NOT_SIGNED_OUT' ? '未签退' : '未记录' }}</text></view>
+                  <view v-if="viewedClock.corrected" class="kv"><text class="log-clock-alert">补签退说明</text><text>{{ viewedClock.correctionDescription }}</text></view>
+                </view>
+                <view v-if="viewedClock.generalReason" class="log-clock-note"><text>打卡说明：{{ viewedClock.generalReason }}</text></view>
+                <view class="kv"><text>本次时长</text><text>{{ viewedWork.recordStatus === 'ACTIVE' ? '进行中' : viewedWork.durationSeconds != null ? (Number(viewedWork.durationSeconds) / 3600).toFixed(2) + 'h' : '未记录' }}</text></view>
               </SectionCard>
               <SectionCard title="维修内容">
                 <template v-if="viewedWork.workRole !== 'COLLABORATOR' && viewedWork.faultDescription"><text class="field-label">故障描述</text><text class="description">{{ viewedWork.faultDescription }}</text></template>
@@ -192,7 +196,7 @@
               <RepairLogResources v-if="viewedWork.workRole !== 'COLLABORATOR'" :detail="selected.raw" :record-id="expandedLogId" :work-detail="viewedWork" :hide-empty="true" />
             </template>
           </template>
-          <template v-else-if="screen === 'log' && selected && currentLog">
+          <template v-else-if="screen === 'log' && selected && currentLog && workDetail?.formStatus !== 'SUBMITTED'">
             <view v-if="!isAssistantWork" class="log-pagination">
               <text class="muted">第 {{ logPage + 1 }} 页 / 共 3 页</text>
               <view class="log-pagination__steps"><view v-for="(label, index) in logPages" :key="label" class="log-pagination__step" :class="{ on: index === logPage, done: index < logPage }"><text class="log-pagination__dot">{{ index + 1 }}</text><text>{{ label }}</text></view></view>
@@ -212,13 +216,10 @@
             </SectionCard>
             <SectionCard title="维修记录">
               <label for="repair-description" class="field-label">维修内容<text class="required">*</text></label><textarea id="repair-description" v-model="currentLog.description" class="textarea" maxlength="10000" placeholder="填写本次完成的维修工作" />
-              <template v-if="!isAssistantWork">
               <text class="field-label spaced">维修照片<text class="required">*</text></text>
               <text class="muted">至少上传 1 张照片或 1 段视频；含已上传附件最多 6 张照片、2 个视频。</text>
-              <ReportAttachments v-model:photos="currentLog.photos" v-model:videos="currentLog.videos" :existing-photos="recordFiles(currentLog.id).filter(f => f.mediaType === 'IMAGE').length" :existing-videos="recordFiles(currentLog.id).filter(f => f.mediaType === 'VIDEO').length" compact @busy="mediaBusy = $event" />
-              <RepairServerAttachments :files="recordFiles(currentLog.id)" />
-              <view v-for="file in recordFiles(currentLog.id)" :key="file.fileId" class="kv"><text>{{ file.fileNameSnapshot || file.fileId }}</text><button class="btn btn--text" @click="currentLog.fileIds = currentLog.fileIds.filter(id => id !== file.fileId)">移除附件</button></view>
-              </template>
+              <ReportAttachments v-model:photos="currentLog.photos" v-model:videos="currentLog.videos" photo-watermark :existing-photos="recordFiles(currentLog.id).filter(f => f.mediaType === 'IMAGE').length" :existing-videos="recordFiles(currentLog.id).filter(f => f.mediaType === 'VIDEO').length" compact @busy="mediaBusy = $event" />
+              <RepairServerAttachments :files="recordFiles(currentLog.id)" editable :disabled="submitting || mediaBusy" @remove="currentLog.fileIds = currentLog.fileIds.filter(id => id !== $event)" />
             </SectionCard>
             </view>
             <view v-show="!isAssistantWork && logPage === 2">
@@ -230,25 +231,37 @@
           <template v-else-if="screen === 'quote' && selected && canFillQuotation">
             <SectionCard title="报价设置">
               <view class="quotation-context"><text>{{ selected.project || '未关联项目' }}</text><text>{{ selected.product || '未填写产品' }}</text></view>
-              <view class="quotation-switch"><button :class="{active: quoteRequired}" :aria-pressed="quoteRequired" :disabled="quotationDecisionOnly" @click="quoteRequired = true">需要报价</button><button :class="{active: !quoteRequired}" :aria-pressed="!quoteRequired" @click="quoteRequired = false">无需报价</button></view>
+              <view class="quotation-switch"><button :class="{active: quoteRequired}" :aria-pressed="quoteRequired" @click="quoteRequired = true">需要报价</button><button :class="{active: !quoteRequired}" :aria-pressed="!quoteRequired" @click="quoteRequired = false">无需报价</button></view>
               <view class="quotation-field" v-if="!quoteRequired"><label for="no-quote-reason" class="field-label">无需报价原因<text class="required"> *</text></label><textarea id="no-quote-reason" v-model="noQuoteReason" class="textarea quotation-textarea" placeholder="请说明无需报价的原因" maxlength="500" /></view>
               <view class="quotation-field" v-else><label for="quote-scope" class="field-label">故障及维修范围<text class="required"> *</text></label><textarea id="quote-scope" v-model="faultScope" class="textarea quotation-textarea" placeholder="请描述本次报价包含的故障与维修工作" maxlength="10000" /></view>
               <text class="quotation-note">{{ quoteRequired ? '提交后由负责人所属部门主管、市场主管依次审批，通过后登记客户确认。' : '登记后，已有未完成的报价流程将终止，历史记录保留。' }}</text>
             </SectionCard>
             <SectionCard v-if="quoteRequired" title="报价明细">
               <template #extra><text class="quotation-count">共 {{ quoteDraft.length }} 项</text></template>
-              <view v-for="(item, i) in quoteDraft" :key="i" class="quotation-item">
-                <view class="quotation-item-head"><label :for="`item-${i}`" class="field-label">项目 {{ i + 1 }}<text class="required"> *</text></label><button :disabled="quoteDraft.length === 1" :aria-label="`删除报价项目${i + 1}`" @click="quoteDraft.splice(i, 1)">删除</button></view>
-                <input :id="`item-${i}`" v-model="item.name" class="input" maxlength="120" placeholder="请输入报价项目名称" />
-                <view class="quotation-inputs"><view><label :for="`qty-${i}`" class="field-label">数量<text class="required"> *</text></label><input :id="`qty-${i}`" v-model.number="item.qty" type="digit" class="input" placeholder="数量" /></view><view><label :for="`price-${i}`" class="field-label">单价（元）<text class="required"> *</text></label><input :id="`price-${i}`" v-model.number="item.price" type="digit" class="input" placeholder="允许 0 元" /></view></view>
-                <view class="quotation-subtotal"><text>小计</text><text>¥{{ Number.isFinite(Number(item.qty) * Number(item.price)) ? (Number(item.qty) * Number(item.price)).toFixed(2) : '—' }}</text></view>
-              </view>
-              <button class="quotation-add" :disabled="quoteDraft.length >= 200" @click="quoteDraft.push({ name: '', qty: 1, price: 0 })"><wd-icon name="add" size="16px" /> 添加报价项目</button>
+              <RepairQuotationItems v-model="quoteDraft" :disabled="submitting" @busy="mediaBusy = $event" />
               <view class="quotation-total"><text>报价合计</text><text>¥{{ Number.isFinite(quoteTotal(quoteDraft)) ? quoteTotal(quoteDraft).toFixed(2) : '—' }}</text></view>
             </SectionCard>
           </template>
 
-          <template v-else-if="['customer', 'completion', 'approval'].includes(screen) && selected && (selected.actions.canViewRepairDetail || (screen === 'approval' && reviewTasks.length))">
+          <template v-else-if="screen === 'customer' && selected && selected.actions.canViewRepairDetail">
+            <SectionCard title="维修信息">
+              <view class="kv"><text>项目</text><text>{{ selected.project || '—' }}</text></view>
+              <view class="kv"><text>客户</text><text>{{ selected.customer || '—' }}</text></view>
+              <view class="kv"><text>产品</text><text>{{ selected.product || '—' }}</text></view>
+            </SectionCard>
+            <SectionCard title="报价明细">
+              <view v-for="(item, index) in selected.quoteItems" :key="index" class="customer-quote-line"><text class="customer-quote-name">{{ item.name }}</text><view class="customer-quote-values"><text>{{ item.qty }} × ¥{{ item.price.toFixed(2) }}</text><text>¥{{ (Math.round(item.qty * item.price * 100) / 100).toFixed(2) }}</text></view></view>
+              <text v-if="!selected.quoteItems.length" class="muted">暂无报价明细</text>
+              <view class="customer-quote-total"><text>报价合计</text><text>{{ customerQuoteAmount == null ? '—' : '¥' + customerQuoteAmount.toFixed(2) }}</text></view>
+            </SectionCard>
+            <SectionCard title="客户确认价格">
+              <label for="customer-repair-price" class="field-label">客户确认维修价格（元）<text class="required"> *</text></label>
+              <view class="customer-price-input"><text>¥</text><input id="customer-repair-price" v-model="priceInput" type="digit" :disabled="submitting" placeholder="请输入确认金额" /></view>
+              <text class="customer-price-hint">默认带入本次报价合计，可按客户确认的金额修改，允许 0 元。</text>
+              <template v-if="customerPriceChanged"><label for="customer-price-reason" class="field-label spaced">金额变更原因<text class="required"> *</text></label><textarea id="customer-price-reason" v-model="customerPriceRemark" class="textarea" :disabled="submitting" maxlength="1000" placeholder="请说明与审批通过的报价金额不一致的原因" /></template>
+            </SectionCard>
+          </template>
+          <template v-else-if="['completion', 'approval'].includes(screen) && selected && (selected.actions.canViewRepairDetail || (screen === 'approval' && reviewTasks.length))">
             <SectionCard :title="title">
               <picker v-if="screen === 'approval' && reviewTaskOptions.length > 1" :range="reviewTaskOptions" range-key="label" :disabled="submitting || !!mergedPending" @change="selectReviewTask"><view class="picker-value">{{ reviewTask ? (reviewTask.task.departmentName || reviewTask.task.name) : '请选择待办审批任务' }} · 共 {{ reviewTaskOptions.length }} 项</view></picker>
               <template v-if="isCollaborationApproval">
@@ -268,17 +281,25 @@
                 <view v-for="row in approvalFormRows" :key="row[0]" class="kv"><text>{{ row[0] }}</text><text>{{ row[1] }}</text></view>
               </template>
               <template v-if="!isCollaborationApproval">
-              <view class="kv"><text>项目 / 产品</text><text>{{ selected.project }} / {{ selected.product }}</text></view>
+              <view v-if="screen === 'approval'" class="kv"><text>报修信息</text><button class="link" :disabled="submitting || !!mergedPending" @click="openApprovalReport">查看报修单</button></view>
+              <view v-else class="completion-project"><text class="completion-project-name">{{ selected.project }}</text><text class="completion-product">维修产品：{{ selected.product || '—' }}</text></view>
               <view class="kv"><text>报价状态</text><text>{{ quotationText(selected.quotationStatus) }}</text></view>
+              <view v-if="screen === 'completion' && selected.quoteItems.length" class="completion-quotes">
+                <text class="completion-section-title">报价明细</text>
+                <view v-for="(item, i) in selected.quoteItems" :key="i" class="customer-quote-line"><text class="customer-quote-name">{{ item.name }}</text><view class="customer-quote-values"><text>{{ item.qty }} × ¥{{ item.price.toFixed(2) }}</text><text>小计 ¥{{ (Math.round(item.qty * item.price * 100) / 100).toFixed(2) }}</text></view></view>
+                <view class="customer-quote-total"><text>报价合计</text><text>¥{{ (customerQuoteAmount ?? quoteTotal(selected.quoteItems)).toFixed(2) }}</text></view>
+              </view>
+              <template v-if="screen !== 'completion'">
               <view v-for="(item, i) in selected.quoteItems" :key="i" class="kv"><text>{{ item.name }}</text><text>{{ item.qty }} × ¥{{ item.price }}</text></view>
               <view v-if="selected.quoteItems.length" class="kv"><text>报价合计</text><text>¥{{ quoteTotal(selected.quoteItems).toFixed(2) }}</text></view>
+              </template>
               <view v-if="selected.confirmedPrice != null" class="kv"><text>客户确认价</text><text>¥{{ selected.confirmedPrice.toFixed(2) }}</text></view>
               </template>
               <template v-if="!isCollaborationApproval && (screen === 'completion' || selected.completion === '待审批')">
-                <view class="kv"><text>累计维修时长</text><text>{{ (Number(selected.raw.order.effectiveDurationSeconds || 0) / 3600).toFixed(2) }}h</text></view>
+                <view class="kv completion-duration"><text>累计维修时长</text><text>{{ (Number(selected.raw.order.effectiveDurationSeconds || 0) / 3600).toFixed(2) }}h</text></view>
                 <text class="muted">提交时由后端核验作业、报价、物料是否全部结清。</text>
               </template>
-              <template v-if="screen === 'customer' || (screen === 'completion' && completionNeedsPrice)"><label for="repair-price" class="field-label spaced">{{ screen === 'customer' ? '客户确认维修价格' : '最终维修价格' }}（元）<text class="required">*</text></label><input id="repair-price" v-model="priceInput" class="input" type="digit" placeholder="请输入价格，允许 0 元" /></template>
+              <view v-if="screen === 'completion' && completionNeedsPrice" class="completion-price"><label for="repair-price" class="field-label">最终维修价格（元）<text class="required"> *</text></label><view class="customer-price-input"><text>¥</text><input id="repair-price" v-model="priceInput" :disabled="submitting" type="digit" placeholder="请输入最终金额" /></view><text class="customer-price-hint">默认带入客户确认价；如有调整，请填写价格变更原因。</text></view>
               <template v-if="screen === 'completion'">
                 <template v-if="completionMissingQuotation">
                   <text class="field-label spaced">是否需要报价<text class="required"> *</text></text>
@@ -340,17 +361,18 @@
         <view class="workflow-bottom__inner"><button v-for="op in footerActions" :key="op.text" class="footer-btn" :class="{ primary: op.primary }" :disabled="mediaBusy || submitting || op.disabled" @click="op.action">{{ submitting ? '正在提交…' : op.text }}</button><button v-if="canShowMore" class="footer-btn footer-more" :aria-expanded="showMore" @click="showMore = true">更多 <wd-icon name="arrow-up" size="14px" /></button></view>
       </view>
     </PageLayout>
+    <wd-popup v-if="props.canManage" v-model="showRestAssignment" position="bottom" :z-index="12000" :safe-area-inset-bottom="true" custom-style="height:92vh;border-radius:16px 16px 0 0;"><view style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px"><text>休息与转派</text><button style="margin:0;font-size:14px;min-height:44px" @click="showRestAssignment=false">关闭</button></view><scroll-view scroll-y style="height:calc(92vh - 70px)"><RestAssignment v-if="showRestAssignment" /></scroll-view></wd-popup>
     <wd-popup v-model="showBackfillCheckout" position="bottom" :z-index="12000" :close-on-click-modal="false" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;">
       <view class="more-sheet contact-sheet">
-        <view class="sheet-head"><text>补签退</text><button aria-label="关闭补签退" @click="showBackfillCheckout = false"><wd-icon name="close" size="18px" /></button></view>
+        <view class="sheet-head"><text>补签退</text><button aria-label="关闭补签退" :disabled="submitting" @click="showBackfillCheckout = false"><wd-icon name="close" size="18px" /></button></view>
         <text class="muted">填写实际签退时间和未及时签退原因</text>
         <view class="kv"><text>签到时间</text><text>{{ formatTime(backfillCheckoutMin) }}</text></view>
-        <wd-datetime-picker v-model="backfillCheckoutTime" label="实际签退时间" type="datetime" :min-date="backfillCheckoutMin" :max-date="backfillCheckoutMax" :use-second="true" required :z-index="13000" :root-portal="true" :safe-area-inset-bottom="true" />
+        <wd-datetime-picker v-model="backfillCheckoutTime" :disabled="submitting" label="实际签退时间" type="datetime" :min-date="backfillCheckoutMin" :max-date="backfillCheckoutMax" :use-second="true" required :z-index="13000" :root-portal="true" :safe-area-inset-bottom="true" />
         <label for="repair-backfill-reason" class="field-label spaced">未及时签退原因<text class="required"> *</text></label>
-        <textarea id="repair-backfill-reason" v-model="backfillCheckoutReason" class="textarea" maxlength="500" placeholder="请如实填写未及时签退的原因" />
-        <text class="muted spaced">补签退不走审批。新接口尚未接通，当前仅可填写，暂不能提交生效。</text>
+        <textarea id="repair-backfill-reason" v-model="backfillCheckoutReason" :disabled="submitting" class="textarea" maxlength="500" placeholder="请如实填写未及时签退的原因" />
+        <text class="muted spaced">补签退不走审批，按实际结束时间计算本次维修时长。</text>
         <text v-if="backfillCheckoutError" class="backfill-error" role="alert">{{ backfillCheckoutError }}</text>
-        <view class="backfill-actions"><button class="btn" @click="showBackfillCheckout = false">取消</button><button class="btn" @click="submitBackfillCheckout">确认补签退</button></view>
+        <view class="backfill-actions"><button class="btn" :disabled="submitting" @click="showBackfillCheckout = false">取消</button><button class="btn" :disabled="submitting || mutationBlocked" @click="submitBackfillCheckout">{{ submitting ? '正在补签退…' : '确认补签退' }}</button></view>
       </view>
     </wd-popup>
     <wd-popup v-model="showQuoteDetails" position="bottom" :z-index="12000" :close-on-click-modal="!submitting" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;">
@@ -361,13 +383,13 @@
         <template v-if="selected.quotationStatus === 'NOT_REQUIRED'"><text class="field-label spaced">无需报价原因</text><text class="description">{{ latestQuotation.noQuoteReason || '—' }}</text></template>
         <template v-else>
           <text v-if="latestQuotation.faultScope" class="description">{{ latestQuotation.faultScope }}</text>
-          <view v-for="(item, i) in selected.quoteItems" :key="i" class="kv"><text>{{ item.name }}</text><text>{{ item.qty }} × ¥{{ item.price }}</text></view>
+          <RepairQuotationTable :items="selected.quoteItems" />
           <view class="kv"><text>报价合计</text><text>¥{{ Number(latestQuotation.totalAmount ?? quoteTotal(selected.quoteItems)).toFixed(2) }}</text></view>
           <view v-if="selected.confirmedPrice != null" class="kv"><text>客户确认价</text><text>¥{{ selected.confirmedPrice.toFixed(2) }}</text></view>
         </template>
         <text v-if="selected.quoteReason" class="description">审批意见：{{ selected.quoteReason }}</text>
         <button v-if="canEditQuotationDetails" class="btn" :disabled="submitting || mutationBlocked" @click="editQuotationDetails">修改报价</button>
-        <button v-if="canSwitchToNoQuotation" class="btn" :disabled="submitting || mutationBlocked" @click="switchToNoQuotation">改为无需报价</button>
+        <text v-if="quotationAwaitingWithdrawal" class="description">报价已提交，改为无需报价须先撤回。{{ canWithdrawQuotation ? '撤回成功后可重新选择。' : '当前状态不允许撤回，暂不能修改报价决定。' }}</text>
         <button v-if="canWithdrawQuotation" class="btn" :disabled="submitting || mutationBlocked" @click="withdrawQuotation">{{ submitting ? '正在撤回…' : '撤回修改' }}</button>
         <text v-if="error" class="quotation-error">{{ error }}</text>
       </view>
@@ -386,12 +408,17 @@
         <view v-for="group in moreGroups" :key="group.title" class="more-group"><text class="more-label">{{ group.title }}</text><view class="more-items"><button v-for="op in group.items" :key="op.text" :disabled="op.disabled" @click="runMore(op)">{{ op.text }}<wd-icon name="arrow-right" size="14px" /></button></view></view>
       </view>
     </wd-popup>
+    <RepairApprovalPopup ref="quotationApprovalPopup" @processed="quotationApprovalProcessed" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import dayjs from 'dayjs'
+import { approvalRows } from '@/service/repairApproval'
+import RepairApprovalPopup from './RepairApprovalPopup.vue'
+import { isWorkSelf, repairOutsources, restoreRepairPeople } from '@/service/repairWorkPeople'
+import { repairAttachment, repairEventContent, repairLogContent } from '@/service/repairPresentation'
 import { useUserStore } from '@/store/user'
 import RepairMaterialStatistics from './RepairMaterialStatistics.vue'
 import { canChangeRepairQuotation, quotationLockReason } from '@/service/repairQuotationAccess'
@@ -399,6 +426,9 @@ import { readOperationsUsers } from '@/service/operationsMembership'
 import { repairOrderApi, repairCaseView, repairReportPayload, uploadRepairAttachment } from '@/service/repairOrder'
 import PageLayout from '@/components/PageLayout/PageLayout.vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
+import ReportDutyRoster from './ReportDutyRoster.vue'
+import RestAssignment from './RestAssignment.vue'
+const showRestAssignment = ref(false)
 import LocationPanel from '../LocationPanel.vue'
 import ReportAttachments from './ReportAttachments.vue'
 import RepairServerAttachments from './RepairServerAttachments.vue'
@@ -406,10 +436,13 @@ import OpsPreviewInspection from './OpsPreviewInspection.vue'
 import RepairAssistanceForm from './RepairAssistanceForm.vue'
 import RepairMaterialForm from './RepairMaterialForm.vue'
 import RepairWorkResources from './RepairWorkResources.vue'
+import RepairQuotationItems from '@/pages/home/components/RepairQuotationItems.vue'
+import RepairQuotationTable from '@/pages/home/components/RepairQuotationTable.vue'
 import { workMaterialItems, materialItemsPayload } from '@/service/repairWorkMaterials'
 import RepairLogResources from './RepairLogResources.vue'
 import RepairAdditionalForm from './RepairAdditionalForm.vue'
 import { canAdditional, repairActionTitles, type RepairAdditionalKind } from '@/service/repairAdditional'
+import { repairClockDisplay, repairCompletionSubmitted } from '@/service/repairWorkDisplay'
 import { type MaterialLine } from './repairView'
 import RepairCollaborationProgress from './RepairCollaborationProgress.vue'
 import ApprovalReuseInfo from './ApprovalReuseInfo.vue'
@@ -419,14 +452,19 @@ import { availableAssignments, collaborationPayload, repairReviewTasks, collabor
 import { loadRepairQuotationDictionary, repairQuotationText } from '@/service/repairQuotationDictionary'
 import { isOwner, quoteTotal, waitText, type RepairRole, type RepairCase, type ReportDraft, type QuoteLine } from './repairView'
 const quotationOptions = ref<any[]>([])
-const quotationText = (value: unknown) => repairQuotationText(value, quotationOptions.value)
+const quotationText = (value: unknown) => {
+  if (['HEAD_REVIEW', 'GM_REVIEW'].includes(String(value))) {
+    return '报价审批中'
+  }
+  return repairQuotationText(value, quotationOptions.value)
+}
 let quotationLoad = 0
 async function loadQuotationDictionary() {
   const generation = ++quotationLoad
   try { const rows = await loadRepairQuotationDictionary(); if (generation === quotationLoad) quotationOptions.value = rows }
   catch { if (generation === quotationLoad) quotationOptions.value = [] }
 }
-const props = defineProps<{ canManage: boolean }>()
+const props = defineProps<{ canManage: boolean; directDetail?: boolean }>()
 const emit = defineEmits<{ close: []; 'role-change': [role: RepairRole] }>()
 type Screen = 'logList' | 'logDetail' | 'reportCancel' | 'additional' | 'checkout' | 'begin' | 'create' | 'reports' | 'records' | 'detail' | 'log' | 'quote' | 'customer' | 'completion' | 'approval' | 'exception' | 'inspection' | 'assistance' | 'materials'
 const additionalKind=ref<RepairAdditionalKind>('withdraw')
@@ -522,7 +560,7 @@ function installWork(data: any) {
   workDetail.value = data
   const summary = selected.value?.logs.find(l => l.id === data.recordId)
   workDraft.value = {...summary,id:data.recordId,startedAt:Date.parse(data.effectiveStartedAt || data.rawStartedAt),fault:data.faultDescription || '',description:data.repairDescription || '',photos:[],videos:[],
-    fileIds:[...(data.fileIds || [])],persons:(data.persons || []).map((p:any) => ({...p})),vehicleValue:data.vehicleValue ?? null,materialItems:workMaterialItems(data,selected.value?.raw || {},data.recordId)}
+    fileIds:[...(data.fileIds || [])],persons:restoreRepairPeople(data,selected.value?.raw.members || []).filter((p:any) => !isWorkSelf(p, actor.value.id) && !isWorkSelf(p, selected.value?.ownerId)),vehicleValue:data.vehicleValue ?? null,materialItems:workMaterialItems(data,selected.value?.raw || {},data.recordId)}
 }
 async function openWork(recordId?: string, target: 'log' | 'checkout' = 'log') {
   if (workLoading.value) return
@@ -531,17 +569,32 @@ async function openWork(recordId?: string, target: 'log' | 'checkout' = 'log') {
   try {
     const data = await repairOrderApi.workDetail(orderId,recordId)
     if (generation !== workGeneration || orderId !== selectedId.value) return
-    if (target === 'checkout' && data.actions?.canEnd !== true) throw new Error('当前日志不可签退，请重新查看详情')
-    installWork(data); go(target)
+    if (target === 'checkout' && (data.actions?.canEnd !== true || completionSubmitted.value)) throw new Error('当前日志不可签退，请重新查看详情')
+    installWork(data)
+    if (data.formStatus === 'SUBMITTED' && target === 'log') {
+      if (data.actions?.canEnd === true && !completionSubmitted.value) go('checkout')
+      else await toggleLog(data.recordId)
+    } else go(target)
   } catch (e:any) { error.value = e.message || '维修日志加载失败' }
   finally { if (generation === workGeneration) workLoading.value = false }
 }
 const logDetailLoading = ref(false)
 let logDetailGeneration = 0
 const viewedWork = computed(() => workCache.value[expandedLogId.value])
-const viewedSummary = computed(() => selected.value?.logs.find(l => l.id === expandedLogId.value))
+const viewedSummary = computed(() => pagedRepairLogs.value.find(l => l.id === expandedLogId.value) || selected.value?.logs.find(l => l.id === expandedLogId.value))
+// 分页返回打卡状态；详情只覆盖实际提供的字段，不能用缺省值抹掉同条日志的信息。
+const viewedRecordInfo = computed(() => {
+  const record = repairLogRecords.value.find(r => r.id === expandedLogId.value) || {}
+  return { ...record, ...Object.fromEntries(Object.entries(viewedWork.value || {}).filter(([,value]) => value != null)) } as Record<string, any>
+})
+const viewedWorkRole = computed(() => {
+  const record = viewedRecordInfo.value
+  return record.workRoleName || ({ RESPONSIBLE: '维修负责人', OWNER: '维修负责人', COLLABORATOR: '内协人员' } as Record<string,string>)[record.operatorRole || record.workRole] || '未记录'
+})
+const viewedClock = computed(() => repairClockDisplay(viewedRecordInfo.value))
+const completionSubmitted = computed(() => repairCompletionSubmitted(selected.value?.raw))
 function logState(id: string) {
-  const record = workCache.value[id] || selected.value?.raw.workRecords?.find((r:any) => r.id === id) || {}
+  const record = workCache.value[id] || repairLogRecords.value.find(r => r.id === id) || selected.value?.raw.workRecords?.find((r:any) => r.id === id) || {}
   return record.recordStatus === 'PENDING_CORRECTION' ? '待补卡' : record.recordStatus === 'ENDED' ? '已签退' : record.formStatus === 'SUBMITTED' ? '已提交' : record.formStatus === 'DRAFT' ? '草稿' : '进行中'
 }
 async function toggleLog(id: string) {
@@ -575,13 +628,32 @@ function updateResources(detail: any) {
 // Non-owner work is available only when the server grants start permission or
 // returns this user's own active record; list scope alone never grants access.
 const isAssistantWork = computed(() => workDetail.value ? workDetail.value.workRole === 'COLLABORATOR' : !!selected.value && !owner.value && selected.value.actions.canStartWork === true)
-const repairLogPerson = ref(''), repairLogsPage = ref(1), showSummaryNeeds = ref(false)
-const repairLogPeople = computed(() => [{id:'',label:'全部人员'}, ...Array.from(new Map((selected.value?.logs || []).filter(l => l.actorId).map(l => [l.actorId,{id:l.actorId,label:l.people || '姓名未返回'}])).values())])
-const filteredRepairLogs = computed(() => [...(selected.value?.logs || [])].filter(l => !repairLogPerson.value || l.actorId === repairLogPerson.value).sort((a,b) => (Number(b.startedAt) || 0) - (Number(a.startedAt) || 0)))
-const repairLogsPages = computed(() => Math.max(1,Math.ceil(filteredRepairLogs.value.length / 5)))
-const pagedRepairLogs = computed(() => filteredRepairLogs.value.slice((repairLogsPage.value-1)*5,repairLogsPage.value*5))
-watch(repairLogsPages, pages => { repairLogsPage.value=Math.min(repairLogsPage.value,pages) })
-watch(selectedId, () => { repairLogPerson.value='';repairLogsPage.value=1;showSummaryNeeds.value=false })
+const repairLogDate = ref(''), repairLogsPage = ref(1), repairLogsTotal = ref(0)
+const repairLogRecords = ref<any[]>([]), repairLogsLoading = ref(false), repairLogsError = ref('')
+let repairLogsGeneration = 0
+const pagedRepairLogs = computed(() => repairCaseView({order:{id:selectedId.value || '_'},workRecords:repairLogRecords.value}).logs)
+const repairLogsPages = computed(() => Math.max(1,Math.ceil(repairLogsTotal.value / 10)))
+async function loadRepairLogs() {
+  const generation = ++repairLogsGeneration, orderId = selectedId.value
+  repairLogRecords.value = []; repairLogsError.value = ''; repairLogsLoading.value = true
+  try {
+    const result = await repairOrderApi.workPage(orderId,repairLogsPage.value,10,repairLogDate.value)
+    if (generation !== repairLogsGeneration || orderId !== selectedId.value || screen.value !== 'logList') return
+    if (!Array.isArray(result?.records) || result.total == null || !Number.isFinite(Number(result.total)) || Number(result.total) < 0) throw new Error('维修日志分页响应不完整')
+    if (result.records.some((record:any) => !record.id || record.orderId && String(record.orderId) !== String(orderId))) throw new Error('维修日志与当前工单不匹配')
+    repairLogRecords.value = result.records
+    repairLogsTotal.value = Number(result.total)
+    if (repairLogsPage.value > repairLogsPages.value) repairLogsPage.value = repairLogsPages.value
+  } catch (e:any) { if (generation === repairLogsGeneration) repairLogsError.value = e.message || '维修日志读取失败，请重试' }
+  finally { if (generation === repairLogsGeneration) repairLogsLoading.value = false }
+}
+function changeRepairLogDate(date:string) { repairLogDate.value = date; repairLogsPage.value = 1 }
+watch(selectedId, () => { ++repairLogsGeneration; repairLogDate.value='';repairLogsPage.value=1;repairLogRecords.value=[];repairLogsTotal.value=0 })
+onBeforeUnmount(() => { ++repairLogsGeneration })
+watch(() => [screen.value,selectedId.value,repairLogDate.value,repairLogsPage.value], () => {
+  if (screen.value === 'logList' && selectedId.value) void loadRepairLogs()
+  else { ++repairLogsGeneration; repairLogsLoading.value=false }
+})
 const repairSummaryRows = computed(() => {
   const c=selected.value
   const seconds=c?.raw.order.effectiveDurationSeconds
@@ -590,9 +662,6 @@ const repairSummaryRows = computed(() => {
     {label:'维修状态',value:c?.state || '—',missing:false},
     {label:'维修人',value:c?.owner || '—',missing:false},
     {label:'累计维修工时',value:hasDuration ? (Number(seconds)/3600).toFixed(2)+'h' : '待接口提供',missing:!hasDuration},
-    {label:'参与人数',value:'待接口提供',missing:true},
-    {label:'维修次数',value:'待接口提供',missing:true},
-    {label:'最近维修时间',value:'待接口提供',missing:true},
   ]
 })
 const canViewSelected = computed(() => !!selected.value)
@@ -601,7 +670,7 @@ function recordFiles(id: string) {
   const detail = workCache.value[id]
   if (!detail) return []
   const ids = workDraft.value?.id === id && ['log','checkout'].includes(screen.value) ? workDraft.value.fileIds : detail.fileIds
-  return (ids || []).map((fileId:string) => detail.files?.find((f:any) => f.fileId === fileId) || {fileId,fileNameSnapshot:'已保存附件（类型待后端核验）'})
+  return (ids || []).map((fileId:string) => repairAttachment(detail.files?.find((f:any) => f.fileId === fileId) || {fileId,fileNameSnapshot:'已保存附件（类型未返回）'}))
 }
 const events = ref<{id:string;operator:string;time:string;action:string;content:string}[]>([]), eventTotal = ref(0), eventLoading = ref(false)
 const eventError = ref('')
@@ -614,7 +683,7 @@ async function loadEvents() {
   try {
     const result = await repairOrderApi.logs(id,eventPage + 1,20)
     if (id !== selectedId.value) return
-    events.value.push(...(result.records || []).map((r:any) => ({id:r.id,operator:r.operatorName || '系统',time:formatReportedAt(r.occurredAt),action:r.eventName || '处理动态',content:r.content || ''})))
+    events.value.push(...(result.records || []).map((r:any) => ({id:r.id,operator:r.operatorName || '系统',time:formatReportedAt(r.occurredAt),action:r.eventName || '处理动态',content:repairEventContent(r.content)})))
     eventTotal.value = result.total; eventPage++
   } catch (e: any) { if (id === selectedId.value) eventError.value = e.message || '处理日志加载失败' }
   finally { eventLoading.value = false }
@@ -630,27 +699,59 @@ const showBackfillCheckout = ref(false)
 const backfillCheckoutTime = ref(Date.now()), backfillCheckoutMin = ref(0), backfillCheckoutMax = ref(Date.now())
 const backfillCheckoutReason = ref(''), backfillCheckoutError = ref('')
 function openBackfillCheckout() {
+  if (completionSubmitted.value) { error.value = '已提交完工，不可再补签退'; return }
   if (submitting.value || screen.value !== 'checkout' || !currentLog.value || workDetail.value?.actions?.canEnd !== true) return
   const start = currentLog.value.startedAt, now = Date.now()
   if (!Number.isFinite(start) || start > now) { error.value = '签到时间异常，请重新加载本次日志'; return }
   backfillCheckoutMin.value = start; backfillCheckoutMax.value = now; backfillCheckoutTime.value = now
   backfillCheckoutReason.value = ''; backfillCheckoutError.value = ''; showBackfillCheckout.value = true
 }
-function submitBackfillCheckout() {
+async function submitBackfillCheckout() {
   if (!showBackfillCheckout.value || submitting.value) return
+  if (completionSubmitted.value) { backfillCheckoutError.value = '已提交完工，不可再补签退'; return }
+  if (mutationBlocked.value) { backfillCheckoutError.value = '上次操作结果需要核对，请返回列表重新打开详情'; return }
   if (screen.value !== 'checkout' || !currentLog.value || workDetail.value?.actions?.canEnd !== true) { backfillCheckoutError.value = '当前记录不可补签退，请重新查看日志'; return }
   const time = Number(backfillCheckoutTime.value)
   if (!Number.isFinite(time) || time < backfillCheckoutMin.value || time > Date.now()) { backfillCheckoutError.value = '实际签退时间须在签到时间至当前时间之间'; return }
   if (!backfillCheckoutReason.value.trim()) { backfillCheckoutError.value = '请填写未及时签退原因'; return }
-  // 待后端提供直接补签退契约；禁止以普通签退或补卡审批接口代替。
-  backfillCheckoutError.value = '补签退接口尚未接通，填写内容尚未提交，也未改变签退状态。'
+  if (!isAssistantWork.value && !checkoutNext.value) { backfillCheckoutError.value = '请先选择提交完成或需要复修'; return }
+  const orderId = selectedId.value, recordId = currentLog.value.id
+  const wantsCompletion = !isAssistantWork.value && checkoutNext.value === 'completion'
+  submitting.value = true; backfillCheckoutError.value = ''
+  let submitted = false
+  try {
+    const latestOrder = await repairOrderApi.detail(orderId)
+    if (repairCompletionSubmitted(latestOrder)) throw new Error('已提交完工，不可再补签退')
+    // Re-read before writing so an already completed record is never submitted again.
+    let record = await repairOrderApi.workDetail(orderId,recordId)
+    if (String(record.recordId) !== String(recordId)) throw new Error('维修记录不匹配，请重新打开日志')
+    if (record.recordStatus !== 'ENDED') {
+      if (record.actions?.canEnd !== true) throw new Error('请先正式提交维修日志，或刷新核对签退权限')
+      await repairOrderApi.clockCorrection({orderId,recordId,effectiveEndedAt:dayjs(time).format('YYYY-MM-DD HH:mm:ss'),reason:backfillCheckoutReason.value.trim()})
+      submitted = true
+      record = await repairOrderApi.workDetail(orderId,recordId)
+    }
+    if (String(record.recordId) !== String(recordId) || record.recordStatus !== 'ENDED') {
+      throw new Error('补签退已提交，但本次作业尚未结束。请联系管理员确认后端已启用免审批补签退，勿重复提交。')
+    }
+    submitted = true
+    await refreshSelected()
+    workDetail.value = null; workDraft.value = null
+    events.value = []; eventPage = 0; eventTotal.value = 0; showEvents.value = false
+    showBackfillCheckout.value = false; go('detail')
+    message.value = '补签退成功'; uni.showToast({title:'补签退成功',icon:'success'})
+    if (wantsCompletion && owner.value && !terminal.value && selected.value?.actions.canOwnerApply && selected.value.actions.canViewRepairDetail) openForm('completion')
+  } catch (e:any) {
+    mutationBlocked.value = submitted || e.uncertain === true
+    backfillCheckoutError.value = submitted ? (e.message?.includes('尚未结束') ? e.message : '补签退已提交，但结果刷新失败。请返回列表重新查看，勿重复提交。') : e.uncertain ? '补签退结果尚未确认，请返回列表重新查看，勿重复提交。' : e.message || '补签退失败，请稍后重试'
+  } finally { submitting.value = false }
 }
 watch(() => [screen.value, selectedId.value, currentLog.value?.id], () => { showBackfillCheckout.value = false; backfillCheckoutError.value = '' })
 watch(() => currentLog.value?.id, () => { checkoutNext.value = '' })
 const clockNow = ref(Date.now())
 function repairLogDuration(log: { id: string; endedAt?: number }) {
   if (!log.endedAt) return '进行中'
-  const seconds = selected.value?.raw.workRecords?.find((record: any) => record.id === log.id)?.durationSeconds
+  const seconds = repairLogRecords.value.find(record => record.id === log.id)?.durationSeconds ?? selected.value?.raw.workRecords?.find((record: any) => record.id === log.id)?.durationSeconds
   return seconds != null && seconds !== '' && Number.isFinite(Number(seconds)) && Number(seconds) >= 0 ? `${(Number(seconds) / 3600).toFixed(2)}h` : '未提供'
 }
 const timer = setInterval(() => { clockNow.value = Date.now() }, 60000)
@@ -712,6 +813,11 @@ const applicationNames: Record<string,string> = {QUOTATION:'报价审批',COLLAB
 const approvalDecision = ref<'approve'|'reject'|''>('')
 const chosenReviewTaskId = ref('')
 const reviewTasks = computed(() => repairReviewTasks(selected.value?.raw || {}))
+const quotationApprovalPopup = ref<InstanceType<typeof RepairApprovalPopup>>()
+async function quotationApprovalProcessed() {
+  try { await refreshSelected() }
+  catch { error.value = '审批已提交，维修单刷新失败，请重新打开详情' }
+}
 const reviewTask = computed(() => chosenReviewTaskId.value ? reviewTasks.value.find((r:any)=>r.task.id===chosenReviewTaskId.value) : reviewTasks.value[0])
 const isCollaborationApproval = computed(() => screen.value === 'approval' && reviewTask.value?.application.applicationType === 'COLLABORATION')
 const isInternalCollaborationApproval = computed(() => isCollaborationApproval.value && Array.isArray(reviewTask.value?.application.formData?.departments) && reviewTask.value?.application.formData?.personType !== 'EXTERNAL')
@@ -742,7 +848,7 @@ function toggleReviewMember(departmentId:string,userId:string){
   reviewChosen.value={...reviewChosen.value,[departmentId]:ids.includes(userId)?ids.filter(id=>id!==userId):[...ids,userId]}
 }
 const reviewTaskOptions = computed(() => reviewTasks.value.map((r:any)=>({...r,label:`${applicationNames[r.application.applicationType] || '审批'} · ${r.task.departmentName || r.task.name}`})))
-function selectReviewTask(event:any){ chosenReviewTaskId.value=reviewTaskOptions.value[Number(event.detail.value)]?.task.id || '';approvalReason.value='';approvalDecision.value='' }
+function selectReviewTask(event:any){ chosenReviewTaskId.value=reviewTaskOptions.value[Number(event.detail.value)]?.task.id || '';approvalReason.value='';approvalDecision.value='';if(reviewTask.value?.application.applicationType==='QUOTATION'){go('detail');openForm('approval')} }
 watch(selectedId,()=>{chosenReviewTaskId.value='';approvalReason.value='';approvalDecision.value=''})
 const reviewDepartments = computed(() => Array.isArray(reviewTask.value?.application.formData?.departments) ? reviewTask.value!.application.formData.departments : [])
 async function collaborationChanged(){try{await refreshSelected();message.value='内协人员已指定入组';uni.showToast({title:'人员指定成功',icon:'success',duration:2000})}catch(e:any){error.value='人员已指定，详情刷新失败，请重新打开详情核对'}}
@@ -750,9 +856,14 @@ const approvalFormRows = computed(() => {
   if (reviewTask.value?.application.applicationType === 'COLLABORATION') return []
   const form = reviewTask.value?.application.formData
   if (!form || typeof form !== 'object') return []
-  const labels: Record<string,string> = {reason:'申请原因',description:'说明',finalAmount:'最终金额',amountChangeReason:'金额变化原因',targetUserId:'目标人员ID',personType:'协助类别',sourcePersonId:'协助人员/单位ID',roleId:'角色ID',closeType:'关闭类型',quotationMode:'报价方式',noQuoteReason:'无需报价原因',scope:'适用范围',items:'申请明细'}
-  return Object.entries(form).filter(([key]) => !['requestId','version','orderId','fileIds','departments','members','opsResult','assignmentStatus'].includes(key)).map(([key,value]) => [labels[key] || key,typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')])
+  return approvalRows({snapshot:{form}}, {fields:[{key:'form',name:'申请内容'}]}).filter(row => !/^(?:报修产品|产品)(?:\s*\d+)?$/.test(row.label.trim()) && !(row.label === '申请原因' && row.value === reviewTask.value?.application.reason)).map(row => [row.label,row.value])
 })
+let approvalReportNextOpenAt = 0
+function openApprovalReport() {
+  if (!selectedId.value || submitting.value || mergedPending.value || Date.now() < approvalReportNextOpenAt) return
+  approvalReportNextOpenAt = Date.now() + 1000
+  uni.navigateTo({url:`/pages/ops/repairDetail?id=${encodeURIComponent(selectedId.value)}`,fail:()=>{approvalReportNextOpenAt=0;uni.showToast({title:'报修单打开失败，请重试',icon:'none'})}})
+}
 const exceptionType = ref<'转单' | '关闭'>('转单'), exceptionReason = ref(''), exceptionRemark = ref('')
 const exceptionReasons = computed(() => exceptionType.value === '关闭' ? ['客户弃修', '不是问题', '其他'] : ['个人问题', '病假'])
 watch(exceptionType, () => { exceptionReason.value = ''; exceptionRemark.value = '' })
@@ -765,6 +876,18 @@ function scheduleList() {
 }
 function go(target: Screen) { if (!['reports', 'records'].includes(target)) { ++listGeneration; listBusy.value = false }; error.value = ''; message.value = ''; screen.value = target; showMore.value = false; scrollToTop(); if (target === 'create') { editingReport.value='';retainedReportFiles.value=[];reportChangeReason.value='';Object.assign(draft,emptyDraft());selectedProducts.value=[];customer.value=undefined;project.value=undefined;reportTimestamp.value = Date.now(); void loadOptions() }; if (['reports', 'records'].includes(target)) scheduleList() }
 function back() {
+  if (props.directDetail && screen.value === 'detail' && !submitting.value && !showQuoteDetails.value && !showContact.value && !showMore.value) { emit('close'); return }
+  // The home workbench keeps this component mounted. Hidden form/popup state
+  // must not consume a list-level back action on the next visit.
+  if (['reports', 'records', 'inspection'].includes(screen.value)) {
+    if (submitting.value) { uni.showToast({title:'正在提交，请稍候',icon:'none'}); return }
+    ++listGeneration; ++detailGeneration; ++workGeneration; ++logDetailGeneration
+    listBusy.value=false;loading.value=false;workLoading.value=false;logDetailLoading.value=false
+    showQuoteDetails.value=false;showContact.value=false;showMore.value=false;showSettings.value=false
+    mediaBusy.value=false
+    emit('close')
+    return
+  }
   if (showQuoteDetails.value) { if (!submitting.value) showQuoteDetails.value = false; return }
   if (showContact.value) { showContact.value = false; return }
   if (submitting.value || mediaBusy.value) { uni.showToast({title:'正在处理，请稍候',icon:'none'}); return }
@@ -773,19 +896,21 @@ function back() {
   if(screen.value==='create' && editingReport.value){editingReport.value='';retainedReportFiles.value=[];go('detail');return}
   if (['detail', 'create'].includes(screen.value)) { go(source.value === 'detail' ? 'reports' : source.value); selectedId.value = '' }
   else if (screen.value === 'logDetail') go('logList')
-  else if (['reports', 'records', 'inspection'].includes(screen.value)) emit('close')
   else go('detail')
 }
 function resetFilters() { searchDraft.value = ''; query.value = ''; filter.value = '全部'; pendingOnly.value = false; relation.value = '我负责的'; page.value = 0; if (['reports', 'records'].includes(screen.value)) scheduleList() }
 function search() { query.value = searchDraft.value.trim() }
 function openHomeEntry(entry: 'reports' | 'records' | 'inspection') {
   void loadQuotationDictionary()
-  ++detailGeneration
+  ++detailGeneration; ++workGeneration; ++logDetailGeneration
+  loading.value=false;workLoading.value=false;logDetailLoading.value=false
+  showQuoteDetails.value=false;showContact.value=false;showMore.value=false;mediaBusy.value=false
   const target = entry === 'records' && actor.value.role === 'reporter' ? 'reports' : entry
   source.value = target; selectedId.value = ''; resetFilters(); showSettings.value = false; go(target)
 }
-async function openOrder(id: string, target?: RepairTodoTarget) {
+async function openOrder(id: string, target?: RepairTodoTarget, quotation = false) {
   const loaded=await openCase({ id } as RepairCase)
+  if (loaded && quotation && selectedId.value === id) { openQuotationEntry(); return }
   if(!loaded || !target || selectedId.value!==id || target.orderId!==id)return
   await nextTick()
   if(selectedId.value!==id || screen.value!=='detail')return
@@ -1040,29 +1165,44 @@ async function saveLog(draftOnly = false) {
   const log = currentLog.value
   const detail = workDetail.value
   if (!log || detail?.recordId !== log.id) throw new Error('请重新打开维修日志获取当前权限')
-  const updating = detail.formStatus === 'SUBMITTED'
-  const permission = draftOnly ? 'canSaveDraft' : updating ? 'canUpdate' : 'canSubmit'
+  if (detail.formStatus === 'SUBMITTED') throw new Error('维修日志已提交，不可修改；仅可在提交完工前补充签退')
+  const permission = draftOnly ? 'canSaveDraft' : 'canSubmit'
   if (detail.actions?.[permission] !== true) throw new Error('当前记录不可执行此操作，请重新打开日志')
   if (!draftOnly && !log.description.trim()) invalid('请填写维修内容')
-  if (!draftOnly && (log.description.length > 10000 || log.fault.length > 10000)) invalid('故障描述和维修内容最多各 10000 字符')
+  if (!draftOnly && (log.description.length > 10000 || !isAssistantWork.value && log.fault.length > 10000)) invalid('维修内容及负责人故障描述最多各 10000 字符')
   if (!draftOnly && !isAssistantWork.value && !log.fault.trim()) invalid('请填写故障描述')
   const old = recordFiles(log.id)
   const photoCount = old.filter((a: any) => a.mediaType === 'IMAGE').length + log.photos.length
   const videoCount = old.filter((a: any) => a.mediaType === 'VIDEO').length + log.videos.length
-  if (!draftOnly && !isAssistantWork.value && !old.length && !photoCount && !videoCount) invalid('请上传至少 1 张维修照片或 1 段视频')
+  if (!draftOnly && !photoCount && !videoCount) invalid('请上传至少 1 张维修照片或 1 段视频')
   if (!draftOnly && (photoCount > 6 || videoCount > 2)) invalid('维修照片最多 6 张、视频最多 2 个（含已上传附件）')
+  if (isAssistantWork.value) {
+    const payload = {orderId:selectedId.value,recordId:log.id,repairDescription:log.description.trim(),
+      fileIds:[...new Set([...log.fileIds,...await files(log.photos),...await files(log.videos)])]}
+    return draftOnly ? repairOrderApi.saveDraft(payload) : repairOrderApi.submitWork(payload)
+  }
+  if (!draftOnly && !isAssistantWork.value) {
+    for (const [flag,type,label] of [['hasInternalParticipants','INTERNAL','内协人员'],['hasExternalParticipants','EXTERNAL','外协单位']]) {
+      if (log[flag] && !log.persons.some((p:any) => p.personType === type)) {
+        logPage.value = 2; scrollToTop(); throw new Error(`请选择本次实际参与的${label}，或将参与选项改为“否”`)
+      }
+    }
+  }
   let materialItems:any[]
+  let outsources:any[]
   try {
-    materialItems = materialItemsPayload(log.materialItems || [],draftOnly,selected.value?.raw || {},actor.value.id,log.id,updating ? workMaterialItems(detail,selected.value?.raw || {},log.id) : [])
+    outsources = repairOutsources(log.persons,selected.value?.raw.members || [],draftOnly)
+    materialItems = materialItemsPayload(log.materialItems || [],draftOnly,selected.value?.raw || {},actor.value.id,log.id,[])
   } catch (e:any) { logPage.value = 2; scrollToTop(); throw e }
   const payload = {orderId:selectedId.value,recordId:log.id,
     faultDescription:log.fault.trim(),repairDescription:log.description.trim(),
     fileIds:[...new Set([...log.fileIds,...await files(log.photos),...await files(log.videos)])],
-    persons:log.persons.map((p:any) => ({personType:p.personType,sourcePersonId:p.sourcePersonId})),vehicleValue:log.vehicleValue || null,materialItems}
-  return draftOnly ? repairOrderApi.saveDraft(payload) : updating ? repairOrderApi.updateWork(payload) : repairOrderApi.submitWork(payload)
+    persons:log.persons.filter((p:any) => !isWorkSelf(p, actor.value.id) && !isWorkSelf(p, selected.value?.ownerId)).map((p:any) => ({personType:p.personType,sourcePersonId:p.sourcePersonId})),outsources,vehicleValue:log.vehicleValue || null,materialItems}
+  return draftOnly ? repairOrderApi.saveDraft(payload) : repairOrderApi.submitWork(payload)
 }
 async function endWork() {
   const wantsCompletion = !isAssistantWork.value && checkoutNext.value === 'completion'
+  if (completionSubmitted.value) { error.value = '已提交完工，不可再签退'; return }
   if (!isAssistantWork.value && !checkoutNext.value) { error.value = '请选择提交完成或需要复修'; return }
   const success = await transact(async () => {
     const position = location()
@@ -1077,11 +1217,31 @@ async function endWork() {
   }
 }
 function submitLogForCheckout() { void transact(() => saveLog(), workDetail.value?.recordStatus === 'ENDED' ? 'detail' : 'checkout') }
+const customerQuoteAmount = computed(() => {
+  const current = selected.value
+  if (!current) return null
+  const quotation = current.raw.quotations?.find((q: any) => q.id === current.raw.order.latestQuotationId)
+  const total = quotation?.totalAmount
+  if (total != null && String(total).trim() !== '' && Number.isFinite(Number(total)) && Number(total) >= 0) return Number(total)
+  if (!current.quoteItems.length || current.quoteItems.some(item => !Number.isFinite(item.qty) || !Number.isFinite(item.price))) return null
+  return quoteTotal(current.quoteItems)
+})
+const customerPriceRemark = ref('')
+const customerPriceChanged = computed(() => customerQuoteAmount.value != null && /^\d+(\.\d{1,2})?$/.test(priceInput.value.trim()) && Math.round(Number(priceInput.value) * 100) !== Math.round(customerQuoteAmount.value * 100))
 function openForm(target: Screen) {
+  if (target === 'approval' && reviewTask.value?.application.applicationType === 'QUOTATION') {
+    const current = reviewTask.value
+    showMore.value = false
+    void quotationApprovalPopup.value?.open(String(current.workflow.id), {
+      orderId:selectedId.value, applicationId:current.application.id, taskId:current.task.id,
+    })
+    return
+  }
   if (target === 'quote') { if (!canFillQuotation.value) return; quoteRequired.value = selected.value?.raw.order.quotationRequired !== false; noQuoteReason.value = '' }
   if (target === 'completion') { completionDescription.value = ''; amountChangeReason.value = '' }
-  quoteDraft.value = selected.value?.quoteItems.length ? selected.value.quoteItems.map(i => ({ ...i })) : [{ name: '', qty: 1, price: 0 }]
-  priceInput.value = target === 'customer' ? '' : selected.value?.confirmedPrice == null ? '' : String(selected.value.confirmedPrice)
+  if (target === 'customer') customerPriceRemark.value = ''
+  quoteDraft.value = selected.value?.quoteItems.length ? selected.value.quoteItems.map(i => ({ ...i })) : []
+  priceInput.value = target === 'customer' ? (customerQuoteAmount.value == null ? '' : customerQuoteAmount.value.toFixed(2)) : selected.value?.confirmedPrice == null ? '' : String(selected.value.confirmedPrice)
   approvalReason.value = ''; approvalDecision.value=''; go(target)
   faultScope.value = selected.value?.fault || ''
 }
@@ -1089,7 +1249,10 @@ function amount() { if (!/^\d+(\.\d{1,2})?$/.test(priceInput.value.trim())) thro
 function confirmPrice() { void transact(async () => {
   const quotation = selected.value!.raw.quotations?.find((q: any) => q.id === selected.value!.raw.order.latestQuotationId && q.stage === 'WAIT_CUSTOMER')
   if (!quotation) throw new Error('当前没有待客户确认的报价，请刷新')
-  return repairOrderApi.customerPrice({orderId:selectedId.value,quotationId:quotation.id,amount:amount()})
+  const confirmedAmount = amount()
+  if (customerQuoteAmount.value == null) throw new Error('缺少审批通过的报价金额，请刷新后重试')
+  if (customerPriceChanged.value && !customerPriceRemark.value.trim()) throw new Error('请填写金额变更原因')
+  return repairOrderApi.customerPrice({orderId:selectedId.value,quotationId:quotation.id,amount:confirmedAmount,...(customerPriceChanged.value ? {remark:customerPriceRemark.value.trim()} : {})})
 }) }
 function complete() { void transact(async () => {
   if (completionMissingQuotation.value && completionQuotationChoice.value !== false) throw new Error('请选择是否需要报价；需要报价请先填写报价单')
@@ -1145,8 +1308,7 @@ async function review(approved: boolean) {
 }
 function sendQuotation() { void transact(async () => {
   if (!canFillQuotation.value) throw new Error('当前不能修改报价决定，请刷新核对')
-  if (quotationDecisionOnly.value && quoteRequired.value) throw new Error('当前报价只能改为无需报价，修改明细请先撤回')
-  if (quoteRequired.value && ['HEAD_REVIEW', 'GM_REVIEW'].includes(selected.value?.quotationStatus || '')) throw new Error('报价正在审批中，不可重复提交；如不再需要报价，可选择无需报价')
+  if (quotationAwaitingWithdrawal.value) throw new Error('报价已提交，请先撤回后再修改报价决定或明细')
   if (quoteRequired.value && !faultScope.value.trim()) throw new Error('请填写故障范围')
   if (!quoteRequired.value && !noQuoteReason.value.trim()) throw new Error('请填写无需报价原因')
   if (quoteRequired.value && (!quoteDraft.value.length || quoteDraft.value.length > 200 || quoteDraft.value.some(i => !i.name.trim() || !/^\d+(\.\d{1,3})?$/.test(String(i.qty)) || Number(i.qty) <= 0 || !/^\d+(\.\d{1,2})?$/.test(String(i.price))))) throw new Error('请检查报价名称、数量和单价，明细须为 1 至 200 项')
@@ -1189,12 +1351,7 @@ async function withdrawQuotation() {
 }
 const quotationLockedMessage = computed(() => quotationLockReason(selected.value?.raw || {}))
 const canFillQuotation = computed(() => canChangeRepairQuotation(selected.value?.raw || {}))
-const quotationDecisionOnly = computed(() => ['HEAD_REVIEW','GM_REVIEW','WAIT_CUSTOMER'].includes(selected.value?.raw.order.quotationStatus))
-const canSwitchToNoQuotation = computed(() => canFillQuotation.value && quotationDecisionOnly.value)
-function switchToNoQuotation() {
-  if (!canSwitchToNoQuotation.value || submitting.value || mutationBlocked.value) return
-  showQuoteDetails.value = false; openForm('quote'); quoteRequired.value = false
-}
+const quotationAwaitingWithdrawal = computed(() => ['HEAD_REVIEW','GM_REVIEW','WAIT_CUSTOMER'].includes(selected.value?.raw.order.quotationStatus))
 const canEditNoQuotation = computed(() => canFillQuotation.value && (selected.value?.raw.order.quotationRequired === false || selected.value?.quotationStatus === 'NOT_REQUIRED'))
 const quotationEntryText = computed(() => canEditNoQuotation.value ? '修改报价信息' : latestQuotation.value ? '查看详情' : canFillQuotation.value ? '办理报价' : '')
 const canEditQuotationDetails = computed(() => !!latestQuotation.value && canFillQuotation.value && !['HEAD_REVIEW','GM_REVIEW','WAIT_CUSTOMER','CONFIRMED'].includes(selected.value?.raw.order.quotationStatus))
@@ -1210,7 +1367,7 @@ function editQuotationDetails() {
   faultScope.value = latestQuotation.value?.faultScope || selected.value?.fault || ''
   noQuoteReason.value = latestQuotation.value?.noQuoteReason || ''
 }
-const canShowMore = computed(() => screen.value === 'detail' && source.value !== 'reports' && (selected.value?.actions.canEditReport === true || selected.value?.actions.canCancelReport === true || selected.value?.actions.canOwnerApply === true || canFillQuotation.value || additionalActions.value.length>0))
+const canShowMore = computed(() => screen.value === 'detail' && source.value !== 'reports' && (selected.value?.actions.canEditReport === true || selected.value?.actions.canCancelReport === true || selected.value?.actions.canOwnerApply === true || canFillQuotation.value || additionalActions.value.length>0 || !!currentLog.value || reviewTasks.value.length>0 || selected.value?.actions.canStartWork === true))
 const footerActions = computed<FooterAction[]>(() => {
   const c = selected.value
   const primary = (text: string, action: () => void): FooterAction[] => [{ text, action, primary: true }]
@@ -1221,7 +1378,7 @@ const footerActions = computed<FooterAction[]>(() => {
   if (screen.value === 'logDetail') {
     if (logDetailLoading.value || !viewedWork.value) return []
     const actions = viewedWork.value.actions || {}
-    return [...(actions.canSaveDraft || actions.canSubmit || actions.canUpdate ? [{text:'编辑本次日志',action:()=>{void openWork(expandedLogId.value)},disabled:workLoading.value}] : []), ...(actions.canEnd ? [{text:'去签退',action:()=>{void openWork(expandedLogId.value,'checkout')},primary:true,disabled:workLoading.value}] : [])]
+    return [...(viewedWork.value.formStatus !== 'SUBMITTED' && (actions.canSaveDraft || actions.canSubmit) ? [{text:'编辑本次日志',action:()=>{void openWork(expandedLogId.value)},disabled:workLoading.value}] : []), ...(actions.canEnd && !completionSubmitted.value ? [{text:'去签退',action:()=>{void openWork(expandedLogId.value,'checkout')},primary:true,disabled:workLoading.value}] : [])]
   }
   if (screen.value === 'additional') return additionalActions.value.includes(additionalKind.value) ? [{text:additionalKind.value==='evaluation'?'提交评价':additionalKind.value==='clockCorrection'?'提交审批':'确认提交',action:()=>additionalForm.value?.submit(),primary:true,disabled:mutationBlocked.value}] : []
   if (screen.value === 'detail') {
@@ -1229,7 +1386,7 @@ const footerActions = computed<FooterAction[]>(() => {
     if (source.value === 'reports') return [...(c.actions.canCancelReport ? [{text:'取消报修',action:openReportCancel}]:[]),...(c.actions.canEditReport ? [{text:'修改报修',action:()=>{void editReport()},primary:true}]:[]),...(c.actions.canViewRepairDetail ? primary('维修详情', () => { source.value = 'records'; scrollToTop() }) : [])]
     if (reviewTask.value) return primary('办理审批', () => openForm('approval'))
     if (c.actions.canEvaluate) return primary('回访评价',()=>openAdditional('evaluation'))
-    if (currentLog.value) return [{text:'继续填写日志',action:() => { void openWork(currentLog.value.id) },primary:true,disabled:workLoading.value}]
+    if (currentLog.value) return [{text:'继续本次作业',action:() => { void openWork(currentLog.value.id) },primary:true,disabled:workLoading.value}]
     if (c.actions.canOwnerApply && c.quotationStatus === 'WAIT_CUSTOMER') return primary('客户确认维修', () => openForm('customer'))
     if (c.actions.canStartWork) return primary(isAssistantWork.value ? '填写维修日志' : c.logs.length ? '继续维修' : '开始维修', startWork)
     return []
@@ -1245,18 +1402,18 @@ const footerActions = computed<FooterAction[]>(() => {
   }
   if (screen.value === 'approval' && reviewTask.value) return [{ text: '驳回', action: () => review(false) }, { text: '审批通过', action: () => review(true), primary: true }]
   if (screen.value === 'begin' && c.actions.canStartWork) return [{text:'签到打卡',action:beginWork,primary:true,disabled:locating.value || clockLocation.value.status !== 'NORMAL'}]
-  if (screen.value === 'checkout' && currentLog.value) return [{text:'返回修改日志',action:() => go('log')}, {text:'确认并签退',action:endWork,primary:true,disabled:workDetail.value?.actions?.canEnd !== true || locating.value || clockLocation.value.status !== 'NORMAL' || (!isAssistantWork.value && !checkoutNext.value)}]
+  if (screen.value === 'checkout' && currentLog.value) return [{text:'返回维修详情',action:() => go('detail')}, {text:'确认并签退',action:endWork,primary:true,disabled:completionSubmitted.value || workDetail.value?.actions?.canEnd !== true || locating.value || clockLocation.value.status !== 'NORMAL' || (!isAssistantWork.value && !checkoutNext.value)}]
   if (screen.value === 'log' && currentLog.value) {
     const blocked = mediaBusy.value || resourceBusy.value
-    if (workDetail.value?.actions?.canEnd && !workDetail.value?.actions?.canUpdate) return [{text:'去签退',action:() => go('checkout'),primary:true,disabled:blocked}]
+    if (workDetail.value?.formStatus === 'SUBMITTED') return workDetail.value?.actions?.canEnd && !completionSubmitted.value ? [{text:'去签退',action:() => go('checkout'),primary:true,disabled:blocked}] : []
     if (!isAssistantWork.value) return [
       ...(logPage.value > 0 ? [{text:'上一步',action:() => changeLogPage(logPage.value - 1),disabled:blocked}] : []),
       ...(logPage.value < 2 ? [{text:'下一步',action:() => changeLogPage(logPage.value + 1),primary:true,disabled:blocked}] : [
         ...(workDetail.value?.actions?.canSaveDraft ? [{text:'保存草稿',action:() => { void transact(() => saveLog(true), 'log') },disabled:blocked}] : []),
-        ...(workDetail.value?.actions?.canSubmit || workDetail.value?.actions?.canUpdate ? [{text:workDetail.value.recordStatus === 'ENDED' ? '保存修改' : '提交日志，去签退',action:submitLogForCheckout,primary:true,disabled:blocked}] : []),
+        ...(workDetail.value?.actions?.canSubmit ? [{text:'提交日志，去签退',action:submitLogForCheckout,primary:true,disabled:blocked}] : []),
       ]),
     ]
-    return [...(workDetail.value?.actions?.canSaveDraft ? [{text:'保存草稿',action:() => { void transact(() => saveLog(true), 'log') }}] : []), ...(workDetail.value?.actions?.canSubmit || workDetail.value?.actions?.canUpdate ? primary(workDetail.value.recordStatus === 'ENDED' ? '保存修改' : '提交日志，去签退', submitLogForCheckout) : [])]
+    return [...(workDetail.value?.actions?.canSaveDraft ? [{text:'保存草稿',action:() => { void transact(() => saveLog(true), 'log') }}] : []), ...(workDetail.value?.actions?.canSubmit ? primary('提交日志，去签退', submitLogForCheckout) : [])]
   }
   if (screen.value === 'quote') return canFillQuotation.value ? primary(quoteRequired.value ? '提交报价审批' : '登记无需报价', sendQuotation) : []
   if (!owner.value || terminal.value || !c.actions.canOwnerApply) return []
@@ -1278,6 +1435,8 @@ const moreGroups = computed(() => {
   const c = selected.value
   if (!c || !canShowMore.value) return []
   const work: FooterAction[] = [...footerActions.value]
+  if (currentLog.value && !work.some(op => op.text === '继续本次作业')) work.push({text:'继续本次作业',action:()=>{void openWork(currentLog.value!.id)},disabled:workLoading.value})
+  if (c.actions.canOwnerApply && c.quotationStatus === 'WAIT_CUSTOMER' && !work.some(op=>op.text==='客户确认维修')) work.push({text:'客户确认维修',action:()=>openForm('customer')})
   if (!currentLog.value && c.actions.canStartWork && !work.some(op => op.text === '继续维修' || op.text === '开始维修')) work.push({ text: '再开始一次维修', action: startWork })
   if (c.actions.canOwnerApply) work.push({text:'提交完工',action:() => openForm('completion')})
   if(c.actions.canEditReport)work.push({text:'修改报修',action:()=>{void editReport()}})
@@ -1295,6 +1454,7 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 
 <style scoped lang="scss">
 @use './preview.scss';
+.log-date-clear { margin:0; padding:0 10px; min-height:44px; line-height:44px; font-size:13px; color:#176ac7; background:transparent; }
 .backfill-actions { display: flex; gap: 12px; margin-top: 20px; }
 .backfill-actions .btn { flex: 1; min-height: 44px; }
 .backfill-error { display: block; margin-top: 12px; color: #b42318; font-size: 14px; line-height: 1.6; }
@@ -1359,6 +1519,11 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 .quotation-total > text:last-child { color:#1769c2; font-size:22px; font-weight:600; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .log-detail-heading { display:flex; flex-direction:column; gap:8px; padding:18px 16px; margin:12px; background:#fff; border-radius:12px; }
 .log-detail-title { font-size:20px; font-weight:600; line-height:1.5; color:#303133; overflow-wrap:anywhere; }
+.log-detail-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+.log-detail-role { font-size:13px; color:#176ac7; }
+.log-clock-section + .log-clock-section { margin-top:12px; padding-top:16px; border-top:1px solid #edf0f3; }
+.log-clock-section.log-clock-abnormal text { color:#b42318; }
+.log-clock-note { margin-top:12px; color:#606266; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
 .repair-log-item { margin-bottom:12px; background:#fff; border-radius:12px; }
 .repair-log-item:last-child { border-bottom:0; }
 .repair-log-toggle { display:block; width:100%; margin:0; padding:16px; background:transparent; text-align:left; line-height:1.6; border-radius:12px; }
@@ -1369,7 +1534,6 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 .repair-log-state.is-active { color:#176ac7; background:#edf5ff; }
 .repair-log-time { display:block; color:#536176; font-size:14px; margin-top:4px; }
 .repair-log-summary { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; color:#303133; font-size:15px; margin-top:8px; overflow-wrap:anywhere; }
-.repair-log-link { display:flex; align-items:center; gap:4px; color:#176ac7; font-size:13px; }
 .repair-log-content { padding:0 0 16px; }
 .repair-log-toggle:focus-visible { outline:2px solid #176ac7; outline-offset:2px; }
 .log-pagination { margin:12px 0; }
@@ -1485,8 +1649,6 @@ button[disabled] { opacity: .5; }
 .event-content { display:block; margin-top:4px; color:#606266; font-size:13px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
 .summary-missing { color:#767676; font-size:13px; }
 .repair-summary-row > text:first-child { width:112px; flex:0 0 112px; }
-.summary-needs { padding-top:8px; }
-.summary-needs text { display:block; margin-bottom:8px; font-size:13px; color:#606266; line-height:1.6; }
 .repair-log-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; font-size:13px; color:#606266; }
 .repair-log-pagination button { margin:0; min-height:44px; line-height:44px; padding:0 12px; font-size:13px; background:#edf5ff; color:#176ac7; }
 .repair-log-pagination button[disabled] { color:#777; background:#f5f5f5; }
@@ -1504,7 +1666,25 @@ button[disabled] { opacity: .5; }
 .repair-log-clock > view > text:last-child { min-width:0; overflow-wrap:anywhere; color:#303133; }
 .repair-log-description { border-top:1px solid #edf0f3; padding-top:8px; }
 .repair-log-description-label { display:block; font-size:13px; color:#606266; }
-.repair-log-bottom { display:flex; align-items:center; justify-content:flex-end; padding-top:12px; }
 .personnel-empty { display:flex; flex-direction:column; align-items:center; gap:8px; padding:36px 16px; background:#fff; border-radius:12px; color:#606266; font-size:14px; }
+.customer-quote-line { padding:12px 0; border-bottom:1px solid #edf0f3; }
+.completion-project { padding:4px 0 14px; }
+.completion-project-name { display:block; color:#303133; font-size:16px; font-weight:600; line-height:1.6; overflow-wrap:anywhere; }
+.completion-product { display:block; margin-top:8px; color:#606266; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+.completion-quotes { margin:16px 0; padding:16px 0; border-top:1px solid #edf0f3; border-bottom:1px solid #edf0f3; }
+.completion-section-title { display:block; font-size:15px; font-weight:600; color:#303133; }
+.completion-duration > text:first-child { width:112px; flex:0 0 112px; }
+.completion-price { margin-top:24px; padding-top:20px; border-top:1px solid #edf0f3; }
+.customer-quote-name { display:block; font-size:15px; line-height:1.6; overflow-wrap:anywhere; color:#303133; }
+.customer-quote-values { display:flex; justify-content:space-between; gap:12px; margin-top:6px; font-size:13px; line-height:1.6; color:#606266; font-variant-numeric:tabular-nums; }
+.customer-quote-total { display:flex; justify-content:space-between; gap:12px; padding-top:16px; font-size:16px; font-weight:600; color:#303133; }
+.customer-price-input { display:flex; align-items:center; gap:10px; margin-top:12px; padding:12px; border:1px solid #dce3ec; border-radius:10px; background:#f6f8fa; font-size:20px; color:#172b4d; }
+.customer-price-input:focus-within { border-color:#176ac7; }
+.customer-price-input input { flex:1; min-width:0; height:32px; font-size:20px; font-variant-numeric:tabular-nums; }
+.customer-price-hint { display:block; margin-top:10px; font-size:13px; line-height:1.6; color:#606266; }
 .personnel-empty text:last-child { font-size:12px; }
+.kv button.link { margin:0; padding:0 8px; min-height:44px; line-height:44px; font-size:14px; background:transparent; color:#176ac7; }
+.kv button.link::after { border:0; }
+.kv button.link:focus-visible { outline:2px solid #176ac7; }
+.repair-log-heading .log-clock-alert, .kv .log-clock-alert { color:#b42318; }
 </style>

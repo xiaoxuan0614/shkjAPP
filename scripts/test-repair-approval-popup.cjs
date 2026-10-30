@@ -16,17 +16,62 @@ assert.equal(service.approvalButtons(instance,{tasks:[{taskId:'t1',actions:['APP
 assert.equal(JSON.stringify(service.approvalRows(instance,schema)).includes('hidden'),false);
 assert.equal(service.approvalRows(instance,{...schema,fieldPermissions:{form:'HIDDEN'}}).length,0);
 const source=fs.readFileSync('src/pages/ops/components/preview/RepairApprovalPopup.vue','utf8');
-let script=source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1],exposed,submitted=0,calls=[];
-const context={exports:{},console,Date,Math,defineEmits:()=>()=>{},defineExpose:value=>{exposed=value},uni:{showToast:()=>{}},require:name=>name==='vue'?vue:name.includes('repairApproval')?service:name.includes('repairOrder')?{repairOrderApi:{}}:{}};
-script+='\nexports.state={visible,loading,busy,error,decision,comment,pending,actionError,taskId};exports.prepare=prepare;exports.submit=submit;exports.close=close;';
+const quotation={exports:{}};
+vm.runInNewContext(compile(fs.readFileSync('src/service/quotationApproval.ts','utf8')),{module:quotation,exports:quotation.exports,require:()=>({})});
+let script=source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1],exposed,submitted=0,calls=[],onShow, navigation, posted=[];
+const context={exports:{},console,Date,Math,defineEmits:()=>()=>{},defineProps:()=>({returnKey:"workflow"}),withDefaults:(p)=>p,getCurrentPages:()=>[{route:"pages/home/index"}],defineExpose:value=>{exposed=value},uni:{showToast:()=>{},navigateTo:options=>{navigation=options;options.success();options.complete()}},require:name=>name==='vue'?{...vue,onMounted:()=>{}}:name.includes('repairApprovalReturn')?{repairApprovalReturn:{}}:name==='@dcloudio/uni-app'?{onShow:fn=>{onShow=fn}}:name.includes('quotationApproval')?quotation.exports:name.includes('repairApproval')?service:name.includes('repairOrder')?{repairOrderApi:{detail:async()=>({order:{quotationRequired:true}})}}:{}};
+script+='\nexports.state={visible,loading,busy,error,decision,comment,pending,actionError,taskId,instance,schema,quoteItems,summaryRows,calculatedTotal,invitedDepartments};exports.prepare=prepare;exports.submit=submit;exports.close=close;exports.openReport=openReport;';
 vm.runInNewContext(compile(script),context);
-request=async options=>{calls.push(options.url);if(options.method==='POST'){submitted++;return {success:true,code:200,result:null}}return {success:true,code:200,result:options.url.endsWith('/detail')?structuredClone(instance):options.url.endsWith('/form')?schema:allowed}};
+request=async options=>{calls.push(options.url);if(options.method==='POST'){posted.push(JSON.parse(JSON.stringify(options)));submitted++;return {success:true,code:200,result:null}}return {success:true,code:200,result:options.url.endsWith('/detail')?structuredClone(instance):options.url.endsWith('/form')?schema:allowed}};
 (async()=>{
  await exposed.open('i1',{taskId:'t1'});assert.equal(context.exports.state.error.value,'');assert.equal(submitted,0);
  assert.equal(calls.length,3);await exposed.open('i1');assert.equal(calls.length,3,'open popup guard');
  await context.exports.prepare('REJECT');await context.exports.submit();assert.equal(submitted,0);assert.match(context.exports.state.actionError.value,/原因/);
  context.exports.state.comment.value='测试原因';await context.exports.submit();assert.equal(submitted,1);assert.equal(context.exports.state.visible.value,false);
- calls=[];await exposed.open('i1',{},structuredClone(instance));assert.equal(calls.includes('/workflow/instance/detail'),false,'reuse initial instance, no duplicate GET');context.exports.close();
+ for(const scene of ['quotation','completion','close','external_collaboration']) {
+   for(const action of ['APPROVE','REJECT']) {
+     instance.processKey=`repair_ops_${scene}`;schema.processKey=instance.processKey;
+     await exposed.open('i1',{}, structuredClone(instance));
+     await context.exports.prepare(action);context.exports.state.comment.value='测试审批';await context.exports.submit();
+     const sent=posted.at(-1);assert.equal(sent.url,'/repair/application/review');
+     assert.equal(sent.data.applicationId,'a1');assert.equal(sent.data.instanceId,'i1');assert.equal(sent.data.taskId,'t1');
+     assert.equal(sent.data.approve,action==='APPROVE');assert.ok(!('action' in sent.data));
+   }
+ }
+ calls=[];await exposed.open('i1',{},structuredClone(instance));assert.equal(calls.includes('/workflow/instance/detail'),false,'reuse initial instance, no duplicate GET');
+ context.exports.state.decision.value='REJECT';context.exports.state.comment.value='返回后保留的审批意见';
+ context.exports.openReport();assert.equal(context.exports.state.visible.value,false,'hide approval while viewing report');assert.equal(navigation.url,'/pages/ops/repairDetail?id=o1');
+ onShow();await new Promise(resolve=>setImmediate(resolve));assert.equal(context.exports.state.visible.value,true,'return restores approval popup');assert.equal(context.exports.state.taskId.value,'t1','return keeps original task');assert.ok(calls.includes('/workflow/instance/detail'),'return reloads approval snapshot and permissions');context.exports.close();
+ assert.equal(context.exports.state.decision.value,'REJECT','return preserves approval decision');assert.equal(context.exports.state.comment.value,'返回后保留的审批意见','return preserves comment');
+ assert.ok(source.includes('查看维修单'));assert.ok(!source.includes('(isQuotation || isInternal) && reportOrderId'),'all repair approval types expose detail entry');
+ const state=context.exports.state;
+ state.instance.value={...instance,processKey:'repair_ops_quotation',snapshot:{form:{totalAmount:50,items:[{itemName:'测试物料',quantity:2,unitPrice:25,amount:50},{itemName:'服务费',quantity:1,unitPrice:10,amount:10}]}}};
+ state.schema.value={fields:[{key:'form',name:'报价申请'}],fieldPermissions:{'form.items[].unitPrice':'HIDDEN','form.items[].amount':'HIDDEN'}};
+ assert.equal(state.quoteItems.value.length,2);
+ assert.equal(state.quoteItems.value[0].name,'测试物料');
+ assert.equal(state.quoteItems.value[0].qty,'2');
+ assert.equal(state.quoteItems.value[0].price,undefined,'hidden price must not enter table');
+ assert.equal(state.quoteItems.value[0].amount,undefined,'hidden amount must not be calculated');
+ assert.equal(state.summaryRows.value.length,1,'line items are not duplicated in summary');
+ state.instance.value.snapshot.reportProducts=['product-id-one','product-id-two'];
+ state.schema.value.fields.push({key:'reportProducts',name:'报修产品'});
+ assert.equal(service.approvalRows(state.instance.value,state.schema.value).some(row=>row.label==='报修产品 1'),true,'fixture reproduces numbered product rows');
+ assert.equal(state.summaryRows.value.some(row=>row.value.includes('product-id')),false,'numbered report products must be hidden');
+ assert.equal(state.quoteItems.value.length,2,'quotation materials remain visible');
+ state.schema.value.fieldPermissions={};
+ state.instance.value.snapshot.form={items:[{itemName:'物料一',quantity:1,unitPrice:1.03},{itemName:'物料二',quantity:1,unitPrice:1.02},{itemName:'施工费',quantity:1,unitPrice:30.9}]};
+ assert.deepEqual(Array.from(state.quoteItems.value,i=>i.amount),['1.03','1.02','30.90']);
+ assert.equal(state.calculatedTotal.value,'32.95','total includes every line');
+ state.schema.value.fieldPermissions={'form.items[].amount':'HIDDEN'};
+ assert.equal(state.quoteItems.value[0].amount,undefined,'explicitly hidden amounts stay hidden even when price visible');
+ assert.equal(state.calculatedTotal.value,undefined);
+ state.instance.value={...instance,processKey:'repair_ops_collaboration',snapshot:{form:{departments:[{departmentName:'技术部',reason:'现场排查'},{departmentName:'运维部',reason:'设备检修'}]}}};
+ state.schema.value={fields:[{key:'form',name:'申请'}],fieldPermissions:{}};
+ assert.equal(state.invitedDepartments.value.length,2);assert.equal(state.invitedDepartments.value[0].name,'技术部');assert.equal(state.invitedDepartments.value[1].reason,'设备检修');assert.equal(state.summaryRows.value.length,0);
+ state.schema.value.fieldPermissions={'form.departments[].reason':'HIDDEN'};
+ assert.equal(state.invitedDepartments.value[0].reason,undefined,'invitation layout must not bypass hidden reason');
+ state.schema.value={fields:[{key:'form.departments[].departmentName'},{key:'form.departments[].reason'}],fieldPermissions:{}};
+ assert.equal(state.invitedDepartments.value[1].name,'运维部');assert.equal(state.invitedDepartments.value[1].reason,'设备检修');
  let release;request=async()=>new Promise(resolve=>{release=resolve});const opening=exposed.open('i1');context.exports.close();assert.equal(context.exports.state.loading.value,false,'closing during load does not lock next open');
  console.log('PASS repair popup: instance identity, server actions, hidden fields, direct popup reads, duplicate guard, validation, initial reuse and close recovery');
 })().catch(e=>{console.error(e);process.exitCode=1});

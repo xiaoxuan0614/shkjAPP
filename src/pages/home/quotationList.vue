@@ -3,7 +3,9 @@
 </route>
 <template>
   <PageLayout navTitle="报价管理" navLeftText="返回" navBackgroundColor="#176ac7" type="popup" @navBack="back">
-    <view class="quote-filters">
+    <view class="quote-types"><button :class="{ active: quoteType === 'project' }" @click="quoteType = 'project'">项目报价</button><button :class="{ active: quoteType === 'repair' }" @click="quoteType = 'repair'">维修报价</button></view>
+    <RepairQuotationOrders v-if="quoteType === 'repair'" :key="repairRefresh" />
+    <view v-if="quoteType === 'project'" class="quote-filters">
       <view class="quote-search">
         <input v-model="keyword" placeholder="搜索项目或报价名称" confirm-type="search" @confirm="search" />
         <button @click="search">查询</button>
@@ -15,7 +17,7 @@
         <button :disabled="!keyword && !appliedKeyword && !status" @click="reset">重置</button>
       </view>
     </view>
-    <scroll-view class="quote-list" scroll-y :scroll-top="scrollTop" :lower-threshold="100" @scrolltolower="loadMore">
+    <scroll-view v-if="quoteType === 'project'" class="quote-list" scroll-y :scroll-top="scrollTop" :lower-threshold="100" @scrolltolower="loadMore">
       <view v-if="loading && !rows.length" class="quote-state">正在加载报价…</view>
       <view v-else-if="error && !rows.length" class="quote-state"><text>{{ error }}</text><button @click="load(true)">重新加载</button></view>
       <view v-else-if="!rows.length" class="quote-state">暂无符合条件的报价</view>
@@ -31,7 +33,7 @@
         <text v-else-if="!hasMore">没有更多报价了</text>
       </view>
     </scroll-view>
-    <view v-if="permission.loaded && permission.hasPermission('plan:quotation:add')" class="quote-create"><button @click="createQuotation">新建报价单</button></view>
+    <view v-if="quoteType === 'project' && permission.loaded && permission.hasPermission('plan:quotation:add')" class="quote-create"><button @click="createQuotation">新建项目报价单</button></view>
   </PageLayout>
 </template>
 
@@ -43,6 +45,9 @@ import { unwrapQuotation } from '@/service/quotationApproval'
 import { useUserStore } from '@/store/user'
 import { usePermissionStore } from '@/store/permission'
 import StatusBadge from '@/components/StatusBadge/StatusBadge.vue'
+import RepairQuotationOrders from './components/RepairQuotationOrders.vue'
+
+const quoteType = ref<'project' | 'repair'>('project'), repairRefresh = ref(0)
 
 const user = useUserStore()
 const permission = usePermissionStore()
@@ -106,11 +111,15 @@ const back = () => {
   if (getCurrentPages().length > 1) uni.navigateBack({ delta: 1, fail: fallback })
   else fallback()
 }
-onShow(() => { void load(true) })
+onShow(() => { repairRefresh.value++; void load(true) })
 onUnload(() => { generation++ })
 </script>
 
 <style scoped lang="scss">
+.quote-types { display:flex; gap:8px; padding:12px 16px; background:#fff; }
+.quote-types button { flex:1; margin:0; min-height:44px; line-height:44px; font-size:14px; color:#667085; background:#f3f5f8; }
+.quote-types button.active { color:#176ac7; background:#eaf3ff; font-weight:600; }
+.quote-types button::after { border:0; }
 .quote-filters { padding: 12px 16px 4px; background: #fff; }
 .quote-search { display:flex; gap:8px; }
 .quote-search input { flex:1; min-width:0; height:44px; padding:0 12px; border-radius:8px; background:#f3f5f8; color:#27364a; font-size:16px; }

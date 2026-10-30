@@ -239,7 +239,7 @@
     </wd-popup>
     <OpsPreview v-if="canViewOpsPreview && !todoOnly" v-show="showOpsPreview" :key="opsSessionKey" ref="opsPreview" :can-manage="canManageOps" @role-change="opsDemoRole = $event" @close="showOpsPreview = false" />
     <RepairCollaborationProgress ref="repairAssignment" standalone :detail="assignmentContext" :actor-id="userStore.identity.userId" @changed="toast.success('人员指定成功'); loadTodos(true)" />
-    <RepairApprovalPopup ref="repairApproval" @processed="loadTodos(true)" />
+    <RepairApprovalPopup ref="repairApproval" return-key="home-todo" @processed="loadTodos(true)" />
   </PageLayout>
 </template>
 
@@ -325,6 +325,10 @@ const canViewOpsPreview = computed(() => userStore.isLogined);
 const opsSessionKey = computed(() => `${userStore.identity.userId}:${userStore.userInfo.username}:${userStore.userInfo.tenantId}`);
 const canManageOps = computed(() => userStore.identity.roleCodes.some(role => ['admin', 'operations_manager'].includes(role)));
 watch(opsSessionKey, () => { showOpsPreview.value = false; });
+// Embedded repair pages do not trigger the home page's onShow hook.
+watch(showOpsPreview, (visible, wasVisible) => {
+  if (!visible && wasVisible) refresh();
+});
 watch(canViewOpsPreview, (allowed) => {
   if (!allowed) showOpsPreview.value = false;
 }, { flush: 'sync' });
@@ -533,7 +537,9 @@ const loadProjects = async () => {
   }
 };
 
+let todoRefreshPending = false;
 const loadTodos = async (reset = true) => {
+  if (reset && todoLoading.value) { todoRefreshPending = true; return; }
   if (!reset && (todoLoading.value || !todoHasMore.value)) return;
   const request = reset ? ++todoRequest : todoRequest;
   if (reset) { todoList.value = []; todoPage.value = 0; todoHasMore.value = true; }
@@ -562,7 +568,10 @@ const loadTodos = async (reset = true) => {
   } catch {
     if (request === todoRequest) todoError.value = '待办加载失败';
   } finally {
-    if (request === todoRequest) todoLoading.value = false;
+    if (request === todoRequest) {
+      todoLoading.value = false;
+      if (todoRefreshPending) { todoRefreshPending = false; void loadTodos(true); }
+    }
   }
 };
 

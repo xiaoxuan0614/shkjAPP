@@ -1,0 +1,28 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),ts=require('typescript');
+const box={exports:{}};
+vm.runInNewContext(ts.transpile(fs.readFileSync('src/service/repairWorkPeople.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),box);
+const {workPersonChoices,selectWorkPeople}=box.exports;
+const p=(id,type='INTERNAL',memberStatus='ACTIVE')=>({sourcePersonId:id,personType:type,memberStatus,name:id});
+const choices=workPersonChoices([p('owner'),p('me'),p('a'),p('a'),p('ended','INTERNAL','EXITED'),p('x','EXTERNAL')],'owner','me');
+assert.deepEqual(Array.from(choices,c=>c.sourcePersonId),['a','x']);
+const selected=selectWorkPeople([p('x','EXTERNAL')],choices,'INTERNAL',['INTERNAL:a','INTERNAL:ended']);
+assert.deepEqual(Array.from(selected,c=>c.sourcePersonId),['x','a']);
+assert.equal(selectWorkPeople(selected,choices,'INTERNAL',[]).length,1);
+assert.equal(workPersonChoices([],'owner','me').length,0);
+console.log('PASS work people: server roster only, exclude owner/self, inactive/duplicate filtering, independent selection, no invented candidates');
+const {repairOutsources,restoreRepairPeople}=box.exports;
+const members=[{id:'member-x',sourcePersonId:'x',personType:'EXTERNAL',memberStatus:'ACTIVE'}];
+const external={...p('x','EXTERNAL'),headcount:'2',workHours:'1.5',remark:'测试'};
+const rows=repairOutsources([external],members);
+assert.equal(rows[0].outsourceMemberId,'member-x');assert.equal(rows[0].headcount,2);assert.equal(rows[0].workHours,1.5);
+assert.equal(restoreRepairPeople({persons:[p('x','EXTERNAL')],outsources:rows},members)[0].headcount,2);
+for(const value of [0,-1,1.2,Infinity,''])assert.throws(()=>repairOutsources([{...external,headcount:value}],members));
+assert.equal(repairOutsources([{...external,headcount:'',workHours:''}],members,true)[0].headcount,null);
+assert.throws(()=>repairOutsources([external],[]));
+assert.equal(selectWorkPeople([external],choices,'EXTERNAL',['EXTERNAL:x']).find(p=>p.personType==='EXTERNAL').workHours,'1.5');
+console.log('PASS outsources: project fields, member ID, numeric validation, draft nulls, round-trip and reselect preservation');
+
+assert.equal(workPersonChoices([p(42),p('42'),p('other')],'owner','42').length,1,'numeric and string IDs both exclude current operator');
+assert.equal(box.exports.isWorkSelf(p(42),'42'),true);
+assert.equal(box.exports.isWorkSelf(p(42,'EXTERNAL'),'42'),false);
+assert.equal(workPersonChoices([{...p('member-owner'),userId:'owner'},p(' owner '),p('collaborator'),p('owner','EXTERNAL')],'owner','me').length,2,'exclude current owner by user identity without removing external unit');
