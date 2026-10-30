@@ -1,54 +1,67 @@
 <template>
   <view class="rest-page">
-    <view class="notice">页面预览 · 示例数据，不会保存真实休息或转单</view>
-    <view class="section">
-      <text class="heading">1. 设置休息时间</text>
-      <view class="field"><text>日期</text><picker mode="date" :value="form.date" @change="form.date=$event.detail.value"><view class="value">{{ form.date }} ›</view></picker></view>
-      <view class="field"><text>运维人员</text><picker :range="demoPeople" range-key="name" @change="form.userId=demoPeople[Number($event.detail.value)].id"><view class="value">{{ personName || '请选择人员' }} ›</view></picker></view>
-      <view class="field"><text>开始时间</text><picker mode="time" :value="form.start" @change="form.start=$event.detail.value"><view class="value">{{ form.start }} ›</view></picker></view>
-      <view class="field"><text>结束时间</text><picker mode="time" :value="form.end" @change="form.end=$event.detail.value"><view class="value">{{ form.end }} ›</view></picker></view>
-      <view class="quick"><button @click="period('08:00','12:00')">上午</button><button @click="period('13:00','18:00')">下午</button><button @click="period('00:00','23:59')">全天</button></view>
-      <view class="field"><text>休息备注</text><input v-model="form.reason" placeholder="选填，如调休" maxlength="200" /></view>
-      <button class="primary" @click="query">查看受影响维修单</button>
-    </view>
-    <view v-if="error" class="error" role="alert">{{ error }}</view>
-    <template v-if="checked">
-      <view class="section">
-        <text class="heading">2. 指定接收人</text><text class="muted">待转 {{ pending.length }} 单 · 已指定 {{ assigned }} 单</text>
-        <view v-if="working.length" class="warning">有 {{ working.length }} 单正在执行，需主管另行处理后再确认休息。</view>
-        <view class="batch"><button @click="toggleAll">{{ allSelected ? '取消全选' : '全选待转单' }}</button><picker :range="candidates" range-key="label" :disabled="!selected.length" @change="assignBatch(Number($event.detail.value))"><view class="value">选接收人（已选{{ selected.length }}单） ›</view></picker></view>
-      </view>
-      <view v-for="row in rows" :key="row.id" class="section order">
-        <view class="order-title"><button v-if="row.state==='pending'" class="select" :aria-label="`${selected.includes(row.id)?'取消选择':'选择'}${row.id}`" @click="toggle(row.id)">{{ selected.includes(row.id)?'已选':'选择' }}</button><text class="heading">{{ row.title }}</text><text class="badge">{{ row.state==='working'?'执行中':'待执行' }}</text></view>
-        <text class="muted">{{ row.id }} · 自动派单</text><text class="muted">{{ row.customer }}</text><view class="field"><text>预计执行</text><text>{{ form.date }} {{ row.time }}</text></view>
-        <picker v-if="row.state==='pending'" :range="candidates" range-key="label" @change="row.targetId=candidates[Number($event.detail.value)].id"><view class="value target">{{ demoPeople.find(p=>p.id===row.targetId)?.name || '指定接收人' }} ›</view></picker><text v-else class="warning">执行中的维修单不参与批量转派</text>
-      </view>
-      <view v-if="!rows.length" class="section muted">该休息时段没有受影响的示例维修单</view>
-      <view class="section"><button class="primary" @click="confirm">预览确认结果</button><text class="muted">实际提交时需后端重新检查工单和人员状态。</text></view>
+    <view v-if="s.error" class="error" role="alert">{{ s.error }}</view><view v-if="s.message" class="success">{{ s.message }}</view>
+    <button v-if="!s.options" :disabled="s.loading" @click="init">{{ s.loading?'正在读取权限与配置…':'重新读取权限与配置' }}</button>
+    <view v-else-if="!canManage" class="notice">当前账号没有休息与调度管理权限</view>
+    <template v-else>
+      <view v-if="!enabled" class="notice">固定四人轮值尚未启用，请管理员初始化；可查询已有休息记录。</view>
+      <text class="muted">轮值：{{ members.map(p=>p.name).join(' → ')||'尚未配置' }}</text>
+      <view class="tabs"><button v-for="tab in tabs" :key="tab.key" :class="{active:s.tab===tab.key}" :disabled="locked" @click="switchTab(tab.key)">{{ tab.label }}</button></view>
+      <view v-if="s.uncertain" class="error">提交结果尚未确认，保留原方案重试。<button :disabled="s.busy" @click="sendPending">按原请求重试</button></view>
+      <template v-if="s.tab==='rest'">
+        <view class="section"><text class="heading">休息时间（北京时间）</text>
+          <picker :range="members" range-key="name" :disabled="!enabled||locked" @change="s.form.userId=members[Number($event.detail.value)].userId;formChanged()"><view class="field"><text>休息人员</text><text>{{ name(s.form.userId)==='姓名未提供'?'请选择':name(s.form.userId) }} ›</text></view></picker>
+          <template v-for="part in ['start','end']" :key="part"><picker mode="date" :value="s.form[part+'Date']" :disabled="!enabled||locked" @change="s.form[part+'Date']=$event.detail.value;formChanged()"><view class="field"><text>{{ part==='start'?'开始日期':'结束日期' }}</text><text>{{ s.form[part+'Date'] }} ›</text></view></picker><picker mode="time" :value="s.form[part+'Time']" :disabled="!enabled||locked" @change="s.form[part+'Time']=$event.detail.value;formChanged()"><view class="field"><text>{{ part==='start'?'开始时间':'结束时间' }}</text><text>{{ s.form[part+'Time'] }} ›</text></view></picker></template>
+          <view class="tabs"><button :disabled="!enabled||locked" @click="period('morning')">上午</button><button :disabled="!enabled||locked" @click="period('afternoon')">下午</button><button :disabled="!enabled||locked" @click="period('all')">全天</button></view>
+          <view class="field"><text>备注</text><input v-model="s.form.remark" :disabled="!enabled||locked" maxlength="1000" placeholder="选填" /></view>
+          <button class="primary" :disabled="!enabled||locked||s.loading" @click="preview">{{ s.loading?'正在查询…':'查询并预览分配' }}</button>
+          <text v-if="s.calendar" class="muted">当日值班：{{ (s.calendar.dutyUsers||[]).map(p=>p.name).join('、')||'未安排' }}；已有休息 {{ s.calendar.rests?.total||0 }} 条。</text>
+        </view>
+        <template v-if="s.preview">
+          <view class="section"><text class="heading">受影响未完成维修单 · {{ items.length }} 单</text><text class="muted">默认自动分配。指定人后会重新预览。</text><view v-if="s.preview.blockedReasons?.length" class="warning">{{ s.preview.blockedReasons.map(reasonText).join('；') }}</view>
+            <view class="tabs"><button :disabled="locked||s.loading" @click="toggleAll">全选 / 取消</button><picker :range="candidates" range-key="name" :disabled="!s.selected.length||!candidates.length||locked||s.loading" @change="choose(s.selected,candidates[Number($event.detail.value)].userId)"><view class="picker-button">批量指定（{{ s.selected.length }}） ›</view></picker><button :disabled="!s.selected.length||locked||s.loading" @click="choose(s.selected)">改回自动</button></view>
+          </view>
+          <view v-for="row in items" :key="row.orderId" class="section">
+            <view class="field"><text class="heading">{{ row.orderNo||'工单号未提供' }}</text><button :disabled="locked||s.loading" @click="toggle(row.orderId)">{{ s.selected.includes(row.orderId)?'已选':'选择' }}</button></view>
+            <text class="muted">计划：{{ formatTime(row.schedule?.plannedStartAt) }} 至 {{ formatTime(row.schedule?.plannedEndAt) }}</text><button :disabled="locked" @click="editSchedule(row.orderId)">设置预计执行时间</button>
+            <picker :range="personOptions(row)" range-key="label" :value="Math.max(0,personOptions(row).findIndex(p=>p.userId===(s.choices[row.orderId]||'')))" :disabled="locked||s.loading" @change="choose([row.orderId],personOptions(row)[Number($event.detail.value)].userId)"><view class="field"><text>分配方式</text><text>{{ s.choices[row.orderId]?name(s.choices[row.orderId]):'按规则自动分配' }} ›</text></view></picker>
+            <text class="muted">预计接收人：{{ row.suggestedTargetName||'暂无可接人员' }}</text><text v-if="row.blockedReasons?.length" class="warning">{{ row.blockedReasons.map(reasonText).join('；') }}</text>
+            <text v-for="p in (row.eligibleCandidates||[]).filter(p=>!p.canAssign)" :key="p.userId" class="muted">{{ p.name }}：{{ reasonText(p.blockedReason) }}</text>
+          </view>
+          <view class="section"><text class="muted">预览有效至 {{ formatTime(s.preview.expiresAt) }}</text><button class="primary" :disabled="!ready" @click="openConfirm">确认休息并调整派单</button></view>
+        </template>
+        <view v-if="s.result?.assignments" class="section"><text class="heading">已生效分配</text><text v-for="row in s.result.assignments" :key="row.orderId" class="muted">{{ row.orderId }} → {{ row.targetName }}（{{ row.mode==='AUTO'?'自动':'指定' }}）</text></view>
+      </template>
+      <template v-if="s.tab==='history'">
+        <view class="section"><picker mode="date" :value="s.historyDate" :disabled="s.historyLoading" @change="s.historyDate=$event.detail.value"><view class="field"><text>查询日期</text><text>{{ s.historyDate||'全部日期' }} ›</text></view></picker><picker :range="[{userId:'',name:'全部人员'},...members]" range-key="name" :disabled="s.historyLoading" @change="s.historyUser=[{userId:''},...members][Number($event.detail.value)].userId"><view class="field"><text>人员</text><text>{{ s.historyUser?name(s.historyUser):'全部人员' }} ›</text></view></picker><view class="tabs"><button :disabled="s.historyLoading" @click="history(true)">查询</button><button :disabled="s.historyLoading" @click="s.historyDate='';s.historyUser='';history(true)">全部记录</button></view></view>
+        <view v-for="row in s.history" :key="row.id" class="section" @click="viewRest(row.id)"><text class="heading">{{ name(row.userId) }} · {{ statusText(row.displayStatus) }}</text><text class="muted">{{ formatTime(row.startAt) }} 至 {{ formatTime(row.endAt) }}</text><button :disabled="locked">查看详情 ›</button></view>
+        <text v-if="!s.history.length&&!s.historyLoading" class="muted">暂无休息记录</text><button v-if="s.history.length<s.historyTotal" :disabled="s.historyLoading" @click="history()">{{ s.historyLoading?'加载中…':'加载更多' }}</button>
+      </template>
+      <template v-if="s.tab==='schedule'">
+        <view class="section"><view class="tabs"><button :disabled="s.scheduleLoading||locked" :class="{active:s.scheduleFilter==='WAIT_DISPATCH'}" @click="s.scheduleFilter='WAIT_DISPATCH';schedules(true)">待调度</button><button :disabled="s.scheduleLoading||locked" :class="{active:s.scheduleFilter==='ASSIGNED'}" @click="s.scheduleFilter='ASSIGNED';schedules(true)">已分配·待维修</button><button :disabled="s.scheduleLoading||locked||!enabled" @click="schedules(true)">刷新</button></view><text class="muted">已检查 {{ s.scanned }}/{{ s.scheduleTotal }} 张待维修单，匹配 {{ s.schedules.length }} 张。可继续加载后续工单。</text><view v-if="s.scheduleFailures.length" class="warning">部分工单读取失败，请刷新：{{ s.scheduleFailures.join('、') }}</view></view>
+        <view v-for="row in s.schedules" :key="row.id" class="section"><text class="heading">{{ row.orderNo }}</text><text class="muted">{{ row.faultDescription }}</text><text class="muted">{{ formatTime(row.schedule?.plannedStartAt) }} 至 {{ formatTime(row.schedule?.plannedEndAt) }}</text><button :disabled="locked" @click="editSchedule(row.id)">设置预计执行时间</button></view>
+        <text v-if="!s.schedules.length&&!s.scheduleLoading" class="muted">已检查范围内暂无匹配工单</text><button v-if="s.scanned<s.scheduleTotal" :disabled="s.scheduleLoading||locked" @click="schedules()">{{ s.scheduleLoading?'检查中…':'继续加载并检查' }}</button>
+      </template>
     </template>
-    <view v-if="showResult" class="section result"><text class="heading">预览完成</text><text>{{ personName }} · {{ form.date }} {{ form.start }}—{{ form.end }}</text><text v-for="row in rows" :key="row.id">{{ row.id }} → {{ demoPeople.find(p=>p.id===row.targetId)?.name }}</text><text class="muted">未保存休息，未执行转单。</text></view>
+    <wd-popup v-model="s.confirmOpen" position="bottom" :z-index="13000" :close-on-click-modal="false" :safe-area-inset-bottom="true"><scroll-view scroll-y style="max-height:80vh"><view class="section"><text class="heading">确认后立即生效</text><text class="muted">{{ name(s.form.userId) }}：{{ s.form.startDate }} {{ s.form.startTime }} 至 {{ s.form.endDate }} {{ s.form.endTime }}</text><text v-for="row in items" :key="row.orderId" class="muted">{{ row.orderNo }} → {{ row.suggestedTargetName }}（{{ row.mode==='MANUAL'?'指定':'自动' }}）</text><view v-if="s.error" class="error">{{ s.error }}</view><button v-if="s.uncertain" :disabled="s.busy" @click="sendPending">按原请求重试</button><button v-else class="primary" :disabled="!ready" @click="confirm">确认并生效</button><button :disabled="locked" @click="s.confirmOpen=false">返回修改</button></view></scroll-view></wd-popup>
+    <wd-popup :model-value="!!s.editing" position="bottom" :z-index="13000" :close-on-click-modal="false" :safe-area-inset-bottom="true"><scroll-view scroll-y style="max-height:85vh"><view class="section"><text class="heading">预计执行时间（北京时间）</text><template v-for="part in ['start','end']" :key="part"><picker mode="date" :value="s.scheduleForm[part+'Date']" :disabled="locked" @change="s.scheduleForm[part+'Date']=$event.detail.value"><view class="field"><text>{{ part==='start'?'开始日期':'结束日期' }}</text><text>{{ s.scheduleForm[part+'Date'] }} ›</text></view></picker><picker mode="time" :value="s.scheduleForm[part+'Time']" :disabled="locked" @change="s.scheduleForm[part+'Time']=$event.detail.value"><view class="field"><text>{{ part==='start'?'开始时间':'结束时间' }}</text><text>{{ s.scheduleForm[part+'Time'] }} ›</text></view></picker></template><text class="muted">设置/调整原因（必填）</text><textarea v-model="s.scheduleForm.reason" :disabled="locked" maxlength="1000" placeholder="填写原因" /><view v-if="s.error" class="error">{{ s.error }}</view><button v-if="s.scheduleUncertain" :disabled="s.scheduleSaving" @click="reconcileSchedule">读取最新工单核对</button><button v-else class="primary" :disabled="locked" @click="saveSchedule">保存计划并尝试派单</button><button :disabled="locked" @click="s.editing=null">关闭</button></view></scroll-view></wd-popup>
+    <wd-popup :model-value="!!s.detail" position="bottom" :z-index="13000" :close-on-click-modal="false" :safe-area-inset-bottom="true"><scroll-view scroll-y style="max-height:85vh"><view v-if="s.detail" class="section"><text class="heading">休息及转派记录</text><text class="muted">{{ name(s.detail.rest.userId) }}：{{ formatTime(s.detail.rest.startAt) }} 至 {{ formatTime(s.detail.rest.endAt) }}</text><text class="muted">{{ s.detail.rest.remark||'无备注' }}</text><text v-for="row in s.detail.assignments" :key="row.id" class="muted">{{ row.orderId }}：{{ row.fromNameSnapshot }} → {{ row.toNameSnapshot }}（{{ row.dispatchMode==='AUTO'?'自动':'指定' }}）</text><template v-if="s.detail.rest.status==='VALID'&&Date.parse(s.detail.rest.endAt)>s.now"><text class="warning">取消休息不会转回已分配工单</text><textarea v-model="s.cancelReason" :disabled="locked" maxlength="1000" placeholder="取消原因（必填）" /><button :disabled="locked" @click="confirmCancel">取消休息</button></template><view v-if="s.error" class="error">{{ s.error }}</view><button v-if="s.uncertain" :disabled="s.busy" @click="sendPending">按原请求重试</button><button :disabled="locked" @click="s.detail=null">关闭</button></view></scroll-view></wd-popup>
   </view>
 </template>
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
-import { demoPeople, eligiblePeople, previewOrders, validateRest, assignmentError, type RestOrder } from './restAssignment'
-const now=new Date(), date=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
-const form=reactive({date,userId:'',start:'08:00',end:'12:00',reason:''})
-const rows=ref<RestOrder[]>([]), selected=ref<string[]>([]), checked=ref(false),error=ref(''),showResult=ref(false)
-const personName=computed(()=>demoPeople.find(p=>p.id===form.userId)?.name)
-const candidates=computed(()=>eligiblePeople(form.userId).map(p=>({...p,label:`${p.name} · ${p.hint}`})))
-const pending=computed(()=>rows.value.filter(r=>r.state==='pending')), working=computed(()=>rows.value.filter(r=>r.state==='working'))
-const assigned=computed(()=>pending.value.filter(r=>r.targetId).length)
-const allSelected=computed(()=>pending.value.length>0&&pending.value.every(r=>selected.value.includes(r.id)))
-watch(()=>[form.date,form.userId,form.start,form.end],()=>{rows.value=[];selected.value=[];checked.value=false;error.value='';showResult.value=false})
-function period(start:string,end:string){form.start=start;form.end=end}
-function query(){error.value=validateRest(form);if(error.value)return;rows.value=previewOrders(form);selected.value=[];showResult.value=false;checked.value=true}
-function toggle(id:string){selected.value=selected.value.includes(id)?selected.value.filter(v=>v!==id):[...selected.value,id]}
-function toggleAll(){selected.value=allSelected.value?[]:pending.value.map(r=>r.id)}
-function assignBatch(index:number){const target=candidates.value[index];if(!target)return;rows.value.forEach(r=>{if(r.state==='pending'&&selected.value.includes(r.id))r.targetId=target.id});selected.value=[];error.value='';showResult.value=false}
-function confirm(){error.value=assignmentError(form,rows.value);showResult.value=!error.value}
-watch(()=>rows.value.map(r=>r.targetId).join(','),()=>{showResult.value=false})
+import { onMounted, watch } from 'vue'
+import { restApi } from './restAssignment.api'
+import { useRestManager } from './useRestManager'
+const props=defineProps<{initialTab?:string}>()
+const emit=defineEmits(['changed','lock-change'])
+const {s,canManage,enabled,locked,members,items,candidates,ready,name,init,formChanged,period,preview,choose,toggle,toggleAll,openConfirm,confirm,sendPending,history,viewRest,cancel,schedules,editSchedule,saveSchedule,reconcileSchedule,switchTab,formatTime,reasonText}=useRestManager(restApi,()=>emit('changed'))
+watch(locked,v=>emit('lock-change',v))
+onMounted(async()=>{await init();if(props.initialTab)switchTab(props.initialTab)})
+const tabs=[{key:'rest',label:'休息转派'},{key:'history',label:'休息记录'},{key:'schedule',label:'待调度/计划'}]
+const personOptions=(row:any)=>[{userId:'',label:'按规则自动分配'},...(row.eligibleCandidates||[]).filter((p:any)=>p.canAssign===true).map((p:any)=>({...p,label:`${p.name} · 待处理${p.pendingCount}单`}))]
+const statusText=(value:string)=>({SCHEDULED:'待开始',RESTING:'休息中',ENDED:'已结束',CANCELLED:'已取消'}[value]||value)
+function confirmCancel(){uni.showModal({title:'确认取消休息',content:'已转派工单不会转回，是否继续？',success:r=>{if(r.confirm)void cancel()}})}
 </script>
 <style scoped>
-.rest-page{padding:12px;background:#f5f7fa;color:#303640}.notice,.warning,.error{font-size:13px;line-height:1.6;padding:12px;border-radius:8px;margin-bottom:12px}.notice{background:#eaf3ff;color:#235b98}.warning{background:#fff7e8;color:#805300}.error{background:#fff0f0;color:#a32424}.section{padding:16px;background:#fff;border-radius:12px;margin-bottom:12px}.heading{font-size:16px;font-weight:600;display:block}.field{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;border-bottom:1px solid #edf0f4;font-size:14px}.field picker{flex:1;text-align:right}.field input{flex:1;min-width:0;text-align:right}.value{min-height:44px;display:flex;align-items:center;justify-content:flex-end;font-size:14px;color:#176ac7}.quick,.batch{display:flex;gap:8px;margin:12px 0;align-items:center;flex-wrap:wrap}button{margin:0;min-height:44px;font-size:14px;line-height:44px;padding:0 12px;background:#edf3fa;color:#176ac7}button::after{border:0}.primary{background:#176ac7;color:white;width:100%;margin-top:12px}.muted{display:block;font-size:13px;line-height:1.6;color:#667085;margin-top:6px}.order-title{display:flex;gap:8px;align-items:center}.order-title .heading{flex:1}.badge{font-size:12px;color:#176ac7;background:#edf3fa;padding:4px 6px;border-radius:4px}.target{justify-content:space-between;margin-top:8px}.result text{display:block;margin-bottom:8px}.select{font-size:12px;padding:0 8px}
+.rest-page{padding:12px;background:#f5f7fa;color:#303640}.section{padding:16px;background:#fff;border-radius:12px;margin:12px 0}.heading{display:block;font-size:16px;font-weight:600}.muted{display:block;color:#667085;font-size:13px;line-height:1.6;margin:8px 0;overflow-wrap:anywhere}.field{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;border-bottom:1px solid #edf0f4;font-size:14px}.field input{min-width:0;flex:1;text-align:right}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}button,.picker-button{min-height:44px;line-height:44px;font-size:14px;padding:0 12px;background:#edf3fa;color:#176ac7;margin:4px 0;border-radius:6px}button::after{border:0}.primary,button.active{background:#176ac7;color:#fff}.primary{width:100%;margin-top:12px}.error,.warning,.notice,.success{padding:12px;border-radius:8px;font-size:13px;line-height:1.6;display:block;margin:8px 0}.error{background:#fff0f0;color:#a32424}.notice{background:#eaf3ff;color:#235b98}.warning{background:#fff7e8;color:#805300}.success{background:#effaf1;color:#26763c}textarea{width:100%;height:90px;background:#f5f7fa;padding:10px;box-sizing:border-box;font-size:14px}button[disabled]{opacity:.5}
 </style>

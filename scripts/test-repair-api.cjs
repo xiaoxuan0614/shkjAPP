@@ -18,11 +18,25 @@ vm.runInNewContext(code, {exports:exportsObject,uni:{uploadFile:options=>{upload
   if (name === '@/store/user') return {useUserStore:() => ({userInfo:{token:'test-only'}})}
   if (name === '@/utils/platform') return {isH5:false}
   if (name === '@/utils/index') return {getEnvBaseUrl:() => '/api'}
+  if (name === './repairCoverage') {
+    const mod={exports:{}}; vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/service/repairCoverage.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{module:mod,exports:mod.exports}); return mod.exports
+  }
   throw Error(name)
 }})
 const {repairReportPayload,repairCaseView,repairOrderApi} = exportsObject
 const plain = value => JSON.parse(JSON.stringify(value))
 async function main() {
+  const evidence = {orderId:'order-1',repairMethod:'OFFLINE',longitude:117,latitude:39,abnormalReason:'接口测试原因',photoFileIds:['repair/checkin.png']}
+  const saved = {recordId:'record-1',...evidence,photos:[{fileId:'attachment-1',fileNameSnapshot:'checkin.png',mediaType:'IMAGE',attachmentScene:'WORK_BEGIN'}],fileIds:[],files:[]}
+  response={success:true,code:200,result:saved}
+  const begun=await repairOrderApi.begin(evidence)
+  assert.deepEqual(plain(calls.pop()),['POST','/repair/work/begin',evidence])
+  assert.equal(begun.recordId,'record-1')
+  const readback=await repairOrderApi.workDetail('order-1','record-1')
+  assert.equal(readback.abnormalReason,evidence.abnormalReason)
+  assert.equal(readback.photos[0].attachmentScene,'WORK_BEGIN')
+  assert.equal(readback.files.length,0)
+  response={success:true,code:200,result:{order:{id:'order-1',version:3}}}
   await repairOrderApi.materialStatistics('order-1',2,5)
   assert.deepEqual(plain(calls.pop()),['GET','/repair/materialAccount/page',{orderId:'order-1',pageNo:2,pageSize:5}])
   await assert.rejects(repairOrderApi.materialStatistics(''),/缺少维修单/)
@@ -35,11 +49,11 @@ async function main() {
   uploadResponse={success:true,code:200,message:'repair/video.mp4'}
   assert.equal(await exportsObject.uploadRepairAttachment('local-video'),'repair/video.mp4')
   assert.equal(repairCaseView({id:'q',quotationStatus:'WITHDRAWN'}).quotationStatus,'WITHDRAWN')
-  const input = {customerId:'c',periodId:'p',productNames:['产品一','产品二'],faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人'}
+  const input = {archiveId:'archive-1',products:[{productId:'product-1'},{productId:'product-2',assetId:'asset-2',serviceId:'service-2'}],faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人'}
   assert.deepEqual(plain(repairReportPayload({...input,orderId:'must-not-send',version:10,requestId:'must-not-send'})),{
-    customerId:'c',periodId:'p',productNames:'产品一,产品二',faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人',
+    archiveId:'archive-1',products:[{productId:'product-1'},{productId:'product-2',assetId:'asset-2',serviceId:'service-2'}],faultDescription:'故障',reportTime:'2026-10-20 09:30:00',reporterName:'报修人',
   })
-  for (const change of [{productNames:[]},{productNames:['同名','同名']},{productNames:['带,逗号']},{reportTime:'2026-02-30 12:00:00'},{faultDescription:' '},{reporterName:''},{fileIds:Array(9).fill('f')}])
+  for (const change of [{archiveId:''},{products:[]},{products:[{productId:'same'},{productId:'same'}]},{products:[{productId:''}]},{reportTime:'2026-02-30 12:00:00'},{faultDescription:' '},{reporterName:''},{fileIds:Array(9).fill('f')}])
     assert.throws(() => repairReportPayload({...input,...change}))
   const row = repairCaseView({order:{id:'o',projectName:'主项目-分期',responsibleUserName:'负责人',productNames:'产品一',workStatus:'PROCESSING',quotationStatus:'WAIT_CUSTOMER',latestQuotationId:'q'},actions:{canViewRepairDetail:true,canStartWork:false},workRecords:[{id:'r',operatorUserId:'u',recordStatus:'ACTIVE',effectiveStartedAt:'2026-10-20T09:00:00',repairMethod:'OFFLINE'}],quotations:[{id:'q',customerConfirmedAmount:0}],quotationItems:[{quotationId:'q',itemName:'服务费',quantity:2,unitPrice:10},{quotationId:'old',itemName:'历史',quantity:1,unitPrice:999}]})
   assert.equal(row.project,'主项目-分期')
@@ -53,12 +67,20 @@ async function main() {
   assert.equal(row.quoteItems.length,1)
   assert.equal(row.actions.canStartWork,false)
   await repairOrderApi.submit(input)
-  assert.equal(calls.at(-1)[1],'/repair/order/submit')
-  assert.equal(calls.filter(c=>c[1]==='/repair/order/submit').length,1)
+  assert.equal(calls.at(-1)[1],'/afterSales/repair/submit')
+  assert.equal(calls.filter(c=>c[1]==='/afterSales/repair/submit').length,1)
   await repairOrderApi.reportEdit('o',{...input,fileIds:['old-file']},'修正信息')
-  assert.equal(calls.at(-1)[1],'/repair/order/reportEdit')
-  assert.equal(calls.at(-1)[2].orderId,'o');assert.equal(calls.at(-1)[2].reason,'修正信息');assert.equal(calls.at(-1)[2].fileIds[0],'old-file')
-  assert.equal(calls.at(-1)[2].productNames,'产品一,产品二');assert.equal(calls.at(-1)[2].version,undefined)
+  assert.equal(calls.at(-1)[1],'/afterSales/repair/reportEdit')
+  assert.equal(calls.at(-1)[2].orderId,'o');assert.equal(calls.at(-1)[2].reason,'修正信息');assert.equal(calls.at(-1)[2].report.fileIds[0],'old-file')
+  assert.deepEqual(plain(calls.at(-1)[2].report.products),input.products);assert.equal(calls.at(-1)[2].version,undefined)
+  assert.equal(calls.at(-1)[2].report.periodId,undefined)
+  assert.equal(calls.at(-1)[2].report.customerId,undefined)
+  assert.equal(calls.at(-1)[2].report.productNames,undefined)
+  await repairOrderApi.reportEdit('o',{...input,fileIds:[],reportRemark:''},'删除附件')
+  assert.deepEqual(plain(calls.at(-1)[2].report.fileIds),[])
+  assert.equal(calls.at(-1)[2].report.reportRemark,'')
+  await repairOrderApi.archiveReportOptions('archive-1','2026-10-30')
+  assert.deepEqual(plain(calls.at(-1)),['GET','/afterSales/repair/reportOptions',{archiveId:'archive-1',asOf:'2026-10-30'}])
   await assert.rejects(repairOrderApi.reportEdit('o',input,' '))
   await assert.rejects(repairOrderApi.reportCancel('o',''))
   await assert.rejects(repairOrderApi.reportCancel('o','x'.repeat(1001)))

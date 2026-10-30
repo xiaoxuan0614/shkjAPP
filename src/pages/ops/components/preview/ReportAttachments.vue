@@ -1,7 +1,7 @@
 <template>
   <view class="report-media">
-    <MediaAttachments :items="items" :readonly="readonly" :busy="busy" :error="mediaError" :compact="compact" :max-photos="6" :max-videos="2" :existing-photos="existingPhotos" :existing-videos="existingVideos" busy-text="正在选择…"
-      :hint="readonly ? '本次报修附件' : photoWatermark ? '照片自动添加当前位置和添加时间水印；视频不加水印，提交时上传' : '可拍摄或从相册选择；提交时上传，单个文件不超过 400 MB'"
+    <MediaAttachments :items="items" :readonly="readonly" :busy="busy" :error="mediaError" :compact="compact" :max-photos="6" :max-videos="photosOnly ? 0 : 2" :existing-photos="existingPhotos" :existing-videos="existingVideos" busy-text="正在选择…"
+      :hint="readonly ? '本次报修附件' : photosOnly ? '请添加1～6张现场照片，自动添加位置和时间水印，提交时上传' : photoWatermark ? '照片自动添加当前位置和添加时间水印；视频不加水印，提交时上传' : '可拍摄或从相册选择；提交时上传，单个文件不超过 400 MB'"
       @add="chooseAttachment" @remove="removeAttachment" @preview="previewAttachment" />
     <wd-popup v-model="videoVisible" position="center" :z-index="12000" @close="videoVisible = false">
       <view class="report-video-preview">
@@ -25,7 +25,7 @@ import { readPhotoLocation } from '@/utils/photoLocation'
 import dayjs from 'dayjs'
 import { watchMediaPickerCancel } from '@/utils/mediaPickerCancel'
 const watermarkCanvas = ref<InstanceType<typeof PhotoWatermarkCanvas>>()
-const props = withDefaults(defineProps<{ photos: string[]; videos: string[]; readonly?: boolean; compact?: boolean; existingPhotos?: number; existingVideos?: number; photoWatermark?: boolean }>(), { readonly: false, compact: false, existingPhotos: 0, existingVideos: 0, photoWatermark: false })
+const props = withDefaults(defineProps<{ photos: string[]; videos: string[]; readonly?: boolean; compact?: boolean; existingPhotos?: number; existingVideos?: number; photoWatermark?: boolean; photosOnly?: boolean }>(), { readonly: false, compact: false, existingPhotos: 0, existingVideos: 0, photoWatermark: false, photosOnly: false })
 const emit = defineEmits<{ 'update:photos': [paths: string[]]; 'update:videos': [paths: string[]]; busy: [value: boolean] }>()
 const busy = ref(false), mediaError = ref('')
 const videoVisible = ref(false), videoPath = ref('')
@@ -34,6 +34,7 @@ const items = computed<MediaAttachment[]>(() => [...props.photos.map(path => ({ 
 onHide(() => { videoVisible.value = false })
 function chooseAttachment() {
   if (props.readonly || busy.value) return
+  if (props.photosOnly) { choosePhotos(); return }
   const choices = [...(props.photos.length + props.existingPhotos < 6 ? ['添加照片'] : []), ...(props.videos.length + props.existingVideos < 2 ? ['添加视频'] : [])]
   if (!choices.length) return
   uni.showActionSheet({ itemList: choices, success: result => { if (active) choices[result.tapIndex] === '添加照片' ? choosePhotos() : chooseVideo() } })

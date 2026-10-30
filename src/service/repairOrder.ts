@@ -1,3 +1,4 @@
+import { repairCoverageName } from './repairCoverage'
 import type { AssignmentInput, AssignmentOptions } from './repairCollaboration'
 import { http } from '@/utils/http'
 import { useUserStore } from '@/store/user'
@@ -6,9 +7,8 @@ import { getEnvBaseUrl } from '@/utils/index'
 
 /** Current repair contract: a report is created and submitted in one request. */
 export interface RepairReportInput {
-  customerId: string
-  periodId: string
-  productNames: string[]
+  archiveId: string
+  products: { productId: string; assetId?: string; serviceId?: string }[]
   faultDescription: string
   reportTime: string
   reporterName: string
@@ -17,17 +17,16 @@ export interface RepairReportInput {
 }
 
 export function repairReportPayload(input: RepairReportInput) {
-  const customerId = input.customerId.trim()
-  const periodId = input.periodId.trim()
+  const archiveId = input.archiveId?.trim()
   const faultDescription = input.faultDescription.trim()
   const reporterName = input.reporterName.trim()
-  const names = input.productNames.map(name => name.trim())
-  if (!customerId || !periodId) throw new Error('请选择客户和项目')
-  if (!names.length || names.some(name => !name || name.includes(',')) || new Set(names).size !== names.length)
-    throw new Error('请选择有效且不重复的项目产品')
+  const products = (input.products || []).map(p => ({productId:p.productId?.trim(), ...(p.assetId?.trim() ? {assetId:p.assetId.trim()} : {}), ...(p.serviceId?.trim() ? {serviceId:p.serviceId.trim()} : {})}))
+  if (!archiveId) throw new Error('请选择售后档案')
+  if (!products.length || products.length > 100 || products.some(p => !p.productId) || new Set(products.map(p => JSON.stringify([p.productId,p.assetId || '']))).size !== products.length)
+    throw new Error('请选择有效且不重复的档案产品或设备，最多100项')
   if (!faultDescription) throw new Error('请填写故障现象')
   if (!reporterName) throw new Error('请填写报修人姓名')
-  if (names.some(name => name.length > 500) || faultDescription.length > 10000 || reporterName.length > 100 || (input.reportRemark?.length || 0) > 10000)
+  if (faultDescription.length > 10000 || reporterName.length > 100 || (input.reportRemark?.length || 0) > 10000)
     throw new Error('填写内容超过接口允许长度')
   if ((input.fileIds?.length || 0) > 8 || input.fileIds?.some(id => !id?.trim()))
     throw new Error('附件信息无效，最多支持 8 个附件')
@@ -37,7 +36,7 @@ export function repairReportPayload(input: RepairReportInput) {
   if (!Number.isFinite(date.getTime()) || new Date(date.getTime() + 8 * 3600000).toISOString().slice(0,19).replace('T',' ') !== input.reportTime)
     throw new Error('报修日期和时间无效')
   return {
-    customerId, periodId, productNames: names.join(','), faultDescription,
+    archiveId, products, faultDescription,
     reportTime: input.reportTime, reporterName,
     ...(input.reportRemark?.trim() ? { reportRemark: input.reportRemark.trim() } : {}),
     ...(input.fileIds?.length ? { fileIds: [...new Set(input.fileIds)] } : {}),
@@ -65,7 +64,11 @@ async function mutate(path: string, payload: Record<string, unknown>) {
 export const repairOrderApi = {
   async reportEdit(orderId: string, input: RepairReportInput, reason: string) {
     if (!orderId || !reason.trim() || reason.trim().length > 1000) throw new Error('请填写修改原因，最多 1000 字符')
-    return mutate('/repair/order/reportEdit',{...repairReportPayload(input),fileIds:input.fileIds || [],orderId,reason:reason.trim()})
+    return mutate('/afterSales/repair/reportEdit',{orderId,reason:reason.trim(),report:{...repairReportPayload(input),fileIds:input.fileIds || [],reportRemark:input.reportRemark?.trim() || ''}})
+  },
+  async archiveReportOptions(archiveId: string, asOf: string) {
+    if (!archiveId) throw new Error('请选择售后档案')
+    return result<{products: Record<string, any>[]; assets: Record<string, any>[]}>(await http.get('/afterSales/repair/reportOptions', {archiveId, asOf}))
   },
   async reportCancel(orderId: string, reason: string) {
     if (!orderId || !reason.trim() || reason.trim().length > 1000) throw new Error('请填写取消原因，最多 1000 字符')
@@ -87,6 +90,12 @@ export const repairOrderApi = {
   },
   async options(type: 'vehicles' | 'internal' | 'external' | 'roles' | 'collaborationMembers', sourcePersonId?: string) {
     return result<{value: string; label: string; departmentId?: string; departmentName?: string}[]>(await http.get('/repair/options', { type, ...(sourcePersonId ? { sourcePersonId } : {}) }))
+  },
+  async archiveLocations(archiveId: string) {
+    if (!archiveId) throw new Error('维修单尚未关联售后项目，无法校验打卡位置')
+    const rows=result<any[]>(await http.get('/afterSales/location/list',{archiveId}))
+    if (!Array.isArray(rows) || rows.some(row=>row.archiveId!==archiveId)) throw new Error('售后项目位置返回异常，请重新查询')
+    return rows
   },
   async begin(payload: Record<string, unknown>) { return mutate('/repair/work/begin', payload) },
   async workDetail(orderId: string, recordId?: string) { return result<any>(await http.get('/repair/work/detail', {orderId, ...(recordId ? {recordId} : {})})) },
@@ -118,7 +127,7 @@ export const repairOrderApi = {
   async collaboration(payload: Record<string, unknown>) { return mutate('/repair/collaboration/submit', payload) },
   async approvalCandidates(applicationId:string,taskId:string) { return result<any>(await http.get('/repair/collaboration/assignmentOptions',{applicationId,taskId})) },
   async review(payload: Record<string, unknown>) { return mutate('/repair/application/review', payload) },
-  async reportOptions(query: { keyword?: string; customerId?: string; periodId?: string } = {}) {
+  async reportOptions(query: { keyword?: string; customerId?: string; archiveId?: string } = {}) {
     return result<{ customers: Record<string, any>[]; projects: Record<string, any>[]; products: Record<string, any>[] }>(
       await http.get('/repair/order/reportOptions', query),
     )
@@ -136,7 +145,7 @@ export const repairOrderApi = {
   },
   async submit(input: RepairReportInput) {
     // Deliberately no retry: each successful POST creates a distinct repair order.
-    return result<Record<string, any>>(await http.post('/repair/order/submit', repairReportPayload(input)))
+    return result<Record<string, any>>(await http.post('/afterSales/repair/submit', repairReportPayload(input)))
   },
 }
 
@@ -205,7 +214,7 @@ export function repairCaseView(data: Record<string, any>) {
     customer: order.customerNameSnapshot || '', projectId: order.periodId,
     project: order.projectName || [order.projectNameSnapshot, order.periodNameSnapshot].filter(Boolean).join('-'),
     product: order.productNames || (data.products || []).map((p: any) => p.productNameSnapshot).filter(Boolean).join('、'),
-    warranty: order.warrantyTypeSnapshot || order.warrantyType || '—',
+    warranty: repairCoverageName(order),
     fault: order.faultDescription || '', reportedAt: order.reportTimeDisplay || order.reportTime || order.reportDate || '',
     createdAt: Date.parse(order.submittedAt || order.createTime) || 0,
     applicantId: order.reporterUserId || '', applicant: order.reporterNameDisplay || order.reporterName || '—',

@@ -14,7 +14,7 @@ const calls = []
 const detail = {
   canChangeQuotationDecision:true,
   order:{id:'o1',orderNo:'R001',version:1,workStatus:'PENDING',quotationStatus:'UNDETERMINED',responsibleUserId:'me',projectName:'主项目-分期',periodId:'p',faultDescription:'故障'},
-  actions:{canViewRepairDetail:true,canStartWork:true,canOwnerApply:true},workRecords:[],products:[{sourceItemKey:'p1',productNameSnapshot:'产品'}],attachments:[],workflows:[],applications:[],
+  actions:{canViewRepairDetail:true,canStartWork:true,canOwnerApply:true},workRecords:[],products:[{productId:'prod1',productNameSnapshot:'产品'}],attachments:[],workflows:[],applications:[],
 }
 let work
 function newWork() { return {orderId:'o1',recordId:'r1',workRole:detail.order.responsibleUserId === 'me' ? 'OWNER' : 'COLLABORATOR',formStatus:'DRAFT',recordStatus:'ACTIVE',fileIds:[],files:[],persons:[],materialUseIds:[],vehicleValue:null,actions:{canSaveDraft:true,canSubmit:true,canUpdate:false,canEnd:false},rawStartedAt:'2026-10-20T09:00:00'} }
@@ -79,20 +79,21 @@ async function main(){
   assert.equal(page.reporterName.value, '当前人员')
   assert.ok(vue.isReadonly(page.reporterName), 'reporter must follow authenticated user and be readonly')
   const optionCalls=[]
-  const options={customers:[{customerId:'c1',customerName:'客户一'},{customerId:'c2',customerName:'客户二'}],projects:[{customerId:'c1',periodId:'p1',projectName:'项目一'},{customerId:'c2',periodId:'p2',projectName:'项目二'}],products:[{periodId:'p1',productName:'门禁'},{periodId:'p1',productName:'堆场系统'},{periodId:'p2',productName:'监控'}]}
+  const options={customers:[{customerId:'c1',customerName:'客户一'},{customerId:'c2',customerName:'客户二'}],projects:[{customerId:'c1',archiveId:'p1',projectName:'项目一'},{customerId:'c2',archiveId:'p2',projectName:'项目二'}],products:[{archiveId:'p1',productId:'prod1',productName:'门禁'},{archiveId:'p1',productId:'prod2',productName:'堆场系统'},{archiveId:'p2',productId:'prod3',productName:'监控'}]}
+  api.archiveReportOptions=async()=>({products:[{id:'prod1',coverage:{applicableServices:[]}},{id:'prod2',coverage:{applicableServices:[]}}],assets:[]})
   api.reportOptions=async q=>{optionCalls.push(q);return options}
   await page.loadOptions()
   await page.chooseCustomer(0)
   assert.equal(optionCalls.at(-1).customerId,'c1')
   assert.equal(page.projects.value.length,1)
   await page.chooseProject(0)
-  assert.equal(optionCalls.at(-1).periodId,'p1')
-  assert.equal(page.productOptions.value.join(','),'门禁,堆场系统')
-  page.selectedProducts.value=['门禁','堆场系统']
+  assert.equal(optionCalls.at(-1).archiveId,'p1')
+  assert.equal(page.productOptions.value.map(p=>p.name).join(','),'门禁,堆场系统')
+  page.selectedProducts.value=['prod1','prod2']
   api.reportOptions=async()=>({customers:[],projects:[],products:[]})
   await page.loadOptions('customers')
   assert.equal(page.draft.customerId,'c1','search must preserve parent selection')
-  assert.equal(page.selectedProducts.value.join(','),'门禁,堆场系统')
+  assert.equal(page.selectedProducts.value.join(','),'prod1,prod2')
   api.reportOptions=async q=>{optionCalls.push(q);return options}
   await page.loadOptions()
   let resolveOld
@@ -113,11 +114,11 @@ async function main(){
   assert.ok(reportForm.includes('item.id === $event.value'), 'filtered selections must resolve by ID, not visible index')
   assert.ok(reportForm.includes('type="checkbox"'), 'products must support multiple selections')
   await page.chooseCustomer(0); await page.chooseProject(0)
-  page.selectedProducts.value=['门禁','堆场系统']; page.draft.fault='测试故障'
+  page.selectedProducts.value=['prod1','prod2']; page.draft.fault='测试故障'
   let submitted
   api.submit=async input=>{submitted=apiModule.exports.repairReportPayload(input);return detail}
   await page.createReport()
-  assert.equal(submitted.productNames,'门禁,堆场系统','submit dictionary names, comma separated')
+  assert.equal(submitted.products.map(p=>p.productId).join(','),'prod1,prod2');assert.equal(submitted.archiveId,'p1');assert.equal(submitted.periodId,undefined)
   assert.equal(page.selectedProducts.value.length,0,'successful submit clears all selected products')
   page.openHomeEntry('records');await tick()
   assert.equal(calls.filter(c=>c[0]==='list').length,1,'entry must not duplicate list requests')
@@ -331,14 +332,14 @@ async function main(){
   assert.equal(page.screen.value,'detail','retired missing-clock entry cannot open')
   assert.equal(page.additionalActions.value.includes('clockCorrection'),false)
   assert.equal(page.additionalActions.value.includes('missingClock'),false)
-  Object.assign(detail.order,{customerId:'c1',periodId:'p1',productNames:'门禁',reporterName:'原始报修姓名',reportTime:'2026-10-22T09:30:12',reportRemark:'原备注'})
+  Object.assign(detail.order,{customerId:'c1',archiveId:'p1',productNames:'门禁',reporterName:'原始报修姓名',reportTime:'2026-10-22T09:30:12',reportRemark:'原备注'})
   detail.actions={canEditReport:true,canCancelReport:true,canViewRepairDetail:false}
   detail.reportAttachments=[{fileId:'old-image',mediaType:'IMAGE',fileName:'原图'}]
   page.installDetail(detail);page.source.value='reports';page.go('detail')
   assert.equal(page.footerActions.value.map(x=>x.text).join(','),'取消报修,修改报修','reporter does not need repair-detail permission')
   api.reportEdit=async (id,input,reason)=>{calls.push(['reportEdit',{id,input,reason}]);return detail}
   await page.editReport()
-  assert.equal(page.title.value,'修改报修');assert.equal(page.selectedProducts.value[0],'门禁');assert.equal(page.retainedReportFiles.value[0].fileId,'old-image')
+  assert.equal(page.title.value,'修改报修');assert.equal(page.selectedProducts.value[0],'prod1');assert.equal(page.retainedReportFiles.value[0].fileId,'old-image')
   page.saveReportEdit();await tick();assert.ok(page.error.value.includes('修改原因'))
   page.reportChangeReason.value='补充描述';page.draft.fault='修正故障';page.saveReportEdit();await tick()
   const edit=calls.filter(c=>c[0]==='reportEdit').at(-1)[1]

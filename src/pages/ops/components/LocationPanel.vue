@@ -70,6 +70,7 @@ const props = defineProps<{
   locating?: boolean
   sites?: ImplementationSite[]
   suspended?: boolean
+  radiusMeters?: number
   statusLabel?: string
 }>()
 
@@ -156,7 +157,7 @@ const circles = computed(() =>
   (props.sites || []).map((site) => ({
     latitude: site.latitude,
     longitude: site.longitude,
-    radius: IMPLEMENTATION_RADIUS_METERS,
+    radius: props.radiusMeters ?? IMPLEMENTATION_RADIUS_METERS,
     color: '#2f86ff99',
     fillColor: '#2f86ff1f',
     strokeWidth: 2,

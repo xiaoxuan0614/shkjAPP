@@ -16,21 +16,29 @@
             <view v-if="submitUncertain && !editingReport" class="error">上次提交结果未确认，请先查看报修列表，避免重复创建。<button class="btn" @click="resolveReportUncertainty">已核对列表，解除提交保护</button></view>
             <SectionCard title="关联信息">
               <view class="form-row"><text class="label">客户<text class="required">*</text></text>
-                <wd-select-picker :model-value="draft.customerId" :columns="customerOptions" value-key="id" label-key="name" type="radio" filterable filter-placeholder="搜索客户" title="选择客户" :z-index="12000" :loading="optionBusy.customers" :disabled="submitting || optionBusy.customers" @confirm="chooseCustomer(customerOptions.findIndex(item => item.id === $event.value))">
+                <wd-select-picker :model-value="draft.customerId" :columns="customerOptions" value-key="id" label-key="name" type="radio" filterable filter-placeholder="搜索客户" title="选择客户" :z-index="12000" :loading="optionBusy.customers" :disabled="submitting || !!editingReport || optionBusy.customers" @confirm="chooseCustomer(customerOptions.findIndex(item => item.id === $event.value))">
                   <view class="picker-value">{{ customer?.name || '请选择客户' }}<wd-icon name="arrow-right" /></view>
                 </wd-select-picker>
               </view>
               <view class="form-row"><text class="label">项目<text class="required">*</text></text>
-                <wd-select-picker :model-value="draft.projectId" :columns="projects" value-key="id" label-key="name" type="radio" filterable filter-placeholder="搜索该客户项目" title="选择项目" :z-index="12000" :loading="optionBusy.projects" :disabled="submitting || !customer || optionBusy.projects || !projects.length" @confirm="chooseProject(projects.findIndex(item => item.id === $event.value))">
+                <wd-select-picker :model-value="draft.projectId" :columns="projects" value-key="id" label-key="name" type="radio" filterable filter-placeholder="搜索该客户项目" title="选择项目" :z-index="12000" :loading="optionBusy.projects" :disabled="submitting || !!editingReport || !customer || optionBusy.projects || !projects.length" @confirm="chooseProject(projects.findIndex(item => item.id === $event.value))">
                   <view class="picker-value">{{ project?.name || (customer ? '请选择项目' : '请先选择客户') }}<wd-icon name="arrow-right" /></view>
                 </wd-select-picker>
               </view>
               <text v-if="draft.customerId && !optionBusy.projects && !projects.length" class="muted">该客户暂无可报修项目</text>
               <view class="form-row"><text class="label">产品<text class="required">*</text></text>
-                <wd-select-picker :model-value="selectedProducts" :columns="productOptions.map(name => ({value:name,label:name}))" type="checkbox" filterable filter-placeholder="搜索该项目产品" title="选择产品" :z-index="12000" :loading="optionBusy.products" :disabled="submitting || !project || optionBusy.products || !productOptions.length" @confirm="selectedProducts = $event.value">
-                  <view class="picker-value">{{ selectedProducts.join('、') || (project ? '请选择项目产品（可多选）' : '请先选择项目') }}<wd-icon name="arrow-right" /></view>
+                <wd-select-picker :model-value="selectedProducts" :columns="productOptions.map(p => ({value:p.id,label:p.name}))" type="checkbox" filterable filter-placeholder="搜索该项目产品" title="选择产品" :z-index="12000" :loading="optionBusy.products" :disabled="submitting || !project || optionBusy.products || !productOptions.length" @confirm="selectedProducts = $event.value">
+                  <view class="picker-value">{{ selectedProducts.map(id => productOptions.find(p => p.id === id)?.name || '产品信息待加载').join('、') || (project ? '请选择项目产品（可多选）' : '请先选择项目') }}<wd-icon name="arrow-right" /></view>
                 </wd-select-picker>
               </view>
+              <template v-for="productId in selectedProducts" :key="productId">
+                <view v-if="serviceChoices(productId).length > 1 && !originalReportProducts.some(p=>p.productId===productId && p.serviceId)" class="form-row">
+                  <text class="label">{{ productOptions.find(p=>p.id===productId)?.name }}保障<text class="required">*</text></text>
+                  <wd-select-picker :model-value="reportServices[productId]" :columns="serviceChoices(productId)" type="radio" title="选择适用保障" :z-index="12000" :disabled="submitting || optionBusy.products" @confirm="reportServices[productId]=$event.value">
+                    <view class="picker-value">{{ serviceChoices(productId).find(s=>s.value===reportServices[productId])?.label || '请选择适用保障' }}<wd-icon name="arrow-right" /></view>
+                  </wd-select-picker>
+                </view>
+              </template>
               <text v-if="draft.projectId && !optionBusy.products && !productOptions.length" class="muted">该项目未配置产品</text>
             </SectionCard>
             <SectionCard title="报修信息">
@@ -57,7 +65,7 @@
           <template v-else-if="screen === 'reportCancel' && selected"><SectionCard title="取消报修"><text class="title">{{ selected.project }}</text><text class="muted">取消后保留报修记录，关闭相关待办，不再进入维修处理。此操作不经过维修关闭审批。</text><label class="field-label spaced" for="report-cancel-reason">取消原因<text class="required"> *</text></label><textarea id="report-cancel-reason" v-model="reportCancelReason" class="textarea" maxlength="1000" :disabled="submitting" placeholder="请说明取消报修的原因" /></SectionCard></template>
 
           <template v-else-if="['reports', 'records'].includes(screen)">
-            <button v-if="props.canManage && screen === 'records'" class="btn" @click="showRestAssignment = true">休息与转派</button>
+            <view v-if="restManageAccess && screen === 'records'" class="tabs"><button class="btn" @click="restInitialTab='rest';showRestAssignment=true">休息与转派</button><button class="btn" @click="restInitialTab='schedule';showRestAssignment=true">待调度 / 执行计划</button></view>
             <view class="list-filters">
               <view class="search-row"><input v-model="searchDraft" class="input" aria-label="筛选已加载记录" placeholder="搜索已加载的客户、项目、报修人" confirm-type="search" @confirm="search" /><button class="search-button" @click="search">筛选</button></view>
               <view class="tabs" role="tablist"><button v-for="s in mainFilters" :key="s" role="tab" :aria-selected="filter === s" :class="{ active: filter === s }" @click="filter = s">{{ s }}</button></view>
@@ -70,7 +78,7 @@
             <text class="list-count">共 {{ total }} 条 · 已加载 {{ cases.length }} 条</text>
             <view class="case-list">
             <view v-for="c in paged" :key="c.id" class="case-card" role="button" tabindex="0" @click="openCase(c)" @keydown.enter="openCase(c)">
-              <view class="card-head"><text class="card-no">{{ displayNumber(c) }}</text><text class="badge" :class="stateTone(c.state)">{{ c.state }}</text></view>
+              <view class="card-head"><text class="card-no">{{ displayNumber(c) }}</text><view class="card-statuses"><text class="badge" :class="stateTone(c.state)">{{ c.state }}</text><text v-if="screen === 'records' && cardApprovalText(c)" class="card-approval">{{ cardApprovalText(c) }}</text></view></view>
               <view class="card-name">{{ c.project }}</view>
               <view class="kv"><text>客户</text><text>{{ c.customer }}</text></view>
               <view v-if="c.product" class="kv"><text>产品</text><text>{{ c.product }}</text></view>
@@ -139,7 +147,12 @@
               <template v-if="!isAssistantWork"><text class="field-label spaced">维修方式</text><view class="choices"><button v-for="mode in repairModes" :key="mode" class="choice" :class="{ on: beginMode === mode }" @click="beginMode = mode">{{ mode }}</button></view></template>
               <text class="muted">签到成功后才能填写本次维修日志。</text>
             </SectionCard>
-            <SectionCard title="签到定位"><LocationPanel :location="clockLocation" :locating="locating" :status-label="clockLocation.status === 'NORMAL' ? '已定位' : ''" @refresh="refreshClockLocation" /></SectionCard>
+            <SectionCard title="签到定位"><text v-if="repairLocationCheckEnabled" class="muted">距当前售后项目任一维护位置300米以内可正常打卡。</text><LocationPanel :sites="clockSites" :radius-meters="REPAIR_RADIUS_METERS" :location="clockLocation" :locating="locating" :status-label="clockLocation.status === 'NORMAL' ? '已定位' : ''" @refresh="refreshClockLocation" /></SectionCard>
+            <SectionCard v-if="repairLocationCheckEnabled && clockLocation.status === 'OUT_OF_RANGE'" title="打卡异常原因">
+              <text class="muted">当前位置超出300米范围，请如实填写异常原因。</text>
+              <textarea v-model="clockAbnormalReason" class="textarea" maxlength="2000" placeholder="请输入打卡异常原因（必填）" :disabled="submitting" />
+              <ReportAttachments v-model:photos="clockPhotos" :videos="[]" photos-only photo-watermark :readonly="submitting" @busy="mediaBusy = $event" />
+            </SectionCard>
           </template>
           <template v-else-if="screen === 'checkout' && selected && currentLog">
             <SectionCard title="待签退"><text class="title">{{ selected.project }} · {{ selected.product }}</text><view class="kv"><text>签到时间</text><text>{{ formatTime(currentLog.startedAt) }}</text></view><text class="muted">日志已保存，请完成签退。本次作业在签退成功前仍处于进行中。</text></SectionCard>
@@ -185,6 +198,8 @@
                   <view class="kv"><text>{{ viewedClock.corrected ? '实际签退时间' : '签退时间' }}</text><text>{{ viewedRecordInfo.effectiveEndedAt || viewedRecordInfo.rawEndedAt ? formatReportedAt(viewedRecordInfo.effectiveEndedAt || viewedRecordInfo.rawEndedAt) : viewedRecordInfo.signOutStatus === 'NOT_SIGNED_OUT' ? '未签退' : '未记录' }}</text></view>
                   <view v-if="viewedClock.corrected" class="kv"><text class="log-clock-alert">补签退说明</text><text>{{ viewedClock.correctionDescription }}</text></view>
                 </view>
+                <view v-if="viewedWork.abnormalReason" class="log-clock-note"><text>签到异常原因：{{ viewedWork.abnormalReason }}</text></view>
+                <RepairServerAttachments v-if="workBeginPhotos(viewedWork).length" :files="workBeginPhotos(viewedWork)" />
                 <view v-if="viewedClock.generalReason" class="log-clock-note"><text>打卡说明：{{ viewedClock.generalReason }}</text></view>
                 <view class="kv"><text>本次时长</text><text>{{ viewedWork.recordStatus === 'ACTIVE' ? '进行中' : viewedWork.durationSeconds != null ? (Number(viewedWork.durationSeconds) / 3600).toFixed(2) + 'h' : '未记录' }}</text></view>
               </SectionCard>
@@ -207,7 +222,7 @@
             <view v-show="isAssistantWork || logPage === 1">
             <SectionCard title="本次维修">
               <text class="title">{{ selected.project }} · {{ selected.product }}</text>
-              <view v-if="!isAssistantWork" class="kv"><text>维保类型</text><text>{{ selected.warranty }}</text></view>
+              <view v-if="!isAssistantWork" class="kv"><text>本次维修保障</text><text>{{ selected.warranty }}</text></view>
               <view class="kv"><text>开始打卡</text><text>{{ formatTime(currentLog.startedAt) }}</text></view>
               <view v-if="!isAssistantWork" class="kv"><text>维修方式</text><text>{{ currentLog.mode }}</text></view>
             </SectionCard>
@@ -361,7 +376,7 @@
         <view class="workflow-bottom__inner"><button v-for="op in footerActions" :key="op.text" class="footer-btn" :class="{ primary: op.primary }" :disabled="mediaBusy || submitting || op.disabled" @click="op.action">{{ submitting ? '正在提交…' : op.text }}</button><button v-if="canShowMore" class="footer-btn footer-more" :aria-expanded="showMore" @click="showMore = true">更多 <wd-icon name="arrow-up" size="14px" /></button></view>
       </view>
     </PageLayout>
-    <wd-popup v-if="props.canManage" v-model="showRestAssignment" position="bottom" :z-index="12000" :safe-area-inset-bottom="true" custom-style="height:92vh;border-radius:16px 16px 0 0;"><view style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px"><text>休息与转派</text><button style="margin:0;font-size:14px;min-height:44px" @click="showRestAssignment=false">关闭</button></view><scroll-view scroll-y style="height:calc(92vh - 70px)"><RestAssignment v-if="showRestAssignment" /></scroll-view></wd-popup>
+    <wd-popup v-if="restManageAccess" v-model="showRestAssignment" :close-on-click-modal="false" position="bottom" :z-index="12000" :safe-area-inset-bottom="true" custom-style="height:92vh;border-radius:16px 16px 0 0;"><view style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px"><text>休息与转派</text><button style="margin:0;font-size:14px;min-height:44px" :disabled="restLocked" @click="showRestAssignment=false">关闭</button></view><scroll-view scroll-y style="height:calc(92vh - 70px)"><RestAssignment v-if="showRestAssignment" :initial-tab="restInitialTab" @lock-change="restLocked=$event" @changed="scheduleList" /></scroll-view></wd-popup>
     <wd-popup v-model="showBackfillCheckout" position="bottom" :z-index="12000" :close-on-click-modal="false" :safe-area-inset-bottom="true" custom-style="border-radius:16px 16px 0 0;">
       <view class="more-sheet contact-sheet">
         <view class="sheet-head"><text>补签退</text><button aria-label="关闭补签退" :disabled="submitting" @click="showBackfillCheckout = false"><wd-icon name="close" size="18px" /></button></view>
@@ -414,6 +429,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { getImplementationLocation, isFreshLocation } from '@/utils/implementationLocation'
+import { repairSites, nearestRepairSite, repairAbnormalEvidence, REPAIR_RADIUS_METERS, type RepairSite } from '@/service/repairLocation'
 import dayjs from 'dayjs'
 import { approvalRows } from '@/service/repairApproval'
 import RepairApprovalPopup from './RepairApprovalPopup.vue'
@@ -423,12 +440,14 @@ import { useUserStore } from '@/store/user'
 import RepairMaterialStatistics from './RepairMaterialStatistics.vue'
 import { canChangeRepairQuotation, quotationLockReason } from '@/service/repairQuotationAccess'
 import { readOperationsUsers } from '@/service/operationsMembership'
+import { repairCoverageName } from '@/service/repairCoverage'
 import { repairOrderApi, repairCaseView, repairReportPayload, uploadRepairAttachment } from '@/service/repairOrder'
 import PageLayout from '@/components/PageLayout/PageLayout.vue'
 import SectionCard from '@/components/SectionCard/SectionCard.vue'
 import ReportDutyRoster from './ReportDutyRoster.vue'
 import RestAssignment from './RestAssignment.vue'
-const showRestAssignment = ref(false)
+import { restApi } from './restAssignment.api'
+const showRestAssignment = ref(false), restLocked=ref(false), restInitialTab=ref('rest'), restManageAccess=ref(false)
 import LocationPanel from '../LocationPanel.vue'
 import ReportAttachments from './ReportAttachments.vue'
 import RepairServerAttachments from './RepairServerAttachments.vue'
@@ -529,6 +548,7 @@ function submitMaterials(lines: MaterialLine[], remark: string, useDate?: string
 }) }
 function openMaterials(type: '领料' | '还料') { materialType.value = type; go('materials') }
 const screen = ref<Screen>('reports'), source = ref<Screen>('reports')
+watch(screen,async value=>{if(value!=='records')return;try{const result=await restApi('GET','/repair/rest/options');restManageAccess.value=result.canManage===true}catch{restManageAccess.value=false}},{immediate:true})
 const showContact = ref(false), showReportDetails = ref(false)
 watch(screen, () => { showContact.value = false })
 const user = useUserStore()
@@ -539,6 +559,10 @@ const expandedLogId = ref(''), showQuoteDetails = ref(false)
 const scrollTop = ref(0)
 function scrollToTop() { scrollTop.value = 1; void nextTick(() => { scrollTop.value = 0 }) }
 type LiveCase = RepairCase & { raw: Record<string, any>; actions: Record<string, boolean> }
+function cardApprovalText(c: LiveCase): string {
+  const status = c.raw.order?.approvalStatus ?? c.raw.approvalStatus
+  return ({ TRANSFER_PENDING:'转单审批中', COMPLETION_PENDING:'完工审批中', CLOSE_PENDING:'关闭审批中' } as Record<string,string>)[status] || ''
+}
 const cases = ref<LiveCase[]>([]), selectedId = ref('')
 watch(selectedId, () => { showContact.value = false; showReportDetails.value = false })
 watch(() => selectedId.value, () => { expandedLogId.value = ''; showQuoteDetails.value = false })
@@ -666,6 +690,11 @@ const repairSummaryRows = computed(() => {
 })
 const canViewSelected = computed(() => !!selected.value)
 const reportFiles = computed(() => selected.value?.raw.reportAttachments || (selected.value?.raw.attachments || []).filter((a: any) => a.attachmentScene === 'REPORT_FAULT'))
+function workBeginPhotos(record: any) {
+  return (record?.photoFileIds || []).map((fileId: string) => repairAttachment(
+    record.photos?.find((file: any) => file.fileId === fileId) || {fileId, mediaType: 'IMAGE', fileNameSnapshot: '签到照片'}
+  ))
+}
 function recordFiles(id: string) {
   const detail = workCache.value[id]
   if (!detail) return []
@@ -764,7 +793,7 @@ const paged = computed(() => filtered.value)
 watch([filter, relation], () => { scrollToTop(); scheduleList() })
 const titles: Record<Screen, string> = { logList:'维修记录', logDetail:'维修日志详情',reportCancel:'取消报修',additional:'维修办理',checkout: '维修签退', begin: '维修签到', create: '填写报修', reports: '报修管理', records: '维修列表', detail: '维修详情', log: '填写维修日志', quote: '填写报价', customer: '客户确认维修', completion: '提交完工', approval: '审批详情', exception: '申请处理', inspection: '巡检管理', assistance: '申请协助', materials: '物料申请' }
 const title = computed(() => screen.value==='create' && editingReport.value ? '修改报修' : screen.value === 'additional' ? repairActionTitles[additionalKind.value] : screen.value === 'materials' ? `${materialType.value}申请` : screen.value === 'detail' && source.value === 'reports' ? '报修详情' : titles[screen.value])
-const reportRows = computed(() => selected.value ? [['客户', selected.value.customer], ['项目', selected.value.project], ['产品', selected.value.product], ['报修人', selected.value.applicant], ['报修时间', formatReportedAt(selected.value.reportedAt)], ['故障现象', selected.value.fault], ['备注', selected.value.remark || '—']] : [])
+const reportRows = computed(() => selected.value ? [['客户', selected.value.customer], ['项目', selected.value.project], ['产品', selected.value.product], ['本次维修保障', selected.value.warranty], ...((Array.isArray(selected.value.raw.products) ? selected.value.raw.products : []).map((product: Record<string, any>, index: number) => [`产品保障 ${index + 1}`, `${product.productNameSnapshot || product.productName || '未命名产品'} · ${repairCoverageName(product)}`])), ['报修人', selected.value.applicant], ['报修时间', formatReportedAt(selected.value.reportedAt)], ['故障现象', selected.value.fault], ['备注', selected.value.remark || '—']] : [])
 const emptyDraft = (): ReportDraft => ({ customerId: '', projectId: '', product: '', fault: '', reportedAt: dayjs().format('YYYY-MM-DD'), remark: '', photos: [], videos: [] })
 const draft = reactive(emptyDraft())
 const editingReport=ref(''), reportChangeReason=ref(''), reportCancelReason=ref(''), originalReporterName=ref('')
@@ -775,14 +804,32 @@ type ReportOptionLevel = 'customers' | 'projects' | 'products'
 const optionBusy = reactive({ customers: false, projects: false, products: false })
 const optionGeneration = { customers: 0, projects: 0, products: 0 }
 const customerOptions = ref<{id:string;name:string}[]>([])
-const projects = ref<{id:string;name:string}[]>([])
-// reportOptions 已按 project_products 字典返回名称，选择及提交均使用名称。
-const productOptions = ref<string[]>([])
+const projects = ref<{id:string;name:string;periodId?:string}[]>([])
+// 项目选档案ID，产品按productId选择，同名产品不合并。
+const productOptions = ref<{id:string;name:string}[]>([])
 const selectedProducts = ref<string[]>([])
+const originalReportProducts = ref<{productId:string;assetId?:string;serviceId?:string}[]>([])
+const archiveOptions = ref<{products:any[];assets:any[]}>({products:[],assets:[]})
+const reportServices = ref<Record<string,string>>({})
+function serviceChoices(productId:string) {
+  return (archiveOptions.value.products.find(p=>p.id===productId)?.coverage?.applicableServices || []).map((s:any)=>({value:s.id,label:s.serviceName || s.contractName || s.id}))
+}
+function reportProductRows() {
+  return selectedProducts.value.flatMap(productId=>{
+    const originals=originalReportProducts.value.filter(p=>p.productId===productId)
+    if(originals.length)return originals.map(p=>({...p,...(!p.serviceId && reportServices.value[productId]?{serviceId:reportServices.value[productId]}:{})}))
+    const choices=serviceChoices(productId)
+    const serviceId=reportServices.value[productId]
+    if(choices.length>1 && !serviceId)throw new Error('请为所选产品选择适用保障')
+    if(serviceId && !choices.some((s:any)=>s.value===serviceId))throw new Error('产品保障已变化，请重新选择')
+    return [{productId,...(serviceId?{serviceId}:{})}]
+  })
+}
+watch(()=>reportTimestamp.value,()=>{if(screen.value==='create' && draft.projectId)void loadOptions('products')})
 const customer = ref<{id:string;name:string}>()
-const project = ref<{id:string;name:string}>()
+const project = ref<{id:string;name:string;periodId?:string}>()
 async function chooseCustomer(index: number) {
-  if (submitting.value) return
+  if (submitting.value || editingReport.value) return
   customer.value = customerOptions.value[index]
   draft.customerId = customer.value?.id || ''; draft.projectId = ''; selectedProducts.value = []
   project.value = undefined; projects.value = []; productOptions.value = []
@@ -791,10 +838,10 @@ async function chooseCustomer(index: number) {
   if (draft.customerId) await loadOptions('projects')
 }
 async function chooseProject(index: number) {
-  if (submitting.value) return
+  if (submitting.value || editingReport.value) return
   project.value = projects.value[index]
   draft.projectId = project.value?.id || ''; selectedProducts.value = []
-  productOptions.value = []; ++optionGeneration.products
+  productOptions.value = []; reportServices.value={};archiveOptions.value={products:[],assets:[]}; ++optionGeneration.products
   if (draft.projectId) await loadOptions('products')
 }
 const quoteDraft = ref<QuoteLine[]>([]), priceInput = ref(''), approvalReason = ref('')
@@ -874,8 +921,10 @@ function scheduleList() {
   listScheduled = true
   void nextTick(() => { listScheduled = false; if (['reports','records'].includes(screen.value)) void loadList() })
 }
-function go(target: Screen) { if (!['reports', 'records'].includes(target)) { ++listGeneration; listBusy.value = false }; error.value = ''; message.value = ''; screen.value = target; showMore.value = false; scrollToTop(); if (target === 'create') { editingReport.value='';retainedReportFiles.value=[];reportChangeReason.value='';Object.assign(draft,emptyDraft());selectedProducts.value=[];customer.value=undefined;project.value=undefined;reportTimestamp.value = Date.now(); void loadOptions() }; if (['reports', 'records'].includes(target)) scheduleList() }
+function go(target: Screen) { if (!['reports', 'records'].includes(target)) { ++listGeneration; listBusy.value = false }; error.value = ''; message.value = ''; screen.value = target; showMore.value = false; scrollToTop(); if (target === 'create') { editingReport.value='';originalReportProducts.value=[];reportServices.value={};archiveOptions.value={products:[],assets:[]};retainedReportFiles.value=[];reportChangeReason.value='';Object.assign(draft,emptyDraft());selectedProducts.value=[];customer.value=undefined;project.value=undefined;reportTimestamp.value = Date.now(); void loadOptions() }; if (['reports', 'records'].includes(target)) scheduleList() }
 function back() {
+  if(restLocked.value){uni.showToast({title:'提交结果待确认，请先核对或重试',icon:'none'});return}
+  if(showRestAssignment.value){showRestAssignment.value=false;return}
   if (props.directDetail && screen.value === 'detail' && !submitting.value && !showQuoteDetails.value && !showContact.value && !showMore.value) { emit('close'); return }
   // The home workbench keeps this component mounted. Hidden form/popup state
   // must not consume a list-level back action on the next visit.
@@ -893,7 +942,7 @@ function back() {
   if (submitting.value || mediaBusy.value) { uni.showToast({title:'正在处理，请稍候',icon:'none'}); return }
   ++listGeneration; ++detailGeneration; ++workGeneration; ++logDetailGeneration; logDetailLoading.value = false; workLoading.value = false; loading.value = false
   if (showMore.value || showSettings.value) { showMore.value = false; showSettings.value = false; return }
-  if(screen.value==='create' && editingReport.value){editingReport.value='';retainedReportFiles.value=[];go('detail');return}
+  if(screen.value==='create' && editingReport.value){editingReport.value='';originalReportProducts.value=[];reportServices.value={};archiveOptions.value={products:[],assets:[]};retainedReportFiles.value=[];go('detail');return}
   if (['detail', 'create'].includes(screen.value)) { go(source.value === 'detail' ? 'reports' : source.value); selectedId.value = '' }
   else if (screen.value === 'logDetail') go('logList')
   else go('detail')
@@ -964,18 +1013,20 @@ function detailStatus(c: RepairCase) {
 }
 async function loadOptions(level: ReportOptionLevel = 'customers') {
   const generation = ++optionGeneration[level]
-  const customerId = draft.customerId, periodId = draft.projectId
-  if (level !== 'customers' && !customerId || level === 'products' && !periodId) return
+  const customerId = draft.customerId, archiveId = draft.projectId, asOf=dayjs(reportTimestamp.value).format('YYYY-MM-DD')
+  if (level !== 'customers' && !customerId || level === 'products' && !archiveId) return
   optionBusy[level] = true; error.value = ''
   try {
     const options = await repairOrderApi.reportOptions({
       ...(level !== 'customers' ? {customerId} : {}),
-      ...(level === 'products' ? {periodId} : {}),
+      ...(level === 'products' ? {archiveId} : {}),
     })
-    if (generation !== optionGeneration[level] || (level !== 'customers' && customerId !== draft.customerId) || (level === 'products' && periodId !== draft.projectId)) return
+    const extra=level==='products' ? await repairOrderApi.archiveReportOptions(archiveId,asOf) : undefined
+    if (generation !== optionGeneration[level] || (level !== 'customers' && customerId !== draft.customerId) || (level === 'products' && archiveId !== draft.projectId)) return
     if (level === 'customers') customerOptions.value = options.customers.map(c => ({id:c.customerId,name:c.customerName}))
-    if (level === 'projects') projects.value = options.projects.filter(p => p.customerId === customerId).map(p => ({id:p.periodId,name:p.projectName}))
-    if (level === 'products') productOptions.value = [...new Set(options.products.filter(p => p.periodId === periodId).map(p => p.productName))]
+    if (level === 'projects') projects.value = options.projects.filter(p => p.customerId === customerId).map(p => ({id:p.archiveId,name:p.projectName,periodId:p.periodId}))
+    if (level === 'products' && extra) archiveOptions.value=extra
+    if (level === 'products') productOptions.value = options.products.filter(p => p.productId && (!p.archiveId || p.archiveId === archiveId)).map(p => ({id:p.productId,name:p.productName}))
   } catch (e: any) {
     if (generation === optionGeneration[level]) {
       if (level === 'customers') customerOptions.value = []
@@ -1011,23 +1062,26 @@ const uploadedFiles = new Map<string, string>()
 async function editReport() {
   if(selected.value?.actions.canEditReport!==true || submitting.value)return
   const order=selected.value.raw.order, oldFiles=[...reportFiles.value]
+  if (!order.archiveId) { error.value='该历史报修未关联售后档案，无法使用档案报修修改接口';return }
   go('create');editingReport.value=order.id
-  Object.assign(draft,{customerId:order.customerId,projectId:order.periodId,fault:order.faultDescription || '',remark:order.reportRemark || '',photos:[],videos:[]})
+  Object.assign(draft,{customerId:order.customerId,projectId:order.archiveId,fault:order.faultDescription || '',remark:order.reportRemark || '',photos:[],videos:[]})
   originalReporterName.value=order.reporterName || selected.value.applicant || reporterName.value
-  selectedProducts.value=String(order.productNames || selected.value.product || '').split(',').map(s=>s.trim()).filter(Boolean)
-  customer.value={id:order.customerId,name:selected.value.customer};project.value={id:order.periodId,name:selected.value.project}
+  selectedProducts.value=[...new Set<string>((selected.value.raw.products || []).map((p:any)=>p.productId).filter(Boolean))]
+  originalReportProducts.value=(selected.value.raw.products || []).map((p:any)=>({productId:p.productId,assetId:p.assetId,serviceId:p.serviceId}))
+  customer.value={id:order.customerId,name:selected.value.customer};project.value={id:order.archiveId,name:selected.value.project,periodId:order.periodId}
   reportTimestamp.value=dayjs(order.reportTime).valueOf();retainedReportFiles.value=oldFiles
   await Promise.all([loadOptions('projects'),loadOptions('products')])
 }
 function saveReportEdit() { void transact(async()=>{
   if(selected.value?.actions.canEditReport!==true || editingReport.value!==selectedId.value)throw new Error('当前报修不可修改，请返回详情核对')
+  if(draft.projectId!==selected.value.raw.order.archiveId)throw new Error('修改报修不能变更所属档案')
   if(!reportChangeReason.value.trim() || reportChangeReason.value.trim().length>1000)throw new Error('请填写修改原因，最多 1000 字符')
   if(Object.values(optionBusy).some(Boolean))throw new Error('选项正在加载，请稍候')
-  const input={customerId:draft.customerId,periodId:draft.projectId,productNames:[...selectedProducts.value],faultDescription:draft.fault,reportTime:dayjs(reportTimestamp.value).format('YYYY-MM-DD HH:mm:ss'),reporterName:originalReporterName.value,reportRemark:draft.remark,fileIds:retainedReportFiles.value.map(f=>f.fileId)}
+  const input={archiveId:draft.projectId,products:reportProductRows(),faultDescription:draft.fault,reportTime:dayjs(reportTimestamp.value).format('YYYY-MM-DD HH:mm:ss'),reporterName:originalReporterName.value,reportRemark:draft.remark,fileIds:retainedReportFiles.value.map(f=>f.fileId)}
   repairReportPayload(input)
   if(retainedReportFiles.value.filter(f=>f.mediaType==='IMAGE').length+draft.photos.length>6 || retainedReportFiles.value.filter(f=>f.mediaType==='VIDEO').length+draft.videos.length>2)throw new Error('附件最多 6 张照片、2 段视频（含已有附件）')
-  const candidates=await repairOrderApi.reportOptions({customerId:input.customerId,periodId:input.periodId})
-  if(!candidates.projects.some(p=>p.periodId===input.periodId && p.customerId===input.customerId)||!input.productNames.every(name=>candidates.products.some(p=>p.periodId===input.periodId && p.productName===name)))throw new Error('所选项目或产品已不可用，请重新选择')
+  const candidates=await repairOrderApi.reportOptions({customerId:draft.customerId,archiveId:draft.projectId})
+  if(!candidates.projects.some(p=>p.archiveId===draft.projectId && p.customerId===draft.customerId)||!selectedProducts.value.every(id=>candidates.products.some(p=>(!p.archiveId || p.archiveId===draft.projectId) && p.productId===id)))throw new Error('所选项目或产品已不可用，请重新选择')
   input.fileIds=[...new Set([...input.fileIds,...await files([...draft.photos,...draft.videos])])]
   return repairOrderApi.reportEdit(editingReport.value,input,reportChangeReason.value)
 }) }
@@ -1038,13 +1092,13 @@ async function createReport() {
   if (mediaBusy.value || submitting.value || submitUncertain.value) return
   let posting = false
   try {
-    const input = { customerId: draft.customerId, periodId: draft.projectId, productNames: [...selectedProducts.value], faultDescription: draft.fault, reportTime: dayjs(reportTimestamp.value).format('YYYY-MM-DD HH:mm:ss'), reporterName: reporterName.value, reportRemark: draft.remark, fileIds: [] as string[] }
+    const input = { archiveId: draft.projectId, products: reportProductRows(), faultDescription: draft.fault, reportTime: dayjs(reportTimestamp.value).format('YYYY-MM-DD HH:mm:ss'), reporterName: reporterName.value, reportRemark: draft.remark, fileIds: [] as string[] }
     repairReportPayload(input)
     if (Object.values(optionBusy).some(Boolean)) throw new Error('选项正在加载，请稍候')
     if (customer.value?.id !== draft.customerId || project.value?.id !== draft.projectId) throw new Error('请重新选择客户和项目')
     submitting.value = true
-    const candidates = await repairOrderApi.reportOptions({customerId: input.customerId, periodId: input.periodId})
-    if (!candidates.projects.some(p => p.periodId === input.periodId && p.customerId === input.customerId) || !input.productNames.every(name => candidates.products.some(p => p.periodId === input.periodId && p.productName === name))) throw new Error('所选项目或产品已不可用，请重新选择')
+    const candidates = await repairOrderApi.reportOptions({customerId: draft.customerId, archiveId: draft.projectId})
+    if (!candidates.projects.some(p => p.archiveId === draft.projectId && p.customerId === draft.customerId) || !selectedProducts.value.every(id => candidates.products.some(p => (!p.archiveId || p.archiveId === draft.projectId) && p.productId === id))) throw new Error('所选项目或产品已不可用，请重新选择')
     for (const path of [...draft.photos, ...draft.videos]) {
       if (!uploadedFiles.has(path)) uploadedFiles.set(path, await uploadRepairAttachment(path))
       input.fileIds.push(uploadedFiles.get(path)!)
@@ -1104,15 +1158,32 @@ async function transact(action: () => Promise<unknown>, target: Screen = 'detail
   } catch (e: any) { mutationBlocked.value = saved || e.uncertain === true; error.value = saved ? '操作已成功，但详情刷新失败。请返回列表重新查看，勿重复提交。' : e.uncertain ? '操作结果不确定，已暂停提交。请返回列表重新打开详情核对，勿直接重试。' : e.message || e.errMsg || '请求失败，请刷新核对后重试'; scrollToTop() }
   finally { submitting.value = false }
 }
+// Backend contract verified: GCJ02 coordinates plus optional abnormal evidence.
+const repairLocationCheckEnabled = true
 const locating = ref(false)
-const clockLocation = ref<{name: string; address: string; latitude?: number; longitude?: number; status: 'PENDING' | 'NORMAL' | 'FAILED'}>({name:'尚未获取当前位置',address:'打卡前请先完成定位',status:'PENDING'})
+const clockLocation = ref<{name: string; address: string; latitude?: number; longitude?: number; accuracy?:number; acquiredAt?:number; coordinateSystem?:string; status: 'PENDING' | 'NORMAL' | 'OUT_OF_RANGE' | 'FAILED' | 'NO_SITE'}>({name:'尚未获取当前位置',address:'打卡前请先完成定位',status:'PENDING'})
+const clockSites=ref<RepairSite[]>([]), clockAbnormalReason=ref(''), clockPhotos=ref<string[]>([])
 let clockLocatedAt = 0, clockRequest = 0
 async function refreshClockLocation() {
-  const request = ++clockRequest
+  const request = ++clockRequest, orderId=selectedId.value, forBegin=screen.value==='begin'
+  clockSites.value=[]
   clockLocatedAt = 0; locating.value = true
   clockLocation.value = {name:'正在定位',address:'请保持定位权限开启',status:'PENDING'}
   try {
     if (typeof window !== 'undefined' && window.isSecureContext === false) throw new Error('当前网页无法定位，请使用 HTTPS 安全地址访问，并确认手机已信任证书')
+    if(forBegin && repairLocationCheckEnabled) {
+      const archiveId=selected.value?.raw?.order?.archiveId
+      const sites=repairSites(await repairOrderApi.archiveLocations(archiveId))
+      if(request!==clockRequest || orderId!==selectedId.value)return
+      clockSites.value=sites
+      if(!sites.length){clockLocation.value={name:'未配置有效位置',address:'请联系管理员维护售后项目位置后重试',status:'NO_SITE'};return}
+      const verified=await getImplementationLocation()
+      if(request!==clockRequest || orderId!==selectedId.value)return
+      const nearest=nearestRepairSite(verified.latitude,verified.longitude,sites)
+      clockLocation.value={...verified,status:nearest.status,name:nearest.status==='NORMAL'?`已进入“${nearest.site.locationName}”范围`:`距最近位置“${nearest.site.locationName}”约${Math.round(nearest.distance)}米`,address:`允许范围300米 · 定位精度约${Math.round(verified.accuracy)}米`}
+      clockLocatedAt=verified.acquiredAt
+      return
+    }
     const p: any = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('定位超时，请重新定位')), 20000)
       uni.getLocation({type:'gcj02',geocode:true,isHighAccuracy:true,
@@ -1129,10 +1200,12 @@ async function refreshClockLocation() {
   finally { if (request === clockRequest) locating.value = false }
 }
 function location() {
-  if (locating.value || clockLocation.value.status !== 'NORMAL') throw new Error('请先完成定位后再打卡')
+  if (locating.value || !['NORMAL','OUT_OF_RANGE'].includes(clockLocation.value.status)) throw new Error('请先完成定位后再打卡')
   if (Date.now() - clockLocatedAt > 120000) throw new Error('定位已超过 2 分钟，请重新定位后打卡')
   return {longitude:clockLocation.value.longitude!,latitude:clockLocation.value.latitude!,coordinateSystem:'GCJ02'}
 }
+watch(selectedId,()=>{++clockRequest;clockLocatedAt=0;locating.value=false;clockSites.value=[];clockAbnormalReason.value='';clockPhotos.value=[];clockLocation.value={name:'请重新定位',address:'维修单已切换',status:'PENDING'}})
+onBeforeUnmount(()=>{++clockRequest})
 watch(screen, value => { if (value === 'begin' || value === 'checkout') void refreshClockLocation(); else { ++clockRequest; locating.value = false; clockLocatedAt = 0 } })
 async function files(paths: string[]) {
   const ids: string[] = []
@@ -1144,17 +1217,38 @@ async function files(paths: string[]) {
 }
 async function startWork() {
   if (!selected.value?.actions.canStartWork) return
+  clockAbnormalReason.value=''; clockPhotos.value=[]
   go('begin')
   beginMode.value = '线下'
 }
 function beginWork() {
   void transact(async () => {
     if (!selected.value?.actions.canStartWork) throw new Error('当前账号不能开始此维修单作业，请刷新详情')
+    const orderId=selectedId.value, archiveId=selected.value.raw.order.archiveId, request=clockRequest
     const position = await location()
-    const detail = await repairOrderApi.begin({orderId:selectedId.value,repairMethod:({线上:'ONLINE',线下:'OFFLINE',检修:'INSPECTION'})[beginMode.value],longitude:position.longitude,latitude:position.latitude})
+    let evidence: {abnormalReason?: string; photoFileIds?: string[]} = {}
+    if (repairLocationCheckEnabled) {
+      if(!isFreshLocation(clockLocation.value)) throw new Error('定位无效或已过期，请重新定位')
+      const reason=clockAbnormalReason.value, photos=[...clockPhotos.value]
+      repairAbnormalEvidence(clockLocation.value.status==='OUT_OF_RANGE',reason,photos)
+      const sites=repairSites(await repairOrderApi.archiveLocations(archiveId))
+      if(orderId!==selectedId.value || request!==clockRequest || screen.value!=='begin')throw new Error('维修单或定位已变化，请重新打卡')
+      const nearest=nearestRepairSite(position.latitude,position.longitude,sites)
+      clockSites.value=sites
+      clockLocation.value={...clockLocation.value,status:nearest.status,name:nearest.status==='NORMAL'?`已进入“${nearest.site.locationName}”范围`:`距最近位置“${nearest.site.locationName}”约${Math.round(nearest.distance)}米`}
+      const abnormal=nearest.status==='OUT_OF_RANGE'
+      repairAbnormalEvidence(abnormal,reason,photos)
+      const photoFileIds=abnormal ? await files(photos) : []
+      if(orderId!==selectedId.value || request!==clockRequest || screen.value!=='begin')throw new Error('维修单或定位已变化，请重新打卡')
+      if(!isFreshLocation(clockLocation.value))throw new Error('定位已过期，请重新定位；已填写原因和照片会保留')
+      evidence=repairAbnormalEvidence(abnormal,reason,photoFileIds)
+    }
+    if(orderId!==selectedId.value || request!==clockRequest || screen.value!=='begin')throw new Error('维修单或定位已变化，请重新打卡')
+    const detail = await repairOrderApi.begin({orderId,repairMethod:({线上:'ONLINE',线下:'OFFLINE',检修:'INSPECTION'})[beginMode.value],longitude:position.longitude,latitude:position.latitude,...evidence})
     if (!detail.recordId) throw Object.assign(new Error('签到响应缺少 recordId，请重新打开详情核对，勿重复签到'), {uncertain:true})
-    installDetail(detail)
-    try { installWork(await repairOrderApi.workDetail(selectedId.value,detail.recordId)) }
+    // begin now returns an acknowledgement, not an order detail.
+    if (detail.orderId !== orderId || detail.recordStatus !== 'ACTIVE') throw Object.assign(new Error('签到响应与当前工单不一致，请重新打开详情核对，勿重复签到'), {uncertain:true})
+    try { installWork(await repairOrderApi.workDetail(orderId,detail.recordId)) }
     catch { throw Object.assign(new Error('签到已成功，但日志加载失败。请返回详情继续填写，勿重复签到'), {uncertain:true}) }
     return detail
   }, 'log')
@@ -1401,7 +1495,7 @@ const footerActions = computed<FooterAction[]>(() => {
       {text:approvalDecision.value==='reject'?'确认驳回':mergedApproval.value?'确认同意':'确认同意并继续',action:()=>review(approvalDecision.value==='approve'),primary:true}]
   }
   if (screen.value === 'approval' && reviewTask.value) return [{ text: '驳回', action: () => review(false) }, { text: '审批通过', action: () => review(true), primary: true }]
-  if (screen.value === 'begin' && c.actions.canStartWork) return [{text:'签到打卡',action:beginWork,primary:true,disabled:locating.value || clockLocation.value.status !== 'NORMAL'}]
+  if (screen.value === 'begin' && c.actions.canStartWork) return [{text:'签到打卡',action:beginWork,primary:true,disabled:locating.value || !['NORMAL','OUT_OF_RANGE'].includes(clockLocation.value.status)}]
   if (screen.value === 'checkout' && currentLog.value) return [{text:'返回维修详情',action:() => go('detail')}, {text:'确认并签退',action:endWork,primary:true,disabled:completionSubmitted.value || workDetail.value?.actions?.canEnd !== true || locating.value || clockLocation.value.status !== 'NORMAL' || (!isAssistantWork.value && !checkoutNext.value)}]
   if (screen.value === 'log' && currentLog.value) {
     const blocked = mediaBusy.value || resourceBusy.value
@@ -1594,6 +1688,8 @@ function runMore(op: FooterAction) { if (op.disabled) return; showMore.value = f
 .card-name { margin-bottom: 12px; color: #202939; font-size: 17px; font-weight: 600; line-height: 1.5; }
 .case-card .kv { align-items: flex-start; gap: 12px; padding: 4px 0; }
 .case-card .kv > text:first-child { flex: 0 0 64px; }
+.card-statuses { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
+.card-approval { color:#176ac7; font-size:12px; line-height:1.5; }
 .fault-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #f0f7ff; border-radius: 8px; padding: 10px; margin-top: 12px; color: #176ac7; font-size: 13px; line-height: 1.5; }
 .card-progress .waiting { margin: 0; }

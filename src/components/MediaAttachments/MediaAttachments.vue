@@ -1,6 +1,6 @@
 <template>
   <view class="attachments" :class="{ 'attachments--compact': compact }">
-    <text class="media-hint">照片 {{ photoCount }}/{{ maxPhotos }}，视频 {{ videoCount }}/{{ maxVideos }}<text v-if="hint">；{{ hint }}</text></text>
+    <text class="media-hint">照片 {{ photoCount }}/{{ maxPhotos }}<text v-if="maxVideos > 0">，视频 {{ videoCount }}/{{ maxVideos }}</text><text v-if="hint">；{{ hint }}</text></text>
     <view class="media-grid">
       <view v-for="(item, index) in items" :key="`${item.type}-${item.path}-${index}`" class="media-card">
         <image v-if="item.type === 'image'" class="media-card__preview" :src="resolveUrl(item.path)" mode="aspectFill" @click="emit('preview', item)" />
@@ -12,7 +12,7 @@
         <text v-if="item.status === 'uploading'" class="media-state">正在上传{{ item.progress == null ? '…' : ` ${item.progress}%` }}</text>
         <view v-if="item.status === 'error'" class="media-state media-state--error"><text>{{ item.error || '上传失败' }}</text><button v-if="!readonly" :disabled="busy" @click="emit('retry', index)">重试</button></view>
       </view>
-      <button v-if="!readonly && (photoCount < maxPhotos || videoCount < maxVideos)" class="add-media" :disabled="busy" @click="emit('add')"><wd-icon name="video" size="22px" color="#176ac7" /><text>{{ busy ? busyText : '添加影像' }}</text></button>
+      <button v-if="!readonly && (photoCount < maxPhotos || videoCount < maxVideos)" class="add-media" :disabled="busy" @click="emit('add')"><wd-icon name="video" size="22px" color="#176ac7" /><text>{{ busy ? busyText : maxVideos === 0 ? '添加照片' : '添加影像' }}</text></button>
     </view>
     <text v-if="error" class="media-state media-state--error" role="alert">{{ error }}</text>
   </view>
